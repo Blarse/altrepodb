@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS Assigment (
 	id bigserial PRIMARY KEY,
-	name varchar
+	name varchar UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS Task (
@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS PackageBin (
 	gif bytea,
 	xpm bytea,
 	license varchar,
-	copyright varchar,
 	group_ varchar,
 	source varchar ARRAY,
 	patch varchar ARRAY,
