@@ -20,48 +20,12 @@ CREATE TABLE IF NOT EXISTS Packager (
 	email varchar NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS PackageSrc (
-	id bigserial PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS Package (
+	id bigserial PRIMARY KEY,		-- идендификатор записи
 	assigment_id bigint,
-	task_id bigint,
 	packager_id bigint,
-	name varchar,
-	size bigint,
-	changelog text,
-
-	FOREIGN KEY (assigment_id) REFERENCES Assigment (id),
-	FOREIGN KEY (task_id) REFERENCES Task (id),
-	FOREIGN KEY (packager_id) REFERENCES Packager (id)
-);
-
-CREATE TABLE IF NOT EXISTS FileSrc (
-	id bigserial PRIMARY KEY,			-- идендификатор записи
-	package_src_id bigint NOT NULL,
-	filename varchar,				-- имя и путь установки
-	filesize bigint,				-- размер файла
-	filemode bytea,				-- права доступа к файлу
-	filemtime timestamp,			-- время последней модификации файла в момент сборки пакета
-	filemd5 varchar,				-- контрольная сумма MD5
-	fileusername varchar,			-- владелец в символьном виде
-	filegroupname varchar,			-- группа в символьном виде
-
-	FOREIGN KEY (package_src_id) REFERENCES PackageSrc (id)
-);
-
-CREATE TABLE IF NOT EXISTS BuildDependency (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_src_id bigint,
-	name varchar,
-	version varchar,
-	flag integer,					-- флаги, определяющие как пакет зависит от возможностей других пакетов, например, версия не ниже указанной
-
-	FOREIGN KEY (package_src_id) REFERENCES PackageSrc (id)
-);
-
-CREATE TABLE IF NOT EXISTS PackageBin (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
-	assigment_id bigint,
-	package_src_id bigint,
+	task_id bigint,
+	subtask integer,
 	name varchar,
 	arch varchar,
 	version varchar,
@@ -70,6 +34,7 @@ CREATE TABLE IF NOT EXISTS PackageBin (
 	serial_ integer,
 	summary text,
 	description text,
+	changelog text,
 	buildtime bigint,
 	buildhost varchar,
 	size bigint,
@@ -100,7 +65,7 @@ CREATE TABLE IF NOT EXISTS PackageBin (
 	cookie varchar,
 	prefixes varchar ARRAY,
 	instprefixes varchar ARRAY,
-	sourcepackage integer,
+	sourcepackage boolean,
 	optflags varchar,
 	disturl varchar,
 	payloadformat varchar,
@@ -111,12 +76,13 @@ CREATE TABLE IF NOT EXISTS PackageBin (
 	disttag varchar,
 
 	FOREIGN KEY (assigment_id) REFERENCES Assigment (id),
-	FOREIGN KEY (package_src_id) REFERENCES PackageSrc (id)
+	FOREIGN KEY (task_id) REFERENCES Task (id),
+	FOREIGN KEY (packager_id) REFERENCES Packager (id)
 );
 
-CREATE TABLE IF NOT EXISTS FileBin (
+CREATE TABLE IF NOT EXISTS File (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_bin_id bigint,
+	package_id bigint,
 	filename varchar,				-- имя и путь установки
 	filesize bigint,				-- размер файла
 	filestate smallint,				-- состояние файла: normal, replaced другим пакетом, not installed, net shared
@@ -138,45 +104,45 @@ CREATE TABLE IF NOT EXISTS FileBin (
 	basename varchar,
 	dirname varchar,
 
-	FOREIGN KEY (package_bin_id) REFERENCES PackageBin (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
 CREATE TABLE IF NOT EXISTS Require (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_bin_id bigint,
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_bin_id) REFERENCES PackageBin (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
 CREATE TABLE IF NOT EXISTS Conflict (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_bin_id bigint,
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_bin_id) REFERENCES PackageBin (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
 CREATE TABLE IF NOT EXISTS Obsolete (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_bin_id bigint,
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_bin_id) REFERENCES PackageBin (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
 CREATE TABLE IF NOT EXISTS Provide (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_bin_id bigint,
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_bin_id) REFERENCES PackageBin (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
