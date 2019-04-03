@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS Package (
 	packager_id bigint,
 	task_id bigint,
 	subtask integer,
+	sha1header varchar UNIQUE,
 	name varchar,
 	arch varchar,
 	version varchar,
