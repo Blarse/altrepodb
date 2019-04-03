@@ -1,9 +1,8 @@
 import datetime
 
-
 def cvt(b):
 	if isinstance(b, bytes):
-		return b.decode('utf8')
+		return b.decode('latin-1')
 	if isinstance(b, list):
 		return [cvt(i) for i in b]
 	return b
