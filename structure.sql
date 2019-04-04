@@ -86,24 +86,21 @@ CREATE TABLE IF NOT EXISTS File (
 	package_id bigint,
 	filename varchar,				-- имя и путь установки
 	filesize bigint,				-- размер файла
-	filestate smallint,				-- состояние файла: normal, replaced другим пакетом, not installed, net shared
-	filemode bytea,				-- права доступа к файлу
-	filerdev bytea,
+	filemode integer,				-- права доступа к файлу
+	filerdev integer,
 	filemtime timestamp,			-- время последней модификации файла в момент сборки пакета
 	filemd5 varchar,				-- контрольная сумма MD5
 	filelinkto varchar,				-- текст символьной ссылки
 	fileflag integer,				-- тип файла: документация, конфигурационный файл, другое
 	fileusername varchar,			-- владелец в символьном виде
 	filegroupname varchar,			-- группа в символьном виде
-	fileverifyflag integer,
-	filedevice integer,
-	fileinode integer,
+	fileverifyflag bigint,
+	filedevice bigint,
+	fileinode bigint,
 	filelang varchar,
-	filecolor integer,
-	fileclass integer,
+	fileclass varchar,
 	dirindex integer,
 	basename varchar,
-	dirname varchar,
 
 	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
