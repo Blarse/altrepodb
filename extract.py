@@ -2,6 +2,7 @@ import argparse
 import os
 import rpm
 import psycopg2
+import datetime
 
 from utils import changelog_to_text, cvt, cvt_ts
 
@@ -94,13 +95,48 @@ def insert_package(conn, hdr):
             'dirindex': cvt(hdr[rpm.RPMTAG_DIRINDEXES]),
             'basename': cvt(hdr[rpm.RPMTAG_BASENAMES]),
         }
-        sql = 'INSERT INTO File (package_id, {0}) VALUES (%s, {1})'
-        sql = sql.format(
-            ', '.join(map_files.keys()),
-            ', '.join(['%s'] * len(map_files)))
-        for r in zip(*map_files.values()):
-            cur.execute(sql, (package_id,) + r)
+        insert_list(cur, map_files, package_id, 'File')
+
+        map_require = {
+            'name': cvt(hdr[rpm.RPMTAG_REQUIRENAME]),
+            'version': cvt(hdr[rpm.RPMTAG_REQUIREVERSION]),
+            'flag': hdr[rpm.RPMTAG_REQUIREFLAGS],
+        }
+        insert_list(cur, map_require, package_id, 'Require')
+
+        map_conflict = {
+            'name': cvt(hdr[rpm.RPMTAG_CONFLICTNAME]),
+            'version': cvt(hdr[rpm.RPMTAG_CONFLICTVERSION]),
+            'flag': hdr[rpm.RPMTAG_CONFLICTFLAGS],
+        }
+        insert_list(cur, map_conflict, package_id, 'Conflict')
+
+        map_obsolete = {
+            'name': cvt(hdr[rpm.RPMTAG_OBSOLETENAME]),
+            'version': cvt(hdr[rpm.RPMTAG_OBSOLETEVERSION]),
+            'flag': hdr[rpm.RPMTAG_OBSOLETEFLAGS],
+        }
+        insert_list(cur, map_obsolete, package_id, 'Obsolete')
+
+        map_provide = {
+            'name': cvt(hdr[rpm.RPMTAG_PROVIDENAME]),
+            'version': cvt(hdr[rpm.RPMTAG_PROVIDEVERSION]),
+            'flag': hdr[rpm.RPMTAG_PROVIDEFLAGS],
+        }
+        insert_list(cur, map_provide, package_id, 'Provide')
+
     conn.commit()
+
+
+def insert_list(cursor, tagmap, package_id, table_name):
+    sql = 'INSERT INTO {0} (package_id, {1}) VALUES (%s, {2})'
+    sql = sql.format(
+        table_name,
+        ', '.join(tagmap.keys()),
+        ', '.join(['%s'] * len(tagmap))
+    )
+    for r in zip(*tagmap.values()):
+        cursor.execute(sql, (package_id,) + r)
 
 
 def find_packages(path):
@@ -122,16 +158,32 @@ def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
     conn = psycopg2.connect('dbname={0} user={1}'.format(args.d, args.u))
-    for i, package in enumerate(packages):
-        if args.v > 0:
-            print('Loading package: {0}'.format(package))
+    err_cnt = 0
+    package_cnt = 0
+    for package in packages:
+        print('Package: {0}'.format(package))
         header = get_header(ts, package)
-        insert_package(conn, header)
-        if i > args.l:
-            if args.v > 0:
-                print('Limit is reach')
+        try:
+            insert_package(conn, header)
+        except (Exception, psycopg2.DatabaseError) as error:
+            print(error)
+            if err_cnt > 50:
+                print('Error limit reached')
+                break
+            else:
+                err_cnt += 1
+                continue
+        except KeyboardInterrupt:
+            print('User stopped program')
             break
-    conn.close()
+        else:
+            package_cnt += 1
+            print('Package successful loaded')
+
+    if conn is not None:
+        conn.close()
+
+    return package_cnt
 
 
 def get_args():
@@ -140,13 +192,15 @@ def get_args():
     parser.add_argument('-d', type=str, help='Database name', default='repodb')
     parser.add_argument('-u', type=str, help='Database username', default='underwit')
     parser.add_argument('-v', action='count', help='Database username', default=0)
-    parser.add_argument('-l', type=int, help='Load limit (for debug)', default=10)
     return parser.parse_args()
 
 
 def main():
     args = get_args()
-    load(args)
+    print('{0} - Start loading packages'.format(datetime.datetime.now()))
+    pc = load(args)
+    print('{0} - Stop loading packages'.format(datetime.datetime.now()))
+    print('{0} packages loaded'.format(pc))
 
 
 if __name__ == '__main__':
