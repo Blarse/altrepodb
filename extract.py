@@ -3,11 +3,11 @@ import os
 import rpm
 import psycopg2
 
-from utils import changelog_to_text, cvt
+from utils import changelog_to_text, cvt, cvt_ts
 
 
 def insert_package(conn, hdr):
-    tagsmap = {
+    map_package = {
         'sha1header': cvt(hdr[rpm.RPMDBI_SHA1HEADER]),
         'name': cvt(hdr[rpm.RPMTAG_NAME]),
         'arch': cvt(hdr[rpm.RPMTAG_ARCH]),
@@ -67,14 +67,39 @@ def insert_package(conn, hdr):
             ' ON CONFLICT DO NOTHING RETURNING id'
         )
     sql = sql.format(
-        ', '.join(tagsmap.keys()),
-        ', '.join(['%s'] * len(tagsmap))
+        ', '.join(map_package.keys()),
+        ', '.join(['%s'] * len(map_package))
     )
     cur = conn.cursor()
-    cur.execute(sql, tuple(tagsmap.values()))
+    cur.execute(sql, tuple(map_package.values()))
     package_id = cur.fetchone()
     if package_id:
-        print(package_id)
+        package_id = package_id[0]
+        map_files = {
+            'filename': cvt(hdr[rpm.RPMTAG_FILENAMES]),
+            'filesize': cvt(hdr[rpm.RPMTAG_FILESIZES]),
+            'filemode': cvt(hdr[rpm.RPMTAG_FILEMODES]),
+            'filerdev': cvt(hdr[rpm.RPMTAG_FILERDEVS]),
+            'filemtime': cvt_ts(hdr[rpm.RPMTAG_FILEMTIMES]),
+            'filemd5': cvt(hdr[rpm.RPMTAG_FILEMD5S]),
+            'filelinkto': cvt(hdr[rpm.RPMTAG_FILELINKTOS]),
+            'fileflag': cvt(hdr[rpm.RPMTAG_FILEFLAGS]),
+            'fileusername': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
+            'filegroupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
+            'fileverifyflag': cvt(hdr[rpm.RPMTAG_FILEVERIFYFLAGS]),
+            'filedevice': cvt(hdr[rpm.RPMTAG_FILEDEVICES]),
+            'fileinode': cvt(hdr[rpm.RPMTAG_FILEINODES]),
+            'filelang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
+            'fileclass': cvt(hdr[rpm.RPMTAG_FILECLASS]),
+            'dirindex': cvt(hdr[rpm.RPMTAG_DIRINDEXES]),
+            'basename': cvt(hdr[rpm.RPMTAG_BASENAMES]),
+        }
+        sql = 'INSERT INTO File (package_id, {0}) VALUES (%s, {1})'
+        sql = sql.format(
+            ', '.join(map_files.keys()),
+            ', '.join(['%s'] * len(map_files)))
+        for r in zip(*map_files.values()):
+            cur.execute(sql, (package_id,) + r)
     conn.commit()
 
 

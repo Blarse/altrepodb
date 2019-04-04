@@ -13,6 +13,14 @@ def changelog_date_format(ts):
 	return dt.strftime("%a %b %d %Y")
 
 
+def cvt_ts(ts):
+	if isinstance(ts, int):
+		return datetime.datetime.fromtimestamp(ts)
+	if isinstance(ts, list):
+		return [cvt_ts(i) for i in ts]
+	return ts
+
+
 def changelog_to_text(dates, names, texts):
 	if not len(dates) == len(names) == len(texts):
 		raise ValueError
