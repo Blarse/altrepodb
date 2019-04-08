@@ -5,7 +5,8 @@ import rpm
 import psycopg2
 import mapper
 
-from utils import changelog_to_text, cvt, cvt_ts
+from psycopg2 import extras
+from utils import cvt
 
 
 def insert_package(conn, hdr):
@@ -18,27 +19,26 @@ def insert_package(conn, hdr):
         ', '.join(map_package.keys()),
         ', '.join(['%s'] * len(map_package))
     )
-    cur = conn.cursor()
-    cur.execute(sql, tuple(map_package.values()))
-    package_id = cur.fetchone()
-    if package_id:
-        package_id = package_id[0]
+    with conn.cursor() as cur:
+        cur.execute(sql, tuple(map_package.values()))
+        package_id = cur.fetchone()
+        if package_id:
+            package_id = package_id[0]
 
-        map_files = mapper.get_file_map(hdr)
-        insert_list(cur, map_files, package_id, 'File')
+            map_files = mapper.get_file_map(hdr)
+            insert_list(cur, map_files, package_id, 'File')
 
-        map_require = mapper.get_require_map(hdr)
-        insert_list(cur, map_require, package_id, 'Require')
+            map_require = mapper.get_require_map(hdr)
+            insert_list(cur, map_require, package_id, 'Require')
 
-        map_conflict = mapper.get_conflict_map(hdr)
-        insert_list(cur, map_conflict, package_id, 'Conflict')
+            map_conflict = mapper.get_conflict_map(hdr)
+            insert_list(cur, map_conflict, package_id, 'Conflict')
 
-        map_obsolete = mapper.get_obsolete_map(hdr)
-        insert_list(cur, map_obsolete, package_id, 'Obsolete')
+            map_obsolete = mapper.get_obsolete_map(hdr)
+            insert_list(cur, map_obsolete, package_id, 'Obsolete')
 
-        map_provide = mapper.get_provide_map(hdr)
-        insert_list(cur, map_provide, package_id, 'Provide')
-
+            map_provide = mapper.get_provide_map(hdr)
+            insert_list(cur, map_provide, package_id, 'Provide')
     conn.commit()
 
 
@@ -49,8 +49,8 @@ def insert_list(cursor, tagmap, package_id, table_name):
         ', '.join(tagmap.keys()),
         ', '.join(['%s'] * len(tagmap))
     )
-    for r in zip(*tagmap.values()):
-        cursor.execute(sql, (package_id,) + r)
+    r = [(package_id,) + i for i in zip(*tagmap.values())]
+    extras.execute_batch(cursor, sql, r)
 
 
 def find_packages(path):
@@ -68,24 +68,26 @@ def get_header(ts, rpmfile):
     return h
 
 
+def get_already(conn):
+    with conn.cursor() as cur:
+        cur.execute('SELECT sha1header FROM Package')
+        return set(i[0] for i in cur.fetchall())
+
+
 def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
     conn = psycopg2.connect('dbname={0} user={1}'.format(args.d, args.u))
-    err_cnt = 0
+    already = get_already(conn)
     package_cnt = 0
     for package in packages:
         try:
             header = get_header(ts, package)
+            if cvt(header[rpm.RPMDBI_SHA1HEADER]) in already:
+                continue
             insert_package(conn, header)
         except (Exception, psycopg2.DatabaseError) as error:
             print(error)
-            if err_cnt > 50:
-                print('Error limit reached')
-                break
-            else:
-                err_cnt += 1
-                continue
         except KeyboardInterrupt:
             print('User stopped program')
             break
