@@ -54,6 +54,24 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
     extras.execute_batch(cursor, sql, r)
 
 
+def insert_assigment_name(conn, assigment_name, assigment_tag=None):
+    with conn.cursor() as cur:
+        sql = "SELECT id FROM AssigmentName WHERE name='{0}'"
+        cur.execute(sql.format(assigment_name))
+        an_id = cur.fetchone()
+        if an_id:
+            return an_id[0]
+        sql = (
+            'INSERT INTO AssigmentName (name, tag) VALUES (%s, %s)'
+            'RETURNING id'
+        )
+        cur.execute(sql, (assigment_name, assigment_tag))
+        an_id = cur.fetchone()
+        if an_id:
+            conn.commit()
+            return an_id[0]
+
+
 def find_packages(path):
     for dirname, _, filenames in os.walk(path):
         for filename in filenames:
@@ -90,11 +108,11 @@ def get_conn_str(args):
     return ' '.join(r)
 
 
-
 def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
     conn = psycopg2.connect(get_conn_str(args))
+    aname_id = insert_assigment_name(conn, args.assigment, args.tag)
     already = get_already(conn)
     package_cnt = 0
     for package in packages:
