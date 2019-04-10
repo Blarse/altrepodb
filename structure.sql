@@ -1,6 +1,8 @@
-CREATE TABLE IF NOT EXISTS Assigment (
+CREATE TABLE IF NOT EXISTS AssigmentName (
 	id bigserial PRIMARY KEY,
-	name varchar UNIQUE
+	name varchar UNIQUE,
+	datetime_release timestamp,
+	tag varchar
 );
 
 CREATE TABLE IF NOT EXISTS Task (
@@ -21,12 +23,10 @@ CREATE TABLE IF NOT EXISTS Packager (
 );
 
 CREATE TABLE IF NOT EXISTS Package (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
-	assigment_id bigint,
+	sha1header varchar(40) PRIMARY KEY,
 	packager_id bigint,
 	task_id bigint,
 	subtask integer,
-	sha1header varchar UNIQUE,
 	name varchar,
 	arch varchar,
 	version varchar,
@@ -73,17 +73,26 @@ CREATE TABLE IF NOT EXISTS Package (
 	payloadcompressor varchar,
 	payloadflags varchar,
 	platform varchar,
-	sourcepkgid bytea,
 	disttag varchar,
+	sourcerpm varchar,
+	filename varchar,
 
-	FOREIGN KEY (assigment_id) REFERENCES Assigment (id),
 	FOREIGN KEY (task_id) REFERENCES Task (id),
 	FOREIGN KEY (packager_id) REFERENCES Packager (id)
 );
 
+CREATE TABLE IF NOT EXISTS Assigment (
+	id bigserial PRIMARY KEY,
+	assigmentname_id bigint,
+	package_sha1 varchar(40),
+
+	FOREIGN KEY (assigmentname_id) REFERENCES AssigmentName (id),
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+);
+
 CREATE TABLE IF NOT EXISTS File (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_id bigint,
+	package_sha1 varchar(40),
 	filename varchar,				-- имя и путь установки
 	filesize bigint,				-- размер файла
 	filemode integer,				-- права доступа к файлу
@@ -102,45 +111,45 @@ CREATE TABLE IF NOT EXISTS File (
 	dirindex integer,
 	basename varchar,
 
-	FOREIGN KEY (package_id) REFERENCES Package (id)
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
 CREATE TABLE IF NOT EXISTS Require (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_id bigint,
+	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_id) REFERENCES Package (id)
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
 CREATE TABLE IF NOT EXISTS Conflict (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_id bigint,
+	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_id) REFERENCES Package (id)
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
 CREATE TABLE IF NOT EXISTS Obsolete (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_id bigint,
+	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_id) REFERENCES Package (id)
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
 CREATE TABLE IF NOT EXISTS Provide (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
-	package_id bigint,
+	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_id) REFERENCES Package (id)
+	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );

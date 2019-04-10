@@ -9,11 +9,12 @@ from psycopg2 import extras
 from utils import cvt
 
 
-def insert_package(conn, hdr):
+def insert_package(conn, hdr, package_filename):
     map_package = mapper.get_package_map(hdr)
+    map_package.update(filename=os.path.basename(package_filename))
     sql = (
             'INSERT INTO Package ({0}) VALUES ({1})'
-            ' ON CONFLICT DO NOTHING RETURNING id'
+            ' ON CONFLICT DO NOTHING RETURNING sha1header'
         )
     sql = sql.format(
         ', '.join(map_package.keys()),
@@ -21,35 +22,35 @@ def insert_package(conn, hdr):
     )
     with conn.cursor() as cur:
         cur.execute(sql, tuple(map_package.values()))
-        package_id = cur.fetchone()
-        if package_id:
-            package_id = package_id[0]
+        package_sha1 = cur.fetchone()
+        if package_sha1:
+            package_sha1 = package_sha1[0]
 
             map_files = mapper.get_file_map(hdr)
-            insert_list(cur, map_files, package_id, 'File')
+            insert_list(cur, map_files, package_sha1, 'File')
 
             map_require = mapper.get_require_map(hdr)
-            insert_list(cur, map_require, package_id, 'Require')
+            insert_list(cur, map_require, package_sha1, 'Require')
 
             map_conflict = mapper.get_conflict_map(hdr)
-            insert_list(cur, map_conflict, package_id, 'Conflict')
+            insert_list(cur, map_conflict, package_sha1, 'Conflict')
 
             map_obsolete = mapper.get_obsolete_map(hdr)
-            insert_list(cur, map_obsolete, package_id, 'Obsolete')
+            insert_list(cur, map_obsolete, package_sha1, 'Obsolete')
 
             map_provide = mapper.get_provide_map(hdr)
-            insert_list(cur, map_provide, package_id, 'Provide')
+            insert_list(cur, map_provide, package_sha1, 'Provide')
     conn.commit()
 
 
-def insert_list(cursor, tagmap, package_id, table_name):
-    sql = 'INSERT INTO {0} (package_id, {1}) VALUES (%s, {2})'
+def insert_list(cursor, tagmap, package_sha1, table_name):
+    sql = 'INSERT INTO {0} (package_sha1, {1}) VALUES (%s, {2})'
     sql = sql.format(
         table_name,
         ', '.join(tagmap.keys()),
         ', '.join(['%s'] * len(tagmap))
     )
-    r = [(package_id,) + i for i in zip(*tagmap.values())]
+    r = [(package_sha1,) + i for i in zip(*tagmap.values())]
     extras.execute_batch(cursor, sql, r)
 
 
@@ -85,7 +86,7 @@ def load(args):
             header = get_header(ts, package)
             if cvt(header[rpm.RPMDBI_SHA1HEADER]) in already:
                 continue
-            insert_package(conn, header)
+            insert_package(conn, header, package)
         except (Exception, psycopg2.DatabaseError) as error:
             print(error)
         except KeyboardInterrupt:

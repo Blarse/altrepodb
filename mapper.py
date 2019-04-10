@@ -55,8 +55,8 @@ def get_package_map(hdr):
         'payloadcompressor': cvt(hdr[rpm.RPMTAG_PAYLOADCOMPRESSOR]),
         'payloadflags': cvt(hdr[rpm.RPMTAG_PAYLOADFLAGS]),
         'platform': cvt(hdr[rpm.RPMTAG_PLATFORM]),
-        'sourcepkgid': hdr[rpm.RPMTAG_SOURCEPKGID],
         'disttag': cvt(hdr[rpm.RPMTAG_DISTTAG]),
+        'sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
     }
     return map_package
 
