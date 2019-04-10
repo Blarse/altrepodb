@@ -9,19 +9,28 @@ from psycopg2 import extras
 from utils import cvt
 
 
+def check_package(conn, hdr):
+    sql = "SELECT sha1header FROM Package WHERE sha1header='{0}'"
+    with conn.cursor() as cur:
+        cur.execute(sql.format(cvt(hdr[rpm.RPMDBI_SHA1HEADER])))
+        sha1header = cur.fetchone()
+        if sha1header:
+            return sha1header[0]
+        return None
+
+
 def insert_package(conn, hdr, package_filename):
     map_package = mapper.get_package_map(hdr)
     map_package.update(filename=os.path.basename(package_filename))
-    sql = (
+    sql_insert = (
             'INSERT INTO Package ({0}) VALUES ({1})'
             ' ON CONFLICT DO NOTHING RETURNING sha1header'
+        ).format(
+            ', '.join(map_package.keys()),
+            ', '.join(['%s'] * len(map_package))
         )
-    sql = sql.format(
-        ', '.join(map_package.keys()),
-        ', '.join(['%s'] * len(map_package))
-    )
     with conn.cursor() as cur:
-        cur.execute(sql, tuple(map_package.values()))
+        cur.execute(sql_insert, tuple(map_package.values()))
         package_sha1 = cur.fetchone()
         if package_sha1:
             package_sha1 = package_sha1[0]
@@ -41,6 +50,7 @@ def insert_package(conn, hdr, package_filename):
             map_provide = mapper.get_provide_map(hdr)
             insert_list(cur, map_provide, package_sha1, 'Provide')
     conn.commit()
+    return package_sha1
 
 
 def insert_list(cursor, tagmap, package_sha1, table_name):
@@ -54,13 +64,17 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
     extras.execute_batch(cursor, sql, r)
 
 
-def insert_assigment_name(conn, assigment_name, assigment_tag=None):
-    with conn.cursor() as cur:
+def check_assigment_name(conn, assigment_name):
+     with conn.cursor() as cur:
         sql = "SELECT id FROM AssigmentName WHERE name='{0}'"
         cur.execute(sql.format(assigment_name))
         an_id = cur.fetchone()
         if an_id:
             return an_id[0]
+
+
+def insert_assigment_name(conn, assigment_name, assigment_tag=None):
+    with conn.cursor() as cur:
         sql = (
             'INSERT INTO AssigmentName (name, tag) VALUES (%s, %s)'
             'RETURNING id'
@@ -70,6 +84,31 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
         if an_id:
             conn.commit()
             return an_id[0]
+
+
+def check_assigment(conn, assigmentname_id, sha1header):
+    sql = (
+        "SELECT id FROM Assigment WHERE assigmentname_id={0}"
+        " AND package_sha1='{1}'"
+    ).format(assigmentname_id, sha1header)
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        as_id = cur.fetchone()
+        if as_id:
+            return as_id[0]
+
+
+def insert_assigment(conn, assigmentname_id, sha1header):
+    sql = (
+        'INSERT INTO Assigment (assigmentname_id, package_sha1)'
+        ' VALUES (%s, %s) RETURNING id'
+    )
+    with conn.cursor() as cur:
+        cur.execute(sql, (assigmentname_id, sha1header))
+        as_id = cur.fetchone()
+        if as_id:
+            conn.commit()
+            return as_id[0]
 
 
 def find_packages(path):
@@ -85,12 +124,6 @@ def get_header(ts, rpmfile):
     h = ts.hdrFromFdno(f)
     os.close(f)
     return h
-
-
-def get_already(conn):
-    with conn.cursor() as cur:
-        cur.execute('SELECT sha1header FROM Package')
-        return set(i[0] for i in cur.fetchall())
 
 
 def get_conn_str(args):
@@ -112,19 +145,26 @@ def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
     conn = psycopg2.connect(get_conn_str(args))
-    aname_id = insert_assigment_name(conn, args.assigment, args.tag)
-    already = get_already(conn)
+    aname_id = check_assigment_name(conn, args.assigment)
+    if aname_id is None:
+        aname_id = insert_assigment_name(conn, args.assigment, args.tag)
+    if aname_id is None:
+        raise RuntimeError('Unexpected behavior')
     package_cnt = 0
     for package in packages:
         try:
             header = get_header(ts, package)
-            if cvt(header[rpm.RPMDBI_SHA1HEADER]) in already:
-                continue
-            insert_package(conn, header, package)
-        except (Exception, psycopg2.DatabaseError) as error:
+            sha1header = check_package(conn, header)
+            if sha1header is None:
+                sha1header = insert_package(conn, header, package)
+            if sha1header is None:
+                raise RuntimeError('Unexpected behavior')
+            if check_assigment(conn, aname_id, sha1header) is None:
+                insert_assigment(conn, aname_id, sha1header)
+        except psycopg2.DatabaseError as error:
             print(error)
         except KeyboardInterrupt:
-            print('User stopped program')
+            print('Process terminated')
             break
         else:
             package_cnt += 1
@@ -153,7 +193,7 @@ def main():
     print('{0} - Start loading packages'.format(datetime.datetime.now()))
     pc = load(args)
     print('{0} - Stop loading packages'.format(datetime.datetime.now()))
-    print('{0} packages loaded'.format(pc))
+    print('{0} packages processed'.format(pc))
 
 
 if __name__ == '__main__':
