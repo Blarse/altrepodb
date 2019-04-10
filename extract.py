@@ -75,10 +75,26 @@ def get_already(conn):
         return set(i[0] for i in cur.fetchall())
 
 
+def get_conn_str(args):
+    r = []
+    if args.dbname is not None:
+        r.append("dbname={0}".format(args.dbname))
+    if args.user is not None:
+        r.append("user={0}".format(args.user))
+    if args.password is not None:
+        r.append("password={0}".format(args.password))
+    if args.host is not None:
+        r.append("host={0}".format(args.host))
+    if args.port is not None:
+        r.append("port={0}".format(args.port))
+    return ' '.join(r)
+
+
+
 def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
-    conn = psycopg2.connect('dbname={0} user={1}'.format(args.d, args.u))
+    conn = psycopg2.connect(get_conn_str(args))
     already = get_already(conn)
     package_cnt = 0
     for package in packages:
@@ -103,10 +119,14 @@ def load(args):
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('assigment', type=str, help='Assigment name')
     parser.add_argument('path', type=str, help='Path to packages')
-    parser.add_argument('-d', type=str, help='Database name', default='repodb')
-    parser.add_argument('-u', type=str, help='Database username', default='underwit')
-    parser.add_argument('-v', action='count', help='Database username', default=0)
+    parser.add_argument('-t', '--tag', type=str, help='Assigment tag')
+    parser.add_argument('-d', '--dbname', type=str, help='Database name')
+    parser.add_argument('-s', '--host', type=str, help='Database host')
+    parser.add_argument('-p', '--port', type=str, help='Database password')
+    parser.add_argument('-u', '--user', type=str, help='Database login')
+    parser.add_argument('-P', '--password', type=str, help='Database password')
     return parser.parse_args()
 
 
