@@ -6,7 +6,7 @@ import psycopg2
 import mapper
 
 from psycopg2 import extras
-from utils import cvt
+from utils import cvt, packager_parse
 
 
 def check_package(conn, hdr):
@@ -22,6 +22,14 @@ def check_package(conn, hdr):
 def insert_package(conn, hdr, package_filename):
     map_package = mapper.get_package_map(hdr)
     map_package.update(filename=os.path.basename(package_filename))
+    name_email = packager_parse(cvt(hdr[rpm.RPMTAG_PACKAGER]))
+    if name_email is not None:
+        pid = check_packager(conn, *name_email)
+        if pid is None:
+            pid = insert_packager(conn, *name_email)
+        if pid is not None:
+            map_package.update(packager_id=pid)
+
     sql_insert = (
             'INSERT INTO Package ({0}) VALUES ({1})'
             ' ON CONFLICT DO NOTHING RETURNING sha1header'
@@ -109,6 +117,25 @@ def insert_assigment(conn, assigmentname_id, sha1header):
         if as_id:
             conn.commit()
             return as_id[0]
+
+
+def check_packager(conn, name, email):
+    sql = "SELECT id FROM Packager WHERE name='{0}' AND email='{1}'"
+    with conn.cursor() as cur:
+        cur.execute(sql.format(name, email))
+        p_id = cur.fetchone()
+        if p_id:
+            return p_id[0]
+
+
+def insert_packager(conn, name, email):
+    sql = 'INSERT INTO Packager (name, email) VALUES (%s, %s) RETURNING id'
+    with conn.cursor() as cur:
+        cur.execute(sql, (name, email))
+        p_id = cur.fetchone()
+        if p_id:
+            conn.commit()
+            return p_id[0]
 
 
 def find_packages(path):

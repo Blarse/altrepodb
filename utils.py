@@ -1,4 +1,6 @@
+import re
 import datetime
+
 
 def cvt(b):
     if isinstance(b, bytes):
@@ -28,3 +30,11 @@ def changelog_to_text(dates, names, texts):
     for d, n, t in zip(dates, names, texts):
         text += "* {0} {1}\n{2}\n\n".format(changelog_date_format(d), cvt(n), cvt(t))
     return text
+
+
+packager_pattern = re.compile('([\w. ]+?) (\(.+?\) )?<(.+?)>')
+
+def packager_parse(packager):
+    m = packager_pattern.search(packager)
+    if m is not None:
+        return m.group(1), m.group(3)
