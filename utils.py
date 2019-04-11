@@ -1,5 +1,39 @@
 import re
 import datetime
+import logging
+from logging import handlers
+from functools import wraps
+from time import time
+
+
+def get_logger(name):
+    logger = logging.getLogger(name)
+    fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+    fh = handlers.RotatingFileHandler(
+        filename='{0}.log'.format(name),
+        maxBytes=2**26,
+        backupCount=10
+    )
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
+def timing(f):
+    log = logging.getLogger('extract')
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        # log.debug('F:{0} args:[{1},{2}] took: {3:.5f}s'.format(f.__name__, args, kw, te-ts))
+        log.debug('F:{0} took: {1:.5f}s'.format(f.__name__, te-ts))
+        return result
+    return wrap
 
 
 def cvt(b):

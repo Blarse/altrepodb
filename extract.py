@@ -6,9 +6,12 @@ import psycopg2
 import mapper
 
 from psycopg2 import extras
-from utils import cvt, packager_parse
+from utils import cvt, packager_parse, get_logger, timing
 
 
+log = get_logger('extract')
+
+@timing
 def check_package(conn, hdr):
     sql = "SELECT sha1header FROM Package WHERE sha1header='{0}'"
     with conn.cursor() as cur:
@@ -19,6 +22,7 @@ def check_package(conn, hdr):
         return None
 
 
+@timing
 def insert_package(conn, hdr, package_filename):
     map_package = mapper.get_package_map(hdr)
     map_package.update(filename=os.path.basename(package_filename))
@@ -61,6 +65,7 @@ def insert_package(conn, hdr, package_filename):
     return package_sha1
 
 
+@timing
 def insert_list(cursor, tagmap, package_sha1, table_name):
     sql = 'INSERT INTO {0} (package_sha1, {1}) VALUES (%s, {2})'
     sql = sql.format(
@@ -72,6 +77,7 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
     extras.execute_batch(cursor, sql, r)
 
 
+@timing
 def check_assigment_name(conn, assigment_name):
      with conn.cursor() as cur:
         sql = "SELECT id FROM AssigmentName WHERE name='{0}'"
@@ -81,6 +87,7 @@ def check_assigment_name(conn, assigment_name):
             return an_id[0]
 
 
+@timing
 def insert_assigment_name(conn, assigment_name, assigment_tag=None):
     with conn.cursor() as cur:
         sql = (
@@ -94,6 +101,7 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
             return an_id[0]
 
 
+@timing
 def check_assigment(conn, assigmentname_id, sha1header):
     sql = (
         "SELECT id FROM Assigment WHERE assigmentname_id={0}"
@@ -106,6 +114,7 @@ def check_assigment(conn, assigmentname_id, sha1header):
             return as_id[0]
 
 
+@timing
 def insert_assigment(conn, assigmentname_id, sha1header):
     sql = (
         'INSERT INTO Assigment (assigmentname_id, package_sha1)'
@@ -119,6 +128,7 @@ def insert_assigment(conn, assigmentname_id, sha1header):
             return as_id[0]
 
 
+@timing
 def check_packager(conn, name, email):
     sql = "SELECT id FROM Packager WHERE name='{0}' AND email='{1}'"
     with conn.cursor() as cur:
@@ -128,6 +138,7 @@ def check_packager(conn, name, email):
             return p_id[0]
 
 
+@timing
 def insert_packager(conn, name, email):
     sql = 'INSERT INTO Packager (name, email) VALUES (%s, %s) RETURNING id'
     with conn.cursor() as cur:
@@ -138,6 +149,7 @@ def insert_packager(conn, name, email):
             return p_id[0]
 
 
+@timing
 def find_packages(path):
     for dirname, _, filenames in os.walk(path):
         for filename in filenames:
@@ -146,6 +158,7 @@ def find_packages(path):
                 yield f
 
 
+@timing
 def get_header(ts, rpmfile):
     f = os.open(rpmfile, os.O_RDONLY)
     h = ts.hdrFromFdno(f)
@@ -153,6 +166,7 @@ def get_header(ts, rpmfile):
     return h
 
 
+@timing
 def get_conn_str(args):
     r = []
     if args.dbname is not None:
@@ -168,6 +182,7 @@ def get_conn_str(args):
     return ' '.join(r)
 
 
+@timing
 def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
@@ -177,8 +192,8 @@ def load(args):
         aname_id = insert_assigment_name(conn, args.assigment, args.tag)
     if aname_id is None:
         raise RuntimeError('Unexpected behavior')
-    package_cnt = 0
     for package in packages:
+        log.debug('Processing: {0}'.format(package))
         try:
             header = get_header(ts, package)
             sha1header = check_package(conn, header)
@@ -189,19 +204,13 @@ def load(args):
             if check_assigment(conn, aname_id, sha1header) is None:
                 insert_assigment(conn, aname_id, sha1header)
         except psycopg2.DatabaseError as error:
-            print(error)
-        except KeyboardInterrupt:
-            print('Process terminated')
-            break
-        else:
-            package_cnt += 1
+            log.error(error)
 
     if conn is not None:
         conn.close()
 
-    return package_cnt
 
-
+@timing
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('assigment', type=str, help='Assigment name')
@@ -212,15 +221,20 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
+    # parser.add_argument('-D', '--debug', type=bool, help='Enable debug messages')
+    # parser.add_argument('-S', '--silent', type=bool, help='Disable output (only log files)')
     return parser.parse_args()
 
-
+@timing
 def main():
     args = get_args()
-    print('{0} - Start loading packages'.format(datetime.datetime.now()))
-    pc = load(args)
-    print('{0} - Stop loading packages'.format(datetime.datetime.now()))
-    print('{0} packages processed'.format(pc))
+    log.info('Start loading packages')
+    try:
+        load(args)
+    except Exception as error:
+        log.error(error)
+    finally:
+        log.info('Stop loading packages')
 
 
 if __name__ == '__main__':
