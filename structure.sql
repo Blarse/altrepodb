@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS Packager (
 	email varchar NOT NULL
 );
 
+CREATE INDEX ON Packager (name, email);
+
 CREATE TABLE IF NOT EXISTS Package (
 	sha1header varchar(40) PRIMARY KEY,
 	packager_id bigint,
