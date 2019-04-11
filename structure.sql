@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS Assigment (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
+CREATE INDEX ON Assigment (assigmentname_id, package_sha1);
+
 CREATE TABLE IF NOT EXISTS File (
 	id bigserial PRIMARY KEY,		-- идендификатор записи
 	package_sha1 varchar(40),
