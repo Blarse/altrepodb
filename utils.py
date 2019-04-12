@@ -7,6 +7,7 @@ from time import time
 
 
 def get_logger(name):
+    """Create and configure logger."""
     logger = logging.getLogger(name)
     fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     sh = logging.StreamHandler()
@@ -24,6 +25,7 @@ def get_logger(name):
 
 
 def timing(f):
+    """Measuring execution time."""
     log = logging.getLogger('extract')
     @wraps(f)
     def wrap(*args, **kw):
@@ -37,6 +39,9 @@ def timing(f):
 
 
 def cvt(b):
+    """Convert byte string or list of byte strings to strings
+    or list strings.
+    """
     if isinstance(b, bytes):
         return b.decode('latin-1')
     if isinstance(b, list):
@@ -45,11 +50,15 @@ def cvt(b):
 
 
 def changelog_date_format(ts):
+    """Convert timestamp to the changelog date format."""
     dt = datetime.date.fromtimestamp(ts)
     return dt.strftime("%a %b %d %Y")
 
 
 def cvt_ts(ts):
+    """Convert timestamp or list of timestamps to datetime object or list 
+    of datetime objects.
+    """
     if isinstance(ts, int):
         return datetime.datetime.fromtimestamp(ts)
     if isinstance(ts, list):
@@ -58,6 +67,7 @@ def cvt_ts(ts):
 
 
 def changelog_to_text(dates, names, texts):
+    """Compile changelog records to plain text."""
     if not len(dates) == len(names) == len(texts):
         raise ValueError
     text = ""
@@ -69,6 +79,10 @@ def changelog_to_text(dates, names, texts):
 packager_pattern = re.compile('([\w. ]+?) (\(.+?\) )?<(.+?)>')
 
 def packager_parse(packager):
+    """Parse packager.
+
+    return tuple of name and email or None
+    """
     m = packager_pattern.search(packager)
     if m is not None:
         return m.group(1), m.group(3)

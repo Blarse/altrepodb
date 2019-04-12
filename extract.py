@@ -13,6 +13,10 @@ log = get_logger('extract')
 
 @timing
 def check_package(conn, hdr):
+    """Check whether the package is in the database.
+
+    return sha1 hash of package from database or None
+    """
     sql = "SELECT sha1header FROM Package WHERE sha1header='{0}'"
     with conn.cursor() as cur:
         cur.execute(sql.format(cvt(hdr[rpm.RPMDBI_SHA1HEADER])))
@@ -24,6 +28,11 @@ def check_package(conn, hdr):
 
 @timing
 def insert_package(conn, hdr, package_filename):
+    """Insert information about package into database.
+
+    Also:
+    insert packager, files, requires, provides, confilcts, obsolets
+    """
     map_package = mapper.get_package_map(hdr)
     map_package.update(filename=os.path.basename(package_filename))
     name_email = packager_parse(cvt(hdr[rpm.RPMTAG_PACKAGER]))
@@ -67,6 +76,7 @@ def insert_package(conn, hdr, package_filename):
 
 @timing
 def insert_list(cursor, tagmap, package_sha1, table_name):
+    """Insert list as batch."""
     sql = 'INSERT INTO {0} (package_sha1, {1}) VALUES (%s, {2})'
     sql = sql.format(
         table_name,
@@ -79,7 +89,11 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
 
 @timing
 def check_assigment_name(conn, assigment_name):
-     with conn.cursor() as cur:
+    """Check whether the assigment name is in the database.
+
+    return id or None
+    """
+    with conn.cursor() as cur:
         sql = "SELECT id FROM AssigmentName WHERE name='{0}'"
         cur.execute(sql.format(assigment_name))
         an_id = cur.fetchone()
@@ -103,6 +117,10 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
 
 @timing
 def check_assigment(conn, assigmentname_id, sha1header):
+    """Check whether the assigment is in the database.
+
+    return id or None
+    """
     sql = (
         "SELECT id FROM Assigment WHERE assigmentname_id={0}"
         " AND package_sha1='{1}'"
@@ -130,6 +148,10 @@ def insert_assigment(conn, assigmentname_id, sha1header):
 
 @timing
 def check_packager(conn, name, email):
+    """Check whether the packager is in the database.
+
+    return id or None
+    """
     sql = "SELECT id FROM Packager WHERE name='{0}' AND email='{1}'"
     with conn.cursor() as cur:
         cur.execute(sql.format(name, email))
@@ -151,6 +173,10 @@ def insert_packager(conn, name, email):
 
 @timing
 def find_packages(path):
+    """Recursively walk through directory for find rpm packages.
+
+    return generator
+    """
     for dirname, _, filenames in os.walk(path):
         for filename in filenames:
             f = os.path.join(dirname, filename)
