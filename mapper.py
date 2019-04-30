@@ -48,7 +48,7 @@ def get_package_map(hdr):
         'cookie': cvt(hdr[rpm.RPMTAG_COOKIE]),
         'prefixes': cvt(hdr[rpm.RPMTAG_PREFIXES]),
         'instprefixes': cvt(hdr[rpm.RPMTAG_INSTPREFIXES]),
-        'sourcepackage': bool(rpm.RPMTAG_SOURCEPACKAGE),
+        'sourcepackage': bool(hdr[rpm.RPMTAG_SOURCEPACKAGE]),
         'optflags': cvt(hdr[rpm.RPMTAG_OPTFLAGS]),
         'disturl': cvt(hdr[rpm.RPMTAG_DISTURL]),
         'payloadformat': cvt(hdr[rpm.RPMTAG_PAYLOADFORMAT]),
