@@ -88,27 +88,13 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
 
 
 @timing
-def check_assigment_name(conn, assigment_name):
-    """Check whether the assigment name is in the database.
-
-    return id or None
-    """
-    with conn.cursor() as cur:
-        sql = "SELECT id FROM AssigmentName WHERE name='{0}'"
-        cur.execute(sql.format(assigment_name))
-        an_id = cur.fetchone()
-        if an_id:
-            return an_id[0]
-
-
-@timing
 def insert_assigment_name(conn, assigment_name, assigment_tag=None):
     with conn.cursor() as cur:
         sql = (
-            'INSERT INTO AssigmentName (name, tag) VALUES (%s, %s)'
-            'RETURNING id'
+            'INSERT INTO AssigmentName (name, datetime_release, tag) '
+            'VALUES (%s, %s, %s) RETURNING id'
         )
-        cur.execute(sql, (assigment_name, assigment_tag))
+        cur.execute(sql, (assigment_name, datetime.datetime.now(), assigment_tag))
         an_id = cur.fetchone()
         if an_id:
             conn.commit()
@@ -213,9 +199,7 @@ def load(args):
     ts = rpm.TransactionSet()
     packages = find_packages(args.path)
     conn = psycopg2.connect(get_conn_str(args))
-    aname_id = check_assigment_name(conn, args.assigment)
-    if aname_id is None:
-        aname_id = insert_assigment_name(conn, args.assigment, args.tag)
+    aname_id = insert_assigment_name(conn, args.assigment, args.tag)
     if aname_id is None:
         raise RuntimeError('Unexpected behavior')
     for package in packages:
@@ -247,8 +231,6 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
-    # parser.add_argument('-D', '--debug', type=bool, help='Enable debug messages')
-    # parser.add_argument('-S', '--silent', type=bool, help='Disable output (only log files)')
     return parser.parse_args()
 
 @timing
