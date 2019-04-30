@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS AssigmentName (
 	id bigserial PRIMARY KEY,
 	name varchar,
 	datetime_release timestamp,
-	tag varchar
+	tag varchar,
+
 	UNIQUE(name, datetime_release)
 );
 
