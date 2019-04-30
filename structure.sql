@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS AssigmentName (
 	id bigserial PRIMARY KEY,
-	name varchar UNIQUE,
+	name varchar,
 	datetime_release timestamp,
 	tag varchar
+	UNIQUE(name, datetime_release)
 );
 
 CREATE TABLE IF NOT EXISTS Task (
