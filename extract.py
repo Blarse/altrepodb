@@ -4,9 +4,10 @@ import datetime
 import rpm
 import psycopg2
 import mapper
+import threading
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, timing
+from utils import cvt, packager_parse, get_logger, timing, LockedIterator
 
 
 log = get_logger('extract')
@@ -194,30 +195,52 @@ def get_conn_str(args):
     return ' '.join(r)
 
 
+class Worker(threading.Thread):
+    def __init__(self, connection, packages, aname_id, *args, **kwargs):
+        self.connection = connection
+        self.packages = packages
+        self.aname_id = aname_id
+        super().__init__(*args, **kwargs)
+
+    def run(self):
+        ts = rpm.TransactionSet()
+        for package in self.packages:
+            log.debug('Processing: {0}'.format(package))
+            try:
+                header = get_header(ts, package)
+                sha1header = check_package(self.connection, header)
+                if sha1header is None:
+                    sha1header = insert_package(self.connection, header, package)
+                if sha1header is None:
+                    raise RuntimeError('Unexpected behavior')
+                if check_assigment(self.connection, self.aname_id, sha1header) is None:
+                    insert_assigment(self.connection, self.aname_id, sha1header)
+            except psycopg2.DatabaseError as error:
+                log.error(error)
+
+
 @timing
 def load(args):
-    ts = rpm.TransactionSet()
-    packages = find_packages(args.path)
+    packages = LockedIterator(find_packages(args.path))
     conn = psycopg2.connect(get_conn_str(args))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag)
     if aname_id is None:
         raise RuntimeError('Unexpected behavior')
-    for package in packages:
-        log.debug('Processing: {0}'.format(package))
-        try:
-            header = get_header(ts, package)
-            sha1header = check_package(conn, header)
-            if sha1header is None:
-                sha1header = insert_package(conn, header, package)
-            if sha1header is None:
-                raise RuntimeError('Unexpected behavior')
-            if check_assigment(conn, aname_id, sha1header) is None:
-                insert_assigment(conn, aname_id, sha1header)
-        except psycopg2.DatabaseError as error:
-            log.error(error)
+    workers = []
+    connections = [conn]
+    for i in range(args.workers):
+        conn = psycopg2.connect(get_conn_str(args))
+        connections.append(conn)
+        worker = Worker(conn, packages, aname_id)
+        worker.start()
+        workers.append(worker)
 
-    if conn is not None:
-        conn.close()
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.close()
 
 
 @timing
@@ -231,6 +254,7 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
+    parser.add_argument('-w', '--workers', type=int, help='Workers count', default=10)
     return parser.parse_args()
 
 @timing
