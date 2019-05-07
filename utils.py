@@ -12,6 +12,7 @@ def get_logger(name):
     logger = logging.getLogger(name)
     fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
     sh.setFormatter(fmt)
     logger.addHandler(sh)
     fh = handlers.RotatingFileHandler(
@@ -21,7 +22,7 @@ def get_logger(name):
     )
     fh.setFormatter(fmt)
     logger.addHandler(fh)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     return logger
 
 
@@ -33,7 +34,6 @@ def timing(f):
         ts = time()
         result = f(*args, **kw)
         te = time()
-        # log.debug('F:{0} args:[{1},{2}] took: {3:.5f}s'.format(f.__name__, args, kw, te-ts))
         log.debug('F:{0} took: {1:.5f}s'.format(f.__name__, te-ts))
         return result
     return wrap

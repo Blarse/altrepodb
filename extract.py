@@ -5,6 +5,7 @@ import rpm
 import psycopg2
 import mapper
 import threading
+import logging
 
 from psycopg2 import extras
 from utils import cvt, packager_parse, get_logger, timing, LockedIterator
@@ -204,6 +205,7 @@ class Worker(threading.Thread):
 
     def run(self):
         ts = rpm.TransactionSet()
+        log.debug('{0} start'.format(self.name))
         for package in self.packages:
             log.debug('Processing: {0}'.format(package))
             try:
@@ -212,11 +214,13 @@ class Worker(threading.Thread):
                 if sha1header is None:
                     sha1header = insert_package(self.connection, header, package)
                 if sha1header is None:
+                    log.error('No sha1header for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
                 if check_assigment(self.connection, self.aname_id, sha1header) is None:
                     insert_assigment(self.connection, self.aname_id, sha1header)
             except psycopg2.DatabaseError as error:
                 log.error(error)
+        log.debug('{0} stop'.format(self.name))
 
 
 @timing
@@ -255,11 +259,14 @@ def get_args():
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
     parser.add_argument('-w', '--workers', type=int, help='Workers count', default=10)
+    parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     return parser.parse_args()
 
 @timing
 def main():
     args = get_args()
+    if args.debug:
+        log.setLevel(logging.DEBUG)
     log.info('Start loading packages')
     try:
         load(args)
