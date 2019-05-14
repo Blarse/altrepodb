@@ -3,11 +3,19 @@ import rpm
 from utils import changelog_to_text, cvt, cvt_ts
 
 
+def detect_arch(hdr):
+    package_name = cvt(hdr[rpm.RPMTAG_NAME])
+    if package_name.startswith('i586-'):
+        return 'x86_64-i586'
+
+    return cvt(hdr[rpm.RPMTAG_ARCH])
+
+
 def get_package_map(hdr):
     map_package = {
         'sha1header': cvt(hdr[rpm.RPMDBI_SHA1HEADER]),
         'name': cvt(hdr[rpm.RPMTAG_NAME]),
-        'arch': cvt(hdr[rpm.RPMTAG_ARCH]),
+        'arch': detect_arch(hdr),
         'version': cvt(hdr[rpm.RPMTAG_VERSION]),
         'release': cvt(hdr[rpm.RPMTAG_RELEASE]),
         'epoch': rpm.RPMTAG_EPOCH,
