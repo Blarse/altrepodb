@@ -6,6 +6,7 @@ import psycopg2
 import mapper
 import threading
 import logging
+import configparser
 
 from psycopg2 import extras
 from utils import cvt, packager_parse, get_logger, timing, LockedIterator
@@ -253,18 +254,40 @@ def get_args():
     parser.add_argument('assigment', type=str, help='Assigment name')
     parser.add_argument('path', type=str, help='Path to packages')
     parser.add_argument('-t', '--tag', type=str, help='Assigment tag')
+    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
-    parser.add_argument('-w', '--workers', type=int, help='Workers count', default=10)
+    parser.add_argument('-w', '--workers', type=int, help='Workers count')
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     return parser.parse_args()
+
+
+@timing
+def set_config(args):
+    if args.config is not None:
+        cfg = configparser.ConfigParser()
+        with open(args.config) as f:
+            cfg.read_file(f)
+        # default
+        args.workers = args.workers or cfg['DEFAULT'].get('workers', 10)
+        # database
+        if cfg.has_section('DATABASE'):
+            section_db = cfg['DATABASE']
+            args.dbname = args.dbname or section_db.get('dbname', None)
+            args.host = args.host or section_db.get('host', None)
+            args.port = args.port or section_db.get('port', None)
+            args.user = args.user or section_db.get('user', None)
+            args.password = args.password or section_db.get('password', None)
+    return args
+
 
 @timing
 def main():
     args = get_args()
+    args = set_config(args)
     if args.debug:
         log.setLevel(logging.DEBUG)
     log.info('Start loading packages')

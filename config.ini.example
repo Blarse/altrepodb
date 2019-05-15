@@ -1,0 +1,9 @@
+[DEFAULT]
+workers=10
+
+[DATABASE]
+dbname=altrepo
+host=localhost
+port=3666
+user=psql_user
+password=123456
