@@ -1,0 +1,30 @@
+Скрипт загружает метаинформацию о rpm пакетах в базу данных.
+
+Зависимости:
+    python3-module-rpm
+    python3-module-psycopg2
+
+Файлы:
+    extract.py - Скрипт отвечающей за загрузку
+    mapper.py - Функции для конвертации данных
+    urils.py - Вспомогательныые функции
+    structure.sql - Структура базы данных
+    config.ini.example - Пример файла конфигурации
+
+Аргументы запуска:
+    assigment - обязательный позиционный аргумент. например: P8 или Sisyphus или C8
+    path - обязательный позиционный аргумент. путь к rpm файлам например /mnt/repo/Sisyphus/files/
+    -t, --tag - дополнительное имя для таблицы AssigmentName
+    -c, --config - путь к файлу конфигурации
+    -d, --dbname - имя базы данных
+    -s, --host - хост базы данных 
+    -p, --port - порт базы данных 
+    -u, --user - имя пользователя базы данных 
+    -P, --password - пароль пользователя базы данных 
+    -w, --workers - количество потоков 
+    -D, --debug - включает вывод отладочной информации в лог файл
+    -h, --help - вызов справки
+
+Примеры запуска:
+    python3 extract.py Sisyphus /mnt/repo/Sisyphus/files/ -d alt1 -w 10 -u underwit -D
+    python3 extract.py P8 /mnt/repo/p8/branch/files/ --config ./config.ini -w 25
