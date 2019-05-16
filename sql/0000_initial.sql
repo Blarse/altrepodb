@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS AssigmentName (
+CREATE TABLE AssigmentName (
 	id bigserial PRIMARY KEY,
 	name varchar,
 	datetime_release timestamp,
@@ -7,18 +7,20 @@ CREATE TABLE IF NOT EXISTS AssigmentName (
 	UNIQUE(name, datetime_release)
 );
 
-CREATE TABLE IF NOT EXISTS Task (
-	id bigserial PRIMARY KEY,			-- идендификатор записи
+CREATE INDEX ON AssigmentName (name);
+
+CREATE TABLE Task (
+	id bigserial PRIMARY KEY,			-- идентификатор записи
 	task_id integer NOT NULL,			-- номер таска в сборочнице
-	datetime_add timestamp NOT NULL,	-- время создания таска
-	datetime_start timestamp,			-- время запуска таска
-	datetime_end timestamp,				-- время окончания сборки
-	status integer NOT NULL,
-	is_test boolean,					-- тестовая сборка
+	buildtime timestamp NOT NULL,		-- время создания таска
+	try integer NOT NULL,
+	iteration integer NOT NULL,
+	status varchar NOT NULL,
+	is_test boolean NOT NULL,			-- тестовая сборка
 	branch varchar NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS Packager (
+CREATE TABLE Packager (
 	id bigserial PRIMARY KEY,
 	name varchar NOT NULL,
 	email varchar NOT NULL
@@ -26,7 +28,7 @@ CREATE TABLE IF NOT EXISTS Packager (
 
 CREATE INDEX ON Packager (name, email);
 
-CREATE TABLE IF NOT EXISTS Package (
+CREATE TABLE Package (
 	sha1header varchar(40) PRIMARY KEY,
 	packager_id bigint,
 	task_id bigint,
@@ -85,7 +87,11 @@ CREATE TABLE IF NOT EXISTS Package (
 	FOREIGN KEY (packager_id) REFERENCES Packager (id)
 );
 
-CREATE TABLE IF NOT EXISTS Assigment (
+CREATE INDEX ON Package (name);
+CREATE INDEX ON Package (version);
+CREATE INDEX ON Package (name, version);
+
+CREATE TABLE Assigment (
 	id bigserial PRIMARY KEY,
 	assigmentname_id bigint,
 	package_sha1 varchar(40),
@@ -94,10 +100,12 @@ CREATE TABLE IF NOT EXISTS Assigment (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
+CREATE INDEX ON Assigment (assigmentname_id);
+CREATE INDEX ON Assigment (package_sha1);
 CREATE INDEX ON Assigment (assigmentname_id, package_sha1);
 
-CREATE TABLE IF NOT EXISTS File (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
+CREATE TABLE File (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
 	package_sha1 varchar(40),
 	filename varchar,				-- имя и путь установки
 	filesize bigint,				-- размер файла
@@ -120,8 +128,11 @@ CREATE TABLE IF NOT EXISTS File (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
-CREATE TABLE IF NOT EXISTS Require (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
+CREATE INDEX ON File (filename);
+CREATE INDEX ON File (package_sha1);
+
+CREATE TABLE Require (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
 	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
@@ -130,8 +141,10 @@ CREATE TABLE IF NOT EXISTS Require (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
-CREATE TABLE IF NOT EXISTS Conflict (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
+CREATE INDEX ON Require (package_sha1);
+
+CREATE TABLE Conflict (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
 	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
@@ -140,8 +153,10 @@ CREATE TABLE IF NOT EXISTS Conflict (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
-CREATE TABLE IF NOT EXISTS Obsolete (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
+CREATE INDEX ON Conflict (package_sha1);
+
+CREATE TABLE Obsolete (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
 	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
@@ -150,8 +165,10 @@ CREATE TABLE IF NOT EXISTS Obsolete (
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
 
-CREATE TABLE IF NOT EXISTS Provide (
-	id bigserial PRIMARY KEY,		-- идендификатор записи
+CREATE INDEX ON Obsolete (package_sha1);
+
+CREATE TABLE Provide (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
 	package_sha1 varchar(40),
 	name varchar,
 	version varchar,
@@ -159,3 +176,17 @@ CREATE TABLE IF NOT EXISTS Provide (
 
 	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
 );
+
+CREATE INDEX ON Provide (package_sha1);
+
+-- Таблица для контроля версий схемы базы данных
+CREATE TABLE SchemaControl (
+	id bigserial PRIMARY KEY,		-- идентификатор записи
+	filename varchar,				-- имя файла миграции
+	version integer,				-- инкрементальная версия миграции
+	description text,				-- описание миграции
+	datatime_change timestamp		-- время внесения изменений
+);
+
+INSERT INTO SchemaControl (filename, version, description, datatime_change) 
+VALUES ('0000_initial.sql', 0, 'Make the initial state of the database', now());
