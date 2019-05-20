@@ -9,7 +9,7 @@ import logging
 import configparser
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, timing, LockedIterator
+from utils import cvt, packager_parse, get_logger, timing, LockedIterator, get_conn_str
 
 
 log = get_logger('extract')
@@ -179,22 +179,6 @@ def get_header(ts, rpmfile):
     h = ts.hdrFromFdno(f)
     os.close(f)
     return h
-
-
-@timing
-def get_conn_str(args):
-    r = []
-    if args.dbname is not None:
-        r.append("dbname={0}".format(args.dbname))
-    if args.user is not None:
-        r.append("user={0}".format(args.user))
-    if args.password is not None:
-        r.append("password={0}".format(args.password))
-    if args.host is not None:
-        r.append("host={0}".format(args.host))
-    if args.port is not None:
-        r.append("port={0}".format(args.port))
-    return ' '.join(r)
 
 
 class Worker(threading.Thread):
