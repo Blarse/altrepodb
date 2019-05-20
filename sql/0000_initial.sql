@@ -179,14 +179,10 @@ CREATE TABLE Provide (
 
 CREATE INDEX ON Provide (package_sha1);
 
--- Таблица для контроля версий схемы базы данных
-CREATE TABLE SchemaControl (
+CREATE TABLE Config (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
-	filename varchar,				-- имя файла миграции
-	version integer,				-- инкрементальная версия миграции
-	description text,				-- описание миграции
-	datatime_change timestamp		-- время внесения изменений
+	key varchar,					-- ключ
+	value varchar					-- значение
 );
 
-INSERT INTO SchemaControl (filename, version, description, datatime_change) 
-VALUES ('0000_initial.sql', 0, 'Make the initial state of the database', now());
+INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');
