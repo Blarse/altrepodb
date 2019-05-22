@@ -10,6 +10,7 @@
     extract.py - Скрипт отвечающей за загрузку
     mapper.py - Функции для конвертации данных
     urils.py - Вспомогательныые функции
+    manager.py - скрипт управления инициализацией и обновлением структуры БД
     sql/* - Sql файлы структуры базы данных
     config.ini.example - Пример файла конфигурации
 
@@ -21,22 +22,41 @@
 
 ЛЮБОЕ ИЗМЕНЕНИЕ структуры базы данных должно производиться с помощью нового sql файлы с инструкциями.
 
-Правила именования файлов миграций:
-    Пример названия файла 0002_small-change.sql
-    где:
-    0002             - порядковый номер (версия) структуры базы данных.
-    _                - разделитель номера и имени
-    small-change     - имя миграции (только строчные буквы, "-" как разделитель)
-    .sql             - расширение файла
+0000_initial.sql - последняя версия струтуры БД
+0001_update.sql - обновление до версии 1
+0002_update.sql - обновление до версии 2
 
+Все манипуляции с БД производяться с помощью manager.py
 
-В КОНЦЕ КАЖДОГО ФАЙЛА МИГРАЦИИ должна быть строка для регистрации изменений в базу данных.
-Пример для файла миграции 0002_small-change.sql:
-INSERT INTO SchemaControl (filename, version, description, datatime_change) 
-VALUES ('0002_small-change.sql', 2, 'Make a few small changes to the database', now());
+Аргументы запуска manager.py
 
+    -U, --update - инициализация и обновление (без этого ключа просто вывод информации о версиях)
+    -d, --dbname - имя базы данных
+    -s, --host - хост базы данных 
+    -p, --port - порт базы данных 
+    -u, --user - имя пользователя базы данных 
+    -P, --password - пароль пользователя базы данных 
+    -h, --help - вызов справки
 
-Аргументы запуска:
+инициализация и обновление БД с помощью скрипта.
+- вывод информации о версиях:
+    $python3 manager.py -d dbname -u testuser
+    Latest version in database: 0
+    Latest version by files: 3
+- инициализация и обновление ключ -U или --update
+    $python3 manager.py -d dbname -u testuser -U
+    update: 0000_initial.sql
+    Latest version in database: 0
+    Latest version by files: 3
+    update: 0001_update.sql
+    update: 0002_update.sql
+    update: 0003_update.sql
+    $python3 manager.py -d dbname -u testuser
+    Latest version in database: 3
+    Latest version by files: 3
+    Nothing to update
+
+Аргументы запуска extract.py:
     assigment - обязательный позиционный аргумент. например: P8 или Sisyphus или C8
     path - обязательный позиционный аргумент. путь к rpm файлам например /mnt/repo/Sisyphus/files/
     -t, --tag - дополнительное имя для таблицы AssigmentName
