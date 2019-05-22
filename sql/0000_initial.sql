@@ -12,7 +12,6 @@ CREATE INDEX ON AssigmentName (name);
 CREATE TABLE Task (
 	id bigserial PRIMARY KEY,			-- идентификатор записи
 	task_id integer NOT NULL,			-- номер таска в сборочнице
-	buildtime timestamp NOT NULL,		-- время создания таска
 	try integer NOT NULL,
 	iteration integer NOT NULL,
 	status varchar NOT NULL,
@@ -82,6 +81,7 @@ CREATE TABLE Package (
 	disttag varchar,
 	sourcerpm varchar,
 	filename varchar,
+	sha1srcheader varchar(40),
 
 	FOREIGN KEY (task_id) REFERENCES Task (id),
 	FOREIGN KEY (packager_id) REFERENCES Packager (id)
@@ -90,6 +90,7 @@ CREATE TABLE Package (
 CREATE INDEX ON Package (name);
 CREATE INDEX ON Package (version);
 CREATE INDEX ON Package (name, version);
+CREATE INDEX ON Package (sha1srcheader);
 
 CREATE TABLE Assigment (
 	id bigserial PRIMARY KEY,
@@ -130,6 +131,7 @@ CREATE TABLE File (
 
 CREATE INDEX ON File (filename);
 CREATE INDEX ON File (package_sha1);
+CREATE INDEX ON File (filemd5);
 
 CREATE TABLE Require (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
