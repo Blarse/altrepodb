@@ -30,14 +30,14 @@ def check_package(conn, hdr):
 
 
 @timing
-def insert_package(conn, hdr, package_filename):
+def insert_package(conn, hdr, **kwargs):
     """Insert information about package into database.
 
     Also:
     insert packager, files, requires, provides, confilcts, obsolets
     """
     map_package = mapper.get_package_map(hdr)
-    map_package.update(filename=os.path.basename(package_filename))
+    map_package.update(**kwargs)
     name_email = packager_parse(cvt(hdr[rpm.RPMTAG_PACKAGER]))
     if name_email is not None:
         pid = check_packager(conn, *name_email)
@@ -175,10 +175,7 @@ def find_packages(path):
 
 @timing
 def get_header(ts, rpmfile):
-    f = os.open(rpmfile, os.O_RDONLY)
-    h = ts.hdrFromFdno(f)
-    os.close(f)
-    return h
+    return ts.hdrFromFdno(rpmfile)
 
 
 class Worker(threading.Thread):
@@ -197,7 +194,7 @@ class Worker(threading.Thread):
                 header = get_header(ts, package)
                 sha1header = check_package(self.connection, header)
                 if sha1header is None:
-                    sha1header = insert_package(self.connection, header, package)
+                    sha1header = insert_package(self.connection, header, filename=os.path.basename(package))
                 if sha1header is None:
                     log.error('No sha1header for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
