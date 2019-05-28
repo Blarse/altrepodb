@@ -10,6 +10,7 @@ import configparser
 
 from psycopg2 import extras
 from utils import cvt, packager_parse, get_logger, timing, LockedIterator, get_conn_str
+from manager import check_latest_version
 
 
 log = get_logger('extract')
@@ -207,8 +208,11 @@ class Worker(threading.Thread):
 
 @timing
 def load(args):
-    packages = LockedIterator(find_packages(args.path))
     conn = psycopg2.connect(get_conn_str(args))
+    if not check_latest_version(conn):
+        conn.close()
+        raise RuntimeError('Incorrect database schema version')
+    packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag)
     if aname_id is None:
         raise RuntimeError('Unexpected behavior')

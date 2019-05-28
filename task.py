@@ -6,8 +6,10 @@ import argparse
 import psycopg2
 import rpm
 from extract import get_header, insert_package
-from utils import get_logger, cvt, get_conn_str
+from utils import get_logger, cvt, get_conn_str, get_logger
+from manager import check_latest_version
 
+log = get_logger('task')
 
 class Task:
     def __init__(self, girar):
@@ -30,7 +32,7 @@ class Task:
 
     def save_task(self, conn):
         if not self.fields:
-            print('Nothing to save')
+            log.info('Nothing to save')
             return
         sql = 'INSERT INTO Task ({0}) VALUES ({1}) RETURNING id'
         sql = sql.format(
@@ -83,6 +85,7 @@ class Girar:
         try:
             r = urllib.request.urlopen(url)
         except Exception as e:
+            log.error(e)
             if status:
                 return False
             return None
@@ -127,16 +130,28 @@ def get_args():
     return args
 
 
-def main():
-    args = get_args()
-    conn = psycopg2.connect(get_conn_str(args))
+def load(args, conn):
     girar = Girar(args.url)
     if girar.check():
         task = Task(girar)
         task.save(conn)
     else:
-        print('Task not found')
-    conn.close()
+        log.info('Task not found: {0}'.format(args.url))
+
+
+def main():
+    args = get_args()
+    conn = None
+    try:
+        conn = psycopg2.connect(get_conn_str(args))
+        if not check_latest_version(conn):
+            raise RuntimeError('Incorrect database schema version')
+        load(args, conn)
+    except Exception as error:
+        log.error(error)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == '__main__':

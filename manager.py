@@ -89,6 +89,12 @@ def update(conn, fname, file_version=None):
         return True
 
 
+def check_latest_version(conn):
+    current_version = get_current_version(scan_migration_files())
+    actual_version = get_actual_version(conn)
+    return current_version == actual_version
+
+
 def main():
     args = get_args()
     args = set_config(args)
