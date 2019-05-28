@@ -74,7 +74,6 @@ def insert_package(conn, hdr, **kwargs):
 
             map_provide = mapper.get_provide_map(hdr)
             insert_list(cur, map_provide, package_sha1, 'Provide')
-    conn.commit()
     return package_sha1
 
 
@@ -132,7 +131,6 @@ def insert_assigment(conn, assigmentname_id, sha1header):
         cur.execute(sql, (assigmentname_id, sha1header))
         as_id = cur.fetchone()
         if as_id:
-            conn.commit()
             return as_id[0]
 
 
@@ -203,6 +201,8 @@ class Worker(threading.Thread):
                     insert_assigment(self.connection, self.aname_id, sha1header)
             except psycopg2.DatabaseError as error:
                 log.error(error)
+            else:
+                self.connection.commit()
         log.debug('{0} stop'.format(self.name))
 
 
