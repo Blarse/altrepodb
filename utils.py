@@ -7,16 +7,12 @@ from functools import wraps
 from time import time
 
 
-def get_logger(name):
+def get_logger(name, tag='none'):
     """Create and configure logger."""
     logger = logging.getLogger(name)
     fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    sh = logging.StreamHandler()
-    sh.setLevel(logging.INFO)
-    sh.setFormatter(fmt)
-    logger.addHandler(sh)
     fh = handlers.RotatingFileHandler(
-        filename='{0}.log'.format(name),
+        filename='{0}_{1}.log'.format(name, tag),
         maxBytes=2**26,
         backupCount=10
     )
@@ -26,17 +22,24 @@ def get_logger(name):
     return logger
 
 
-def timing(f):
-    """Measuring execution time."""
-    log = logging.getLogger('extract')
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        log.debug('F:{0} took: {1:.5f}s'.format(f.__name__, te-ts))
-        return result
-    return wrap
+class Timing:
+    timing = False
+
+    @classmethod
+    def timeit(cls, logger_name):
+        def timer(f):
+            """Measuring execution time."""
+            log = logging.getLogger(logger_name)
+            @wraps(f)
+            def wrap(*args, **kw):
+                ts = time()
+                result = f(*args, **kw)
+                te = time()
+                if cls.timing:
+                    log.info('F:{0} T:{1:.5f}'.format(f.__name__, te-ts))
+                return result
+            return wrap
+        return timer
 
 
 def cvt(b):

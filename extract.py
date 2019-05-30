@@ -9,13 +9,11 @@ import logging
 import configparser
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, timing, LockedIterator, get_conn_str
+from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing
 from manager import check_latest_version
 
 
-log = get_logger('extract')
-
-@timing
+@Timing.timeit('extract')
 def check_package(conn, hdr):
     """Check whether the package is in the database.
 
@@ -30,7 +28,7 @@ def check_package(conn, hdr):
         return None
 
 
-@timing
+@Timing.timeit('extract')
 def insert_package(conn, hdr, **kwargs):
     """Insert information about package into database.
 
@@ -77,7 +75,7 @@ def insert_package(conn, hdr, **kwargs):
     return package_sha1
 
 
-@timing
+@Timing.timeit('extract')
 def insert_list(cursor, tagmap, package_sha1, table_name):
     """Insert list as batch."""
     sql = 'INSERT INTO {0} (package_sha1, {1}) VALUES (%s, {2})'
@@ -90,7 +88,7 @@ def insert_list(cursor, tagmap, package_sha1, table_name):
     extras.execute_batch(cursor, sql, r)
 
 
-@timing
+@Timing.timeit('extract')
 def insert_assigment_name(conn, assigment_name, assigment_tag=None):
     with conn.cursor() as cur:
         sql = (
@@ -104,7 +102,7 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
             return an_id[0]
 
 
-@timing
+@Timing.timeit('extract')
 def check_assigment(conn, assigmentname_id, sha1header):
     """Check whether the assigment is in the database.
 
@@ -121,7 +119,7 @@ def check_assigment(conn, assigmentname_id, sha1header):
             return as_id[0]
 
 
-@timing
+@Timing.timeit('extract')
 def insert_assigment(conn, assigmentname_id, sha1header):
     sql = (
         'INSERT INTO Assigment (assigmentname_id, package_sha1)'
@@ -134,7 +132,7 @@ def insert_assigment(conn, assigmentname_id, sha1header):
             return as_id[0]
 
 
-@timing
+@Timing.timeit('extract')
 def check_packager(conn, name, email):
     """Check whether the packager is in the database.
 
@@ -148,7 +146,7 @@ def check_packager(conn, name, email):
             return p_id[0]
 
 
-@timing
+@Timing.timeit('extract')
 def insert_packager(conn, name, email):
     sql = 'INSERT INTO Packager (name, email) VALUES (%s, %s) RETURNING id'
     with conn.cursor() as cur:
@@ -159,7 +157,6 @@ def insert_packager(conn, name, email):
             return p_id[0]
 
 
-@timing
 def find_packages(path):
     """Recursively walk through directory for find rpm packages.
 
@@ -172,7 +169,6 @@ def find_packages(path):
                 yield f
 
 
-@timing
 def get_header(ts, rpmfile):
     return ts.hdrFromFdno(rpmfile)
 
@@ -182,31 +178,31 @@ class Worker(threading.Thread):
         self.connection = connection
         self.packages = packages
         self.aname_id = aname_id
+        self.log = logging.getLogger('extract')
         super().__init__(*args, **kwargs)
 
     def run(self):
         ts = rpm.TransactionSet()
-        log.debug('{0} start'.format(self.name))
+        self.log.debug('{0} start'.format(self.name))
         for package in self.packages:
-            log.debug('Processing: {0}'.format(package))
+            self.log.info('Processing: {0}'.format(package))
             try:
                 header = get_header(ts, package)
                 sha1header = check_package(self.connection, header)
                 if sha1header is None:
                     sha1header = insert_package(self.connection, header, filename=os.path.basename(package))
                 if sha1header is None:
-                    log.error('No sha1header for {0}'.format(package))
+                    self.log.error('No sha1header for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
                 if check_assigment(self.connection, self.aname_id, sha1header) is None:
                     insert_assigment(self.connection, self.aname_id, sha1header)
             except psycopg2.DatabaseError as error:
-                log.error(error)
+                self.log.error(error)
             else:
                 self.connection.commit()
-        log.debug('{0} stop'.format(self.name))
+        self.log.debug('{0} stop'.format(self.name))
 
 
-@timing
 def load(args):
     conn = psycopg2.connect(get_conn_str(args))
     if not check_latest_version(conn):
@@ -233,7 +229,6 @@ def load(args):
             c.close()
 
 
-@timing
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('assigment', type=str, help='Assigment name')
@@ -247,10 +242,11 @@ def get_args():
     parser.add_argument('-P', '--password', type=str, help='Database password')
     parser.add_argument('-w', '--workers', type=int, help='Workers count')
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
+    parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
     return parser.parse_args()
 
 
-@timing
 def set_config(args):
     if args.config is not None:
         cfg = configparser.ConfigParser()
@@ -269,12 +265,14 @@ def set_config(args):
     return args
 
 
-@timing
 def main():
     args = get_args()
     args = set_config(args)
+    log = get_logger('extract', args.assigment)
     if args.debug:
         log.setLevel(logging.DEBUG)
+    if args.timing:
+        Timing.timing = True
     log.info('Start loading packages')
     try:
         load(args)
