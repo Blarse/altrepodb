@@ -9,7 +9,7 @@ import logging
 import configparser
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing
+from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display
 from manager import check_latest_version
 
 
@@ -174,10 +174,11 @@ def get_header(ts, rpmfile):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, packages, aname_id, *args, **kwargs):
+    def __init__(self, connection, packages, aname_id, display, *args, **kwargs):
         self.connection = connection
         self.packages = packages
         self.aname_id = aname_id
+        self.display = display
         self.log = logging.getLogger('extract')
         super().__init__(*args, **kwargs)
 
@@ -200,6 +201,8 @@ class Worker(threading.Thread):
                 self.log.error(error)
             else:
                 self.connection.commit()
+                if self.display is not None:
+                    self.display.inc()
         self.log.debug('{0} stop'.format(self.name))
 
 
@@ -214,10 +217,13 @@ def load(args):
         raise RuntimeError('Unexpected behavior')
     workers = []
     connections = [conn]
+    display = None
+    if args.verbose:
+        display = Display()
     for i in range(args.workers):
         conn = psycopg2.connect(get_conn_str(args))
         connections.append(conn)
-        worker = Worker(conn, packages, aname_id)
+        worker = Worker(conn, packages, aname_id, display)
         worker.start()
         workers.append(worker)
 
@@ -227,6 +233,9 @@ def load(args):
     for c in connections:
         if c is not None:
             c.close()
+
+    if display is not None:
+        display.conclusion()
 
 
 def get_args():
