@@ -27,23 +27,52 @@ CREATE TABLE Packager (
 
 CREATE INDEX ON Packager (name, email);
 
+CREATE TABLE Arch (
+	id bigserial PRIMARY KEY,
+	name varchar UNIQUE
+);
+
 CREATE TABLE Package (
-	sha1header varchar(40) PRIMARY KEY,
+	id bigserial PRIMARY KEY,
+	sha1header varchar(40) UNIQUE,
 	packager_id bigint,
 	task_id bigint,
 	subtask integer,
 	name varchar,
-	arch varchar,
+	arch_id bigint,
 	version varchar,
 	release varchar,
 	epoch integer,
 	serial_ integer,
-	summary text,
-	description text,
-	changelog text,
 	buildtime bigint,
 	buildhost varchar,
 	size bigint,
+	archivesize bigint,
+	rpmversion varchar,
+	cookie varchar,
+	sourcepackage boolean,
+	disttag varchar,
+	sourcerpm varchar,
+	filename varchar,
+	sha1srcheader varchar(40),
+
+	FOREIGN KEY (task_id) REFERENCES Task (id),
+	FOREIGN KEY (packager_id) REFERENCES Packager (id),
+	FOREIGN KEY (arch_id) REFERENCES Arch (id)
+);
+
+CREATE INDEX ON Package (name);
+CREATE INDEX ON Package (version);
+CREATE INDEX ON Package (name, version);
+CREATE INDEX ON Package (sha1srcheader);
+
+
+CREATE TABLE PackageInfo (
+	id bigserial PRIMARY KEY,
+	package_id bigint,
+	summary text,
+	description text,
+	changelog text,
 	distribution varchar,
 	vendor varchar,
 	gif bytea,
@@ -59,8 +88,6 @@ CREATE TABLE Package (
 	preun text,
 	postun text,
 	icon bytea,
-	archivesize bigint,
-	rpmversion varchar,
 	preinprog text ARRAY,
 	postinprog text ARRAY,
 	preunprog text ARRAY,
@@ -68,47 +95,43 @@ CREATE TABLE Package (
 	buildarchs varchar ARRAY,
 	verifyscript text,
 	verifyscriptprog text ARRAY,
-	cookie varchar,
 	prefixes varchar ARRAY,
 	instprefixes varchar ARRAY,
-	sourcepackage boolean,
 	optflags varchar,
 	disturl varchar,
 	payloadformat varchar,
 	payloadcompressor varchar,
 	payloadflags varchar,
 	platform varchar,
-	disttag varchar,
-	sourcerpm varchar,
-	filename varchar,
-	sha1srcheader varchar(40),
 
-	FOREIGN KEY (task_id) REFERENCES Task (id),
-	FOREIGN KEY (packager_id) REFERENCES Packager (id)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
-CREATE INDEX ON Package (name);
-CREATE INDEX ON Package (version);
-CREATE INDEX ON Package (name, version);
-CREATE INDEX ON Package (sha1srcheader);
 
 CREATE TABLE Assigment (
 	id bigserial PRIMARY KEY,
 	assigmentname_id bigint,
-	package_sha1 varchar(40),
+	package_id bigint,
 
 	FOREIGN KEY (assigmentname_id) REFERENCES AssigmentName (id),
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
 CREATE INDEX ON Assigment (assigmentname_id);
-CREATE INDEX ON Assigment (package_sha1);
-CREATE INDEX ON Assigment (assigmentname_id, package_sha1);
+CREATE INDEX ON Assigment (package_id);
+CREATE INDEX ON Assigment (assigmentname_id, package_id);
+
+CREATE TABLE FileName (
+	id bigserial PRIMARY KEY,
+	name varchar UNIQUE
+);
+
+CREATE INDEX ON FileName (name);
 
 CREATE TABLE File (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
-	package_sha1 varchar(40),
-	filename varchar,				-- имя и путь установки
+	package_id bigint,
+	filename_id bigint,				-- имя и путь установки
 	filesize bigint,				-- размер файла
 	filemode integer,				-- права доступа к файлу
 	filerdev integer,
@@ -126,60 +149,60 @@ CREATE TABLE File (
 	dirindex integer,
 	basename varchar,
 
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id),
+	FOREIGN KEY (filename_id) REFERENCES File (id)
 );
 
-CREATE INDEX ON File (filename);
-CREATE INDEX ON File (package_sha1);
+CREATE INDEX ON File (package_id);
 CREATE INDEX ON File (filemd5);
 
 CREATE TABLE Require (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
-	package_sha1 varchar(40),
+	id bigserial PRIMARY KEY,
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
-CREATE INDEX ON Require (package_sha1);
+CREATE INDEX ON Require (package_id);
 
 CREATE TABLE Conflict (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
-	package_sha1 varchar(40),
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
-CREATE INDEX ON Conflict (package_sha1);
+CREATE INDEX ON Conflict (package_id);
 
 CREATE TABLE Obsolete (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
-	package_sha1 varchar(40),
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
-CREATE INDEX ON Obsolete (package_sha1);
+CREATE INDEX ON Obsolete (package_id);
 
 CREATE TABLE Provide (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
-	package_sha1 varchar(40),
+	package_id bigint,
 	name varchar,
 	version varchar,
 	flag integer,
 
-	FOREIGN KEY (package_sha1) REFERENCES Package (sha1header)
+	FOREIGN KEY (package_id) REFERENCES Package (id)
 );
 
-CREATE INDEX ON Provide (package_sha1);
+CREATE INDEX ON Provide (package_id);
 
 CREATE TABLE Config (
 	id bigserial PRIMARY KEY,		-- идентификатор записи
