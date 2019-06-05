@@ -3,6 +3,7 @@ CREATE TABLE AssigmentName (
 	name varchar,
 	datetime_release timestamp,
 	tag varchar,
+	complete boolean DEFAULT false,
 
 	UNIQUE(name, datetime_release)
 );
@@ -10,12 +11,12 @@ CREATE TABLE AssigmentName (
 CREATE INDEX ON AssigmentName (name);
 
 CREATE TABLE Task (
-	id bigserial PRIMARY KEY,			-- идентификатор записи
-	task_id integer NOT NULL,			-- номер таска в сборочнице
+	id bigserial PRIMARY KEY,
+	task_id integer NOT NULL,
 	try integer NOT NULL,
 	iteration integer NOT NULL,
 	status varchar NOT NULL,
-	is_test boolean NOT NULL,			-- тестовая сборка
+	is_test boolean NOT NULL,
 	branch varchar NOT NULL
 );
 
@@ -64,6 +65,7 @@ CREATE TABLE Package (
 CREATE INDEX ON Package (name);
 CREATE INDEX ON Package (version);
 CREATE INDEX ON Package (name, version);
+CREATE INDEX ON Package (sha1header);
 CREATE INDEX ON Package (sha1srcheader);
 
 
@@ -121,26 +123,26 @@ CREATE INDEX ON Assigment (assigmentname_id);
 CREATE INDEX ON Assigment (package_id);
 CREATE INDEX ON Assigment (assigmentname_id, package_id);
 
-CREATE TABLE FileName (
+CREATE TABLE PathName (
 	id bigserial PRIMARY KEY,
 	name varchar UNIQUE
 );
 
-CREATE INDEX ON FileName (name);
+CREATE INDEX ON PathName (name);
 
 CREATE TABLE File (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
+	id bigserial PRIMARY KEY,
 	package_id bigint,
-	filename_id bigint,				-- имя и путь установки
-	filesize bigint,				-- размер файла
-	filemode integer,				-- права доступа к файлу
+	pathname_id bigint,
+	filesize bigint,
+	filemode integer,
 	filerdev integer,
-	filemtime timestamp,			-- время последней модификации файла в момент сборки пакета
-	filemd5 varchar,				-- контрольная сумма MD5
-	filelinkto varchar,				-- текст символьной ссылки
-	fileflag integer,				-- тип файла: документация, конфигурационный файл, другое
-	fileusername varchar,			-- владелец в символьном виде
-	filegroupname varchar,			-- группа в символьном виде
+	filemtime timestamp,
+	filemd5 varchar,
+	filelinkto varchar,
+	fileflag integer,
+	fileusername varchar,
+	filegroupname varchar,
 	fileverifyflag bigint,
 	filedevice bigint,
 	fileinode bigint,
@@ -150,7 +152,7 @@ CREATE TABLE File (
 	basename varchar,
 
 	FOREIGN KEY (package_id) REFERENCES Package (id),
-	FOREIGN KEY (filename_id) REFERENCES File (id)
+	FOREIGN KEY (pathname_id) REFERENCES PathName (id)
 );
 
 CREATE INDEX ON File (package_id);
@@ -169,7 +171,7 @@ CREATE TABLE Require (
 CREATE INDEX ON Require (package_id);
 
 CREATE TABLE Conflict (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
+	id bigserial PRIMARY KEY,
 	package_id bigint,
 	name varchar,
 	version varchar,
@@ -181,7 +183,7 @@ CREATE TABLE Conflict (
 CREATE INDEX ON Conflict (package_id);
 
 CREATE TABLE Obsolete (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
+	id bigserial PRIMARY KEY,
 	package_id bigint,
 	name varchar,
 	version varchar,
@@ -193,7 +195,7 @@ CREATE TABLE Obsolete (
 CREATE INDEX ON Obsolete (package_id);
 
 CREATE TABLE Provide (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
+	id bigserial PRIMARY KEY,
 	package_id bigint,
 	name varchar,
 	version varchar,
@@ -205,9 +207,9 @@ CREATE TABLE Provide (
 CREATE INDEX ON Provide (package_id);
 
 CREATE TABLE Config (
-	id bigserial PRIMARY KEY,		-- идентификатор записи
-	key varchar,					-- ключ
-	value varchar					-- значение
+	id bigserial PRIMARY KEY,
+	key varchar,
+	value varchar
 );
 
 INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');
