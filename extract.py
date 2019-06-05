@@ -230,12 +230,21 @@ def load(args):
     for w in workers:
         w.join()
 
+    load_complete(conn, aname_id)
+
     for c in connections:
         if c is not None:
             c.close()
 
     if display is not None:
         display.conclusion()
+
+
+def load_complete(conn, aid):
+    sql = 'UPDATE AssigmentName SET complete=true WHERE id={0}'.format(aid)
+    with conn.cursor() as cur:
+        cur.execute(sql)
+    conn.commit()
 
 
 def get_args():
