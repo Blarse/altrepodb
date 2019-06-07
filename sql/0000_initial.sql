@@ -125,10 +125,30 @@ CREATE INDEX ON Assigment (assigmentname_id, package_id);
 
 CREATE TABLE PathName (
 	id bigserial PRIMARY KEY,
-	name varchar UNIQUE
+	value varchar UNIQUE
 );
 
-CREATE INDEX ON PathName (name);
+CREATE INDEX ON PathName (value);
+
+CREATE TABLE FileUserName (
+	id bigserial PRIMARY KEY,
+	value varchar UNIQUE
+);
+
+CREATE TABLE FileUserGroup (
+	id bigserial PRIMARY KEY,
+	value varchar UNIQUE
+);
+
+CREATE TABLE FileLang (
+	id bigserial PRIMARY KEY,
+	value varchar UNIQUE
+);
+
+CREATE TABLE FileClass (
+	id bigserial PRIMARY KEY,
+	value varchar UNIQUE
+);
 
 CREATE TABLE File (
 	id bigserial PRIMARY KEY,
@@ -141,18 +161,22 @@ CREATE TABLE File (
 	filemd5 varchar,
 	filelinkto varchar,
 	fileflag integer,
-	fileusername varchar,
-	filegroupname varchar,
+	fileusername_id bigint,
+	filegroupname_id bigint,
 	fileverifyflag bigint,
 	filedevice bigint,
 	fileinode bigint,
-	filelang varchar,
-	fileclass varchar,
+	filelang_id bigint,
+	fileclass_id bigint,
 	dirindex integer,
 	basename varchar,
 
 	FOREIGN KEY (package_id) REFERENCES Package (id),
-	FOREIGN KEY (pathname_id) REFERENCES PathName (id)
+	FOREIGN KEY (pathname_id) REFERENCES PathName (id),
+	FOREIGN KEY (fileusername_id) REFERENCES FileUserName (id),
+	FOREIGN KEY (filegroupname_id) REFERENCES FileUserGroup (id),
+	FOREIGN KEY (filelang_id) REFERENCES FileLang (id),
+	FOREIGN KEY (fileclass_id) REFERENCES FileClass (id)
 );
 
 CREATE INDEX ON File (package_id);
