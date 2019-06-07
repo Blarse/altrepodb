@@ -1,6 +1,6 @@
 import rpm
 
-from utils import changelog_to_text, cvt, cvt_ts
+from utils import changelog_to_text, cvt, cvt_ts, strip_end, symbolic
 
 
 def detect_arch(hdr):
@@ -15,20 +15,31 @@ def get_package_map(hdr):
     map_package = {
         'sha1header': cvt(hdr[rpm.RPMDBI_SHA1HEADER]),
         'name': cvt(hdr[rpm.RPMTAG_NAME]),
-        'arch': detect_arch(hdr),
         'version': cvt(hdr[rpm.RPMTAG_VERSION]),
         'release': cvt(hdr[rpm.RPMTAG_RELEASE]),
         'epoch': hdr[rpm.RPMTAG_EPOCH],
         'serial_': hdr[rpm.RPMTAG_SERIAL],
+        'buildtime': hdr[rpm.RPMTAG_BUILDTIME],
+        'buildhost': cvt(hdr[rpm.RPMTAG_BUILDHOST]),
+        'size': hdr[rpm.RPMTAG_SIZE],
+        'archivesize': hdr[rpm.RPMTAG_ARCHIVESIZE],
+        'rpmversion': cvt(hdr[rpm.RPMTAG_RPMVERSION]),
+        'cookie': cvt(hdr[rpm.RPMTAG_COOKIE]),
+        'sourcepackage': bool(hdr[rpm.RPMTAG_SOURCEPACKAGE]),
+        'disttag': cvt(hdr[rpm.RPMTAG_DISTTAG]),
+        'sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
+    }
+    return map_package
+
+
+def get_package_info_map(hdr):
+    map_package_info = {
         'summary': cvt(hdr[rpm.RPMTAG_SUMMARY]),
         'description': cvt(hdr[rpm.RPMTAG_DESCRIPTION]),
         'changelog': changelog_to_text(
             hdr[rpm.RPMTAG_CHANGELOGTIME],
             hdr[rpm.RPMTAG_CHANGELOGNAME],
             hdr[rpm.RPMTAG_CHANGELOGTEXT]),
-        'buildtime': hdr[rpm.RPMTAG_BUILDTIME],
-        'buildhost': cvt(hdr[rpm.RPMTAG_BUILDHOST]),
-        'size': hdr[rpm.RPMTAG_SIZE],
         'distribution': cvt(hdr[rpm.RPMTAG_DISTRIBUTION]),
         'vendor': cvt(hdr[rpm.RPMTAG_VENDOR]),
         'gif': hdr[rpm.RPMTAG_GIF],
@@ -44,8 +55,6 @@ def get_package_map(hdr):
         'preun': cvt(hdr[rpm.RPMTAG_PREUN]),
         'postun': cvt(hdr[rpm.RPMTAG_POSTUN]),
         'icon': hdr[rpm.RPMTAG_ICON],
-        'archivesize': hdr[rpm.RPMTAG_ARCHIVESIZE],
-        'rpmversion': cvt(hdr[rpm.RPMTAG_RPMVERSION]),
         'preinprog': cvt(hdr[rpm.RPMTAG_PREINPROG]),
         'postinprog': cvt(hdr[rpm.RPMTAG_POSTINPROG]),
         'preunprog': cvt(hdr[rpm.RPMTAG_PREUNPROG]),
@@ -53,25 +62,20 @@ def get_package_map(hdr):
         'buildarchs': cvt(hdr[rpm.RPMTAG_BUILDARCHS]),
         'verifyscript': cvt(hdr[rpm.RPMTAG_VERIFYSCRIPT]),
         'verifyscriptprog': cvt(hdr[rpm.RPMTAG_VERIFYSCRIPTPROG]),
-        'cookie': cvt(hdr[rpm.RPMTAG_COOKIE]),
         'prefixes': cvt(hdr[rpm.RPMTAG_PREFIXES]),
         'instprefixes': cvt(hdr[rpm.RPMTAG_INSTPREFIXES]),
-        'sourcepackage': bool(hdr[rpm.RPMTAG_SOURCEPACKAGE]),
         'optflags': cvt(hdr[rpm.RPMTAG_OPTFLAGS]),
         'disturl': cvt(hdr[rpm.RPMTAG_DISTURL]),
         'payloadformat': cvt(hdr[rpm.RPMTAG_PAYLOADFORMAT]),
         'payloadcompressor': cvt(hdr[rpm.RPMTAG_PAYLOADCOMPRESSOR]),
         'payloadflags': cvt(hdr[rpm.RPMTAG_PAYLOADFLAGS]),
         'platform': cvt(hdr[rpm.RPMTAG_PLATFORM]),
-        'disttag': cvt(hdr[rpm.RPMTAG_DISTTAG]),
-        'sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
     }
-    return map_package
+    return map_package_info
 
 
 def get_file_map(hdr):
     map_files = {
-        'filename': cvt(hdr[rpm.RPMTAG_FILENAMES]),
         'filesize': cvt(hdr[rpm.RPMTAG_FILESIZES]),
         'filemode': cvt(hdr[rpm.RPMTAG_FILEMODES]),
         'filerdev': cvt(hdr[rpm.RPMTAG_FILERDEVS]),
@@ -79,15 +83,25 @@ def get_file_map(hdr):
         'filemd5': cvt(hdr[rpm.RPMTAG_FILEMD5S]),
         'filelinkto': cvt(hdr[rpm.RPMTAG_FILELINKTOS]),
         'fileflag': cvt(hdr[rpm.RPMTAG_FILEFLAGS]),
-        'fileusername': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
-        'filegroupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
         'fileverifyflag': cvt(hdr[rpm.RPMTAG_FILEVERIFYFLAGS]),
         'filedevice': cvt(hdr[rpm.RPMTAG_FILEDEVICES]),
         'fileinode': cvt(hdr[rpm.RPMTAG_FILEINODES]),
-        'filelang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
-        'fileclass': cvt(hdr[rpm.RPMTAG_FILECLASS]),
         'dirindex': cvt(hdr[rpm.RPMTAG_DIRINDEXES]),
         'basename': cvt(hdr[rpm.RPMTAG_BASENAMES]),
+    }
+    return map_files
+
+def get_additional_file_map(hdr):
+    filenames = cvt(hdr[rpm.RPMTAG_FILENAMES])
+    basenames = cvt(hdr[rpm.RPMTAG_BASENAMES])
+    pathname = [strip_end(f, b) for f, b in zip(filenames, basenames)]
+    fileclass = [symbolic(fc) for fc in cvt(hdr[rpm.RPMTAG_FILECLASS])]
+    map_files = {
+        'pathname': pathname,
+        'fileusername': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
+        'filegroupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
+        'filelang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
+        'fileclass': fileclass,
     }
     return map_files
 

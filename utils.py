@@ -152,3 +152,15 @@ class LockedIterator:
     def __next__(self):
         with self.lock:
             return next(self.it)
+
+
+def strip_end(text, suffix):
+    if text.endswith(suffix):
+        return text[:-len(suffix)]
+    return text
+
+
+def symbolic(text):
+    if text.startswith('symbolic')
+        return 'symbolic'
+    return text

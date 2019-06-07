@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import datetime
 import rpm
 import psycopg2
@@ -19,12 +20,12 @@ def check_package(conn, hdr):
 
     return sha1 hash of package from database or None
     """
-    sql = "SELECT sha1header FROM Package WHERE sha1header='{0}'"
+    sql = "SELECT id FROM Package WHERE sha1header='{0}'"
     with conn.cursor() as cur:
         cur.execute(sql.format(cvt(hdr[rpm.RPMDBI_SHA1HEADER])))
-        sha1header = cur.fetchone()
-        if sha1header:
-            return sha1header[0]
+        result = cur.fetchone()
+        if result:
+            return result[0]
         return None
 
 
@@ -37,55 +38,84 @@ def insert_package(conn, hdr, **kwargs):
     """
     map_package = mapper.get_package_map(hdr)
     map_package.update(**kwargs)
+    # add packager
     name_email = packager_parse(cvt(hdr[rpm.RPMTAG_PACKAGER]))
-    if name_email is not None:
-        pid = check_packager(conn, *name_email)
-        if pid is None:
-            pid = insert_packager(conn, *name_email)
-        if pid is not None:
+    if name_email:
+        pname, pemail = name_email
+        pid = insert_smart(conn, 'Packager', name=pname, email=pemail)
+        if pid:
             map_package.update(packager_id=pid)
+    # add arch
+    arch = mapper.detect_arch(hdr)
+    if arch:
+        aid = insert_smart(conn, 'Arch', name=arch)
+        if aid:
+            map_package.update(arch_id=aid)
 
-    sql_insert = (
-            'INSERT INTO Package ({0}) VALUES ({1})'
-            ' ON CONFLICT DO NOTHING RETURNING sha1header'
-        ).format(
-            ', '.join(map_package.keys()),
-            ', '.join(['%s'] * len(map_package))
-        )
+    sql_insert = 'INSERT INTO {0} ({1}) VALUES ({2}) ON CONFLICT DO NOTHING RETURNING id'
+
+    sql_insert_package = sql_insert.format(
+        'Package',
+        ', '.join(map_package.keys()),
+        ', '.join(['%s'] * len(map_package))
+    )
+
+    package_id = None
+
     with conn.cursor() as cur:
-        cur.execute(sql_insert, tuple(map_package.values()))
-        package_sha1 = cur.fetchone()
-        if package_sha1:
-            package_sha1 = package_sha1[0]
+        cur.execute(sql_insert_package, tuple(map_package.values()))
+        package_id = cur.fetchone()
 
-            map_files = mapper.get_file_map(hdr)
-            insert_list(cur, map_files, package_sha1, 'File')
+    if not package_id:
+        return
 
-            map_require = mapper.get_require_map(hdr)
-            insert_list(cur, map_require, package_sha1, 'Require')
+    package_id = package_id[0]
 
-            map_conflict = mapper.get_conflict_map(hdr)
-            insert_list(cur, map_conflict, package_sha1, 'Conflict')
+    # insert package info
+    map_package_info = mapper.get_package_info_map(hdr)
+    map_package_info.update(package_id=package_id)
+    sql_insert_package_info = sql_insert.format(
+        'PackageInfo',
+        ', '.join(map_package_info.keys()),
+        ', '.join(['%s'] * len(map_package_info))
+    )
+    with conn.cursor() as cur:
+        cur.execute(sql_insert_package_info, tuple(map_package_info.values()))
 
-            map_obsolete = mapper.get_obsolete_map(hdr)
-            insert_list(cur, map_obsolete, package_sha1, 'Obsolete')
+    map_files = mapper.get_file_map(hdr)
+    insert_list(conn, map_files, package_id, 'File')
 
-            map_provide = mapper.get_provide_map(hdr)
-            insert_list(cur, map_provide, package_sha1, 'Provide')
-    return package_sha1
+    map_require = mapper.get_require_map(hdr)
+    insert_list(conn, map_require, package_id, 'Require')
+
+    map_conflict = mapper.get_conflict_map(hdr)
+    insert_list(conn, map_conflict, package_id, 'Conflict')
+
+    map_obsolete = mapper.get_obsolete_map(hdr)
+    insert_list(conn, map_obsolete, package_id, 'Obsolete')
+
+    map_provide = mapper.get_provide_map(hdr)
+    insert_list(conn, map_provide, package_id, 'Provide')
+
+    return package_id
+
+
+def insert_file(conn, hdr, package_id):
+    pass
 
 
 @Timing.timeit('extract')
-def insert_list(cursor, tagmap, package_sha1, table_name):
+def insert_list(conn, tagmap, package_id, table_name):
     """Insert list as batch."""
-    sql = 'INSERT INTO {0} (package_sha1, {1}) VALUES (%s, {2})'
+    sql = 'INSERT INTO {0} (package_id, {1}) VALUES (%s, {2})'
     sql = sql.format(
         table_name,
         ', '.join(tagmap.keys()),
         ', '.join(['%s'] * len(tagmap))
     )
-    r = [(package_sha1,) + i for i in zip(*tagmap.values())]
-    extras.execute_batch(cursor, sql, r)
+    r = [(package_id,) + i for i in zip(*tagmap.values())]
+    with conn.cursor() as cur:
+        extras.execute_batch(cur, sql, r)
 
 
 @Timing.timeit('extract')
@@ -103,58 +133,37 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
 
 
 @Timing.timeit('extract')
-def check_assigment(conn, assigmentname_id, sha1header):
-    """Check whether the assigment is in the database.
-
-    return id or None
-    """
+def insert_assigment(conn, assigmentname_id, package_id):
     sql = (
-        "SELECT id FROM Assigment WHERE assigmentname_id={0}"
-        " AND package_sha1='{1}'"
-    ).format(assigmentname_id, sha1header)
-    with conn.cursor() as cur:
-        cur.execute(sql)
-        as_id = cur.fetchone()
-        if as_id:
-            return as_id[0]
-
-
-@Timing.timeit('extract')
-def insert_assigment(conn, assigmentname_id, sha1header):
-    sql = (
-        'INSERT INTO Assigment (assigmentname_id, package_sha1)'
+        'INSERT INTO Assigment (assigmentname_id, package_id)'
         ' VALUES (%s, %s) RETURNING id'
     )
     with conn.cursor() as cur:
-        cur.execute(sql, (assigmentname_id, sha1header))
+        cur.execute(sql, (assigmentname_id, package_id))
         as_id = cur.fetchone()
         if as_id:
             return as_id[0]
 
 
-@Timing.timeit('extract')
-def check_packager(conn, name, email):
-    """Check whether the packager is in the database.
-
-    return id or None
-    """
-    sql = "SELECT id FROM Packager WHERE name='{0}' AND email='{1}'"
+def insert_smart(conn, table, commit=False, **fields):
+    sql = (
+        "WITH s AS (SELECT id FROM {table} WHERE {key_value}), "
+        "i AS (INSERT INTO {table} ({key}) SELECT {value} WHERE "
+        "NOT EXISTS (SELECT 1 FROM s) RETURNING id) "
+        "SELECT id FROM i UNION ALL SELECT id FROM s"
+    )
+    sql = sql.format(
+        table=table,
+        key=', '.join(fields.keys()),
+        value=', '.join(['%({0})s'.format(k) for k in fields.keys()]),
+        key_value=' AND '.join(['{0}=%({0})s'.format(k) for k in fields.keys()]))
+    result = None
     with conn.cursor() as cur:
-        cur.execute(sql.format(name, email))
-        p_id = cur.fetchone()
-        if p_id:
-            return p_id[0]
-
-
-@Timing.timeit('extract')
-def insert_packager(conn, name, email):
-    sql = 'INSERT INTO Packager (name, email) VALUES (%s, %s) RETURNING id'
-    with conn.cursor() as cur:
-        cur.execute(sql, (name, email))
-        p_id = cur.fetchone()
-        if p_id:
-            conn.commit()
-            return p_id[0]
+        cur.execute(sql, fields)
+        result = cur.fetchone()[0]
+    if commit:
+        conn.commit()
+    return result
 
 
 def find_packages(path):
@@ -189,14 +198,16 @@ class Worker(threading.Thread):
             self.log.info('Processing: {0}'.format(package))
             try:
                 header = get_header(ts, package)
-                sha1header = check_package(self.connection, header)
-                if sha1header is None:
-                    sha1header = insert_package(self.connection, header, filename=os.path.basename(package))
-                if sha1header is None:
-                    self.log.error('No sha1header for {0}'.format(package))
+                self.log.debug('Check: {0}'.format(package))
+                pkg_id = check_package(self.connection, header)
+                if pkg_id is None:
+                    self.log.debug('Insert: {0}'.format(package))
+                    pkg_id = insert_package(self.connection, header, filename=os.path.basename(package))
+                if pkg_id is None:
+                    self.log.error('No id for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
-                if check_assigment(self.connection, self.aname_id, sha1header) is None:
-                    insert_assigment(self.connection, self.aname_id, sha1header)
+                self.log.debug('Add assigment: {0} id={1}'.format(package, pkg_id))
+                insert_assigment(self.connection, self.aname_id, pkg_id)
             except psycopg2.DatabaseError as error:
                 self.log.error(error)
             else:
