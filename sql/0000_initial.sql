@@ -236,4 +236,37 @@ CREATE TABLE Config (
 	value varchar
 );
 
+CREATE FUNCTION insert_smart (t regclass, v varchar) RETURNS bigint AS
+$BODY$
+DECLARE
+result bigint;
+BEGIN
+EXECUTE format('WITH s AS (SELECT id FROM %1$I WHERE value = $1),'
+    ' i AS (INSERT INTO %1$I (value) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM s)'
+    ' RETURNING id) SELECT id FROM i UNION ALL SELECT id FROM s', t) INTO result USING v;
+RETURN result;
+END;
+$BODY$
+LANGUAGE PLPGSQL;
+
+
+CREATE OR REPLACE FUNCTION insert_file (
+package_id bigint, pathname_id varchar, filesize bigint, filemode integer, filerdev integer,
+filemtime timestamp, filemd5 varchar, filelinkto varchar, fileflag integer, fileusername_id varchar, 
+filegroupname_id varchar, fileverifyflag bigint, filedevice bigint, fileinode bigint, filelang_id varchar, 
+fileclass_id varchar, dirindex integer, basename varchar) RETURNS bigint AS
+$BODY$
+INSERT INTO File (
+    package_id, pathname_id, filesize, filemode, filerdev, filemtime, filemd5, 
+    filelinkto, fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
+    filedevice, fileinode, filelang_id, fileclass_id, dirindex, basename
+    ) VALUES (
+    package_id, insert_smart('PathName', pathname_id), filesize, filemode, filerdev, filemtime, filemd5, 
+    filelinkto, fileflag, insert_smart('FileUserName', fileusername_id), insert_smart('FileUserGroup', filegroupname_id), fileverifyflag, 
+    filedevice, fileinode, insert_smart('FileLang', filelang_id), insert_smart('FileClass', fileclass_id), dirindex, basename
+    ) RETURNING id;
+
+$BODY$
+LANGUAGE SQL;
+
 INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');

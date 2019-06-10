@@ -75,7 +75,12 @@ def get_package_info_map(hdr):
 
 
 def get_file_map(hdr):
+    filenames = cvt(hdr[rpm.RPMTAG_FILENAMES])
+    basenames = cvt(hdr[rpm.RPMTAG_BASENAMES])
+    pathname = [strip_end(f, b) for f, b in zip(filenames, basenames)]
+    fileclass = [symbolic(fc) for fc in cvt(hdr[rpm.RPMTAG_FILECLASS])]
     map_files = {
+        'pathname_id': pathname,
         'filesize': cvt(hdr[rpm.RPMTAG_FILESIZES]),
         'filemode': cvt(hdr[rpm.RPMTAG_FILEMODES]),
         'filerdev': cvt(hdr[rpm.RPMTAG_FILERDEVS]),
@@ -83,28 +88,17 @@ def get_file_map(hdr):
         'filemd5': cvt(hdr[rpm.RPMTAG_FILEMD5S]),
         'filelinkto': cvt(hdr[rpm.RPMTAG_FILELINKTOS]),
         'fileflag': cvt(hdr[rpm.RPMTAG_FILEFLAGS]),
+        'fileusername_id': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
+        'filegroupname_id': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
         'fileverifyflag': cvt(hdr[rpm.RPMTAG_FILEVERIFYFLAGS]),
         'filedevice': cvt(hdr[rpm.RPMTAG_FILEDEVICES]),
         'fileinode': cvt(hdr[rpm.RPMTAG_FILEINODES]),
+        'filelang_id': cvt(hdr[rpm.RPMTAG_FILELANGS]),
+        'fileclass_id': fileclass,
         'dirindex': cvt(hdr[rpm.RPMTAG_DIRINDEXES]),
         'basename': cvt(hdr[rpm.RPMTAG_BASENAMES]),
     }
     return map_files
-
-def get_additional_file_map(hdr):
-    filenames = cvt(hdr[rpm.RPMTAG_FILENAMES])
-    basenames = cvt(hdr[rpm.RPMTAG_BASENAMES])
-    pathname = [strip_end(f, b) for f, b in zip(filenames, basenames)]
-    fileclass = [symbolic(fc) for fc in cvt(hdr[rpm.RPMTAG_FILECLASS])]
-    map_files = {
-        'pathname': pathname,
-        'fileusername': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
-        'filegroupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
-        'filelang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
-        'fileclass': fileclass,
-    }
-    return map_files
-
 
 def get_require_map(hdr):
     map_require = {

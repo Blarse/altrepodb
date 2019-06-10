@@ -161,6 +161,6 @@ def strip_end(text, suffix):
 
 
 def symbolic(text):
-    if text.startswith('symbolic')
+    if text.startswith('symbolic'):
         return 'symbolic'
     return text

@@ -82,8 +82,7 @@ def insert_package(conn, hdr, **kwargs):
     with conn.cursor() as cur:
         cur.execute(sql_insert_package_info, tuple(map_package_info.values()))
 
-    map_files = mapper.get_file_map(hdr)
-    insert_list(conn, map_files, package_id, 'File')
+    insert_file(conn, hdr, package_id)
 
     map_require = mapper.get_require_map(hdr)
     insert_list(conn, map_require, package_id, 'Require')
@@ -101,8 +100,14 @@ def insert_package(conn, hdr, **kwargs):
 
 
 def insert_file(conn, hdr, package_id):
-    pass
-
+    map_file = mapper.get_file_map(hdr)
+    #sql = 'SELECT insert_file ({0})'
+    #sql = sql.format(', '.join(['%s'] * len(map_file)))
+    r = [(package_id,) + i for i in zip(*map_file.values())]
+    with conn.cursor() as cur:
+        for i in r:
+            cur.callproc('insert_file', i)
+            #extras.execute_batch(cur, sql, r)
 
 @Timing.timeit('extract')
 def insert_list(conn, tagmap, package_id, table_name):
