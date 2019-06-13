@@ -35,7 +35,8 @@ class Display:
 
     def _showmsg(self):
         t = time() - self.timer
-        print(self.MSG.format(self.step, t, t / self.step))
+        print(self.MSG.format(self.step, t, t / self.step), end=' ')
+        print('Total: {0}'.format(self.counter))
 
     def _update(self):
         self.counter += 1
