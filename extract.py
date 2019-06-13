@@ -145,7 +145,6 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None):
         cur.execute(sql, (assigment_name, datetime.datetime.now(), assigment_tag))
         an_id = cur.fetchone()
         if an_id:
-            conn.commit()
             return an_id[0]
 
 
@@ -163,7 +162,7 @@ def insert_assigment(conn, assigmentname_id, package_id):
 
 
 @Timing.timeit('extract')
-def insert_smart(conn, table, commit=False, **fields):
+def insert_smart(conn, table, **fields):
     sql = (
         "INSERT INTO {table} ({key}) VALUES ({value}) ON CONFLICT ({key}) DO UPDATE set {conflicts} RETURNING id"
     )
@@ -179,8 +178,6 @@ def insert_smart(conn, table, commit=False, **fields):
             result = cur.fetchone()[0]
         except Exception as e:
             logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
-    if commit:
-        conn.commit()
     return result
 
 
@@ -229,7 +226,6 @@ class Worker(threading.Thread):
             except psycopg2.DatabaseError as error:
                 self.log.error(error)
             else:
-                self.connection.commit()
                 if self.display is not None:
                     self.display.inc()
         self.log.debug('{0} stop'.format(self.name))
@@ -237,6 +233,7 @@ class Worker(threading.Thread):
 
 def load(args):
     conn = psycopg2.connect(get_conn_str(args))
+    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
     if not check_latest_version(conn):
         conn.close()
         raise RuntimeError('Incorrect database schema version')
@@ -251,6 +248,7 @@ def load(args):
         display = Display()
     for i in range(args.workers):
         conn = psycopg2.connect(get_conn_str(args))
+        conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         connections.append(conn)
         worker = Worker(conn, packages, aname_id, display)
         worker.start()
@@ -273,8 +271,6 @@ def load_complete(conn, aid):
     sql = 'UPDATE AssigmentName SET complete=true WHERE id={0}'.format(aid)
     with conn.cursor() as cur:
         cur.execute(sql)
-    conn.commit()
-
 
 def get_args():
     parser = argparse.ArgumentParser()
