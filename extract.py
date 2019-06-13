@@ -10,7 +10,7 @@ import logging
 import configparser
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display
+from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display, valid_date
 from manager import check_latest_version
 
 
@@ -136,13 +136,15 @@ def insert_list(conn, tagmap, package_id, table_name):
 
 
 @Timing.timeit('extract')
-def insert_assigment_name(conn, assigment_name, assigment_tag=None):
+def insert_assigment_name(conn, assigment_name, assigment_tag=None, datetime_release=None):
+    if datetime_release is None:
+        datetime_release = datetime.datetime.now()
     with conn.cursor() as cur:
         sql = (
             'INSERT INTO AssigmentName (name, datetime_release, tag) '
             'VALUES (%s, %s, %s) RETURNING id'
         )
-        cur.execute(sql, (assigment_name, datetime.datetime.now(), assigment_tag))
+        cur.execute(sql, (assigment_name, datetime_release, assigment_tag))
         an_id = cur.fetchone()
         if an_id:
             return an_id[0]
@@ -238,7 +240,7 @@ def load(args):
         conn.close()
         raise RuntimeError('Incorrect database schema version')
     packages = LockedIterator(find_packages(args.path))
-    aname_id = insert_assigment_name(conn, args.assigment, args.tag)
+    aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
         raise RuntimeError('Unexpected behavior')
     workers = []
@@ -287,6 +289,7 @@ def get_args():
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
+    parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     return parser.parse_args()
 
 

@@ -7,6 +7,14 @@ from functools import wraps
 from time import time
 
 
+def valid_date(s):
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
+        msg = "Not a valid date: '{0}'.".format(s)
+        raise argparse.ArgumentTypeError(msg)
+
+
 def get_logger(name, tag='none'):
     """Create and configure logger."""
     logger = logging.getLogger(name)
