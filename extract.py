@@ -63,8 +63,11 @@ def insert_package(conn, hdr, **kwargs):
     package_id = None
 
     with conn.cursor() as cur:
-        cur.execute(sql_insert_package, tuple(map_package.values()))
-        package_id = cur.fetchone()
+        try:
+            cur.execute(sql_insert_package, tuple(map_package.values()))
+            package_id = cur.fetchone()
+        except Exception as e:
+            logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
 
     if not package_id:
         return
@@ -80,7 +83,10 @@ def insert_package(conn, hdr, **kwargs):
         ', '.join(['%s'] * len(map_package_info))
     )
     with conn.cursor() as cur:
-        cur.execute(sql_insert_package_info, tuple(map_package_info.values()))
+        try:
+            cur.execute(sql_insert_package_info, tuple(map_package_info.values()))
+        except Exception as e:
+            logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
 
     insert_file(conn, hdr, package_id)
 
@@ -99,6 +105,7 @@ def insert_package(conn, hdr, **kwargs):
     return package_id
 
 
+@Timing.timeit('extract')
 def insert_file(conn, hdr, package_id):
     map_file = mapper.get_file_map(hdr)
     #sql = 'SELECT insert_file ({0})'
@@ -106,8 +113,10 @@ def insert_file(conn, hdr, package_id):
     r = [(package_id,) + i for i in zip(*map_file.values())]
     with conn.cursor() as cur:
         for i in r:
-            cur.callproc('insert_file', i)
-            #extras.execute_batch(cur, sql, r)
+            try:
+                cur.callproc('insert_file', i)
+            except Exception as e:
+                logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
 
 @Timing.timeit('extract')
 def insert_list(conn, tagmap, package_id, table_name):
@@ -120,7 +129,10 @@ def insert_list(conn, tagmap, package_id, table_name):
     )
     r = [(package_id,) + i for i in zip(*tagmap.values())]
     with conn.cursor() as cur:
-        extras.execute_batch(cur, sql, r)
+        try:
+            extras.execute_batch(cur, sql, r)
+        except Exception as e:
+            logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
 
 
 @Timing.timeit('extract')
@@ -150,6 +162,7 @@ def insert_assigment(conn, assigmentname_id, package_id):
             return as_id[0]
 
 
+@Timing.timeit('extract')
 def insert_smart(conn, table, commit=False, **fields):
     sql = (
         "INSERT INTO {table} ({key}) VALUES ({value}) ON CONFLICT ({key}) DO UPDATE set {conflicts} RETURNING id"
@@ -161,8 +174,11 @@ def insert_smart(conn, table, commit=False, **fields):
         conflicts=', '.join(['{0}=EXCLUDED.{0}'.format(k) for k in fields.keys()]))
     result = None
     with conn.cursor() as cur:
-        cur.execute(sql, fields)
-        result = cur.fetchone()[0]
+        try:
+            cur.execute(sql, fields)
+            result = cur.fetchone()[0]
+        except Exception as e:
+            logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
     if commit:
         conn.commit()
     return result
