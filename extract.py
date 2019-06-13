@@ -239,6 +239,8 @@ def load(args):
     if not check_latest_version(conn):
         conn.close()
         raise RuntimeError('Incorrect database schema version')
+    if args.clean:
+        clean_assigment(conn)
     packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
@@ -274,6 +276,17 @@ def load_complete(conn, aid):
     with conn.cursor() as cur:
         cur.execute(sql)
 
+
+def clean_assigment(conn):
+    with conn.cursor() as cur:
+        # TODO:
+        sql = 'SELECT id FROM AssigmentName WHERE complete=false'
+        cur.execute(sql)
+        ls = cur.fetchall()
+        for i in ls:
+            cur.execute('DELETE FROM Assigment WHERE assigmentname_id=%s', i)
+            cur.execute('DELETE FROM AssigmentName WHERE id=%s', i)
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('assigment', type=str, help='Assigment name')
@@ -289,6 +302,7 @@ def get_args():
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
+    parser.add_argument('-C', '--clean', action='store_true', help='Delete uncompleted assigments')
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     return parser.parse_args()
 
