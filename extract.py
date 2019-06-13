@@ -152,16 +152,13 @@ def insert_assigment(conn, assigmentname_id, package_id):
 
 def insert_smart(conn, table, commit=False, **fields):
     sql = (
-        "WITH s AS (SELECT id FROM {table} WHERE {key_value}), "
-        "i AS (INSERT INTO {table} ({key}) SELECT {value} WHERE "
-        "NOT EXISTS (SELECT 1 FROM s) RETURNING id) "
-        "SELECT id FROM i UNION ALL SELECT id FROM s"
+        "INSERT INTO {table} ({key}) VALUES ({value}) ON CONFLICT ({key}) DO UPDATE set {conflicts} RETURNING id"
     )
     sql = sql.format(
         table=table,
         key=', '.join(fields.keys()),
-        value=', '.join(['%({0})s'.format(k) for k in fields.keys()]),
-        key_value=' AND '.join(['{0}=%({0})s'.format(k) for k in fields.keys()]))
+        value=', '.join(['\'{0}\''.format(k) for k in fields.values()]),
+        conflicts=', '.join(['{0}=EXCLUDED.{0}'.format(k) for k in fields.keys()]))
     result = None
     with conn.cursor() as cur:
         cur.execute(sql, fields)

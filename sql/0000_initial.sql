@@ -23,10 +23,9 @@ CREATE TABLE Task (
 CREATE TABLE Packager (
 	id bigserial PRIMARY KEY,
 	name varchar NOT NULL,
-	email varchar NOT NULL
+	email varchar NOT NULL,
+	UNIQUE (name, email)
 );
-
-CREATE INDEX ON Packager (name, email);
 
 CREATE TABLE Arch (
 	id bigserial PRIMARY KEY,
@@ -236,14 +235,12 @@ CREATE TABLE Config (
 	value varchar
 );
 
-CREATE FUNCTION insert_smart (t regclass, v varchar) RETURNS bigint AS
+CREATE FUNCTION insert_smart (_tbl regclass, _val varchar) RETURNS bigint AS
 $BODY$
 DECLARE
 result bigint;
 BEGIN
-EXECUTE format('WITH s AS (SELECT id FROM %1$I WHERE value = $1),'
-    ' i AS (INSERT INTO %1$I (value) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM s)'
-    ' RETURNING id) SELECT id FROM i UNION ALL SELECT id FROM s', t) INTO result USING v;
+	EXECUTE format('INSERT INTO %1$I (value) VALUES (%2$L) ON CONFLICT (value) DO UPDATE set value=EXCLUDED.value RETURNING id',_tbl,_val) into result;
 RETURN result;
 END;
 $BODY$
