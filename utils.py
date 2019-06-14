@@ -173,3 +173,20 @@ def symbolic(text):
     if text.startswith('symbolic'):
         return 'symbolic'
     return text
+
+
+class Cache:
+    def __init__(self, callback):
+        self.__data = {}
+        self.callback = callback
+
+    def get(self, key):
+        value = self.__data.get(key, None)
+        if value is None:
+            value = self.callback(key)
+            self.__data[key] = value
+        return value
+
+    def load(self, it):
+        for k, v in it:
+            self.__dict[k] = v

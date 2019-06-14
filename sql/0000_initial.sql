@@ -134,7 +134,7 @@ CREATE TABLE FileUserName (
 	value varchar UNIQUE
 );
 
-CREATE TABLE FileUserGroup (
+CREATE TABLE FileGroupName (
 	id bigserial PRIMARY KEY,
 	value varchar UNIQUE
 );
@@ -182,7 +182,7 @@ CREATE TABLE File (
 	FOREIGN KEY (fileinfo_id) REFERENCES FileInfo (id),
 	FOREIGN KEY (pathname_id) REFERENCES PathName (id),
 	FOREIGN KEY (fileusername_id) REFERENCES FileUserName (id),
-	FOREIGN KEY (filegroupname_id) REFERENCES FileUserGroup (id),
+	FOREIGN KEY (filegroupname_id) REFERENCES FileGroupName (id),
 	FOREIGN KEY (filelang_id) REFERENCES FileLang (id),
 	FOREIGN KEY (fileclass_id) REFERENCES FileClass (id)
 );
@@ -272,9 +272,9 @@ LANGUAGE PLPGSQL;
 
 CREATE OR REPLACE FUNCTION insert_file (
 package_id bigint, pathname_id varchar, filesize bigint, filemode integer, filerdev integer,
-filemtime timestamp, filemd5 varchar, filelinkto varchar, fileflag integer, fileusername_id varchar, 
-filegroupname_id varchar, fileverifyflag bigint, filedevice bigint, fileinode bigint, filelang_id varchar, 
-fileclass_id varchar, dirindex integer, basename varchar) RETURNS bigint AS
+filemtime timestamp, filemd5 varchar, filelinkto varchar, fileflag integer, fileusername_id bigint, 
+filegroupname_id bigint, fileverifyflag bigint, filedevice bigint, fileinode bigint, filelang_id bigint, 
+fileclass_id bigint, dirindex integer, basename varchar) RETURNS bigint AS
 $BODY$
 INSERT INTO File (
     package_id, fileinfo_id, pathname_id, filesize, filemode, filerdev, filemtime,
@@ -282,8 +282,8 @@ INSERT INTO File (
     filedevice, fileinode, filelang_id, fileclass_id, dirindex
     ) VALUES (
     package_id, insert_fileinfo(filemd5, filelinkto, basename), insert_smart('PathName', pathname_id), filesize, filemode, filerdev, filemtime,
-    fileflag, insert_smart('FileUserName', fileusername_id), insert_smart('FileUserGroup', filegroupname_id), fileverifyflag, 
-    filedevice, fileinode, insert_smart('FileLang', filelang_id), insert_smart('FileClass', fileclass_id), dirindex
+    fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
+    filedevice, fileinode, filelang_id, fileclass_id, dirindex
     ) RETURNING id;
 
 $BODY$

@@ -10,7 +10,7 @@ import logging
 import configparser
 
 from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display, valid_date
+from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display, valid_date, Cache
 from manager import check_latest_version
 
 
@@ -30,7 +30,7 @@ def check_package(conn, hdr):
 
 
 @Timing.timeit('extract')
-def insert_package(conn, hdr, **kwargs):
+def insert_package(conn,  cache, hdr, **kwargs):
     """Insert information about package into database.
 
     Also:
@@ -88,7 +88,7 @@ def insert_package(conn, hdr, **kwargs):
         except Exception as e:
             logging.getLogger('extract').error('{0} - {1}'.format(e, cur.query))
 
-    insert_file(conn, hdr, package_id)
+    insert_file(conn, cache, hdr, package_id)
 
     map_require = mapper.get_require_map(hdr)
     insert_list(conn, map_require, package_id, 'Require')
@@ -104,12 +104,13 @@ def insert_package(conn, hdr, **kwargs):
 
     return package_id
 
-
 @Timing.timeit('extract')
-def insert_file(conn, hdr, package_id):
+def insert_file(conn, cache, hdr, package_id,):
     map_file = mapper.get_file_map(hdr)
-    #sql = 'SELECT insert_file ({0})'
-    #sql = sql.format(', '.join(['%s'] * len(map_file)))
+    map_file['fileusername_id'] = [cache['FileUserName'].get(i) for i in map_file['fileusername_id']]
+    map_file['filegroupname_id'] = [cache['FileGroupName'].get(i) for i in map_file['filegroupname_id']]
+    map_file['filelang_id'] = [cache['FileLang'].get(i) for i in map_file['filelang_id']]
+    map_file['fileclass_id'] = [cache['FileClass'].get(i) for i in map_file['fileclass_id']]
     r = [(package_id,) + i for i in zip(*map_file.values())]
     with conn.cursor() as cur:
         for i in r:
@@ -183,6 +184,12 @@ def insert_smart(conn, table, **fields):
     return result
 
 
+def insert_smart_wrap(conn, table):
+    def wrap(key):
+        return insert_smart(conn, table, value=key)
+    return wrap
+
+
 def find_packages(path):
     """Recursively walk through directory for find rpm packages.
 
@@ -200,8 +207,9 @@ def get_header(ts, rpmfile):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, packages, aname_id, display, *args, **kwargs):
+    def __init__(self, connection, cache, packages, aname_id, display, *args, **kwargs):
         self.connection = connection
+        self.cache = cache
         self.packages = packages
         self.aname_id = aname_id
         self.display = display
@@ -219,7 +227,7 @@ class Worker(threading.Thread):
                 pkg_id = check_package(self.connection, header)
                 if pkg_id is None:
                     self.log.debug('Insert: {0}'.format(package))
-                    pkg_id = insert_package(self.connection, header, filename=os.path.basename(package))
+                    pkg_id = insert_package(self.connection, self.cache, header, filename=os.path.basename(package))
                 if pkg_id is None:
                     self.log.error('No id for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
@@ -241,6 +249,7 @@ def load(args):
         raise RuntimeError('Incorrect database schema version')
     if args.clean:
         clean_assigment(conn)
+    cache = init_cache(conn, ['FileUserName', 'FileGroupName', 'FileLang', 'FileClass'])
     packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
@@ -254,7 +263,7 @@ def load(args):
         conn = psycopg2.connect(get_conn_str(args))
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         connections.append(conn)
-        worker = Worker(conn, packages, aname_id, display)
+        worker = Worker(conn, cache, packages, aname_id, display)
         worker.start()
         workers.append(worker)
 
@@ -286,6 +295,20 @@ def clean_assigment(conn):
         for i in ls:
             cur.execute('DELETE FROM Assigment WHERE assigmentname_id=%s', i)
             cur.execute('DELETE FROM AssigmentName WHERE id=%s', i)
+
+
+def init_cache(conn, tables):
+    cache = {}
+    for tab in tables:
+        cb = insert_smart_wrap(conn, tab)
+        ch = Cache(cb)
+        sql = 'SELECT value, id FROM {0}'.format(tab)
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            ch.load(cur)
+        cache[tab] = ch
+    return cache
+
 
 def get_args():
     parser = argparse.ArgumentParser()
