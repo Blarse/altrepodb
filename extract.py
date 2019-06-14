@@ -230,6 +230,7 @@ class Worker(threading.Thread):
                     self.log.error('No id for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
                 self.log.debug('Add assigment: {0} id={1}'.format(package, pkg_id))
+                package_set_complete(self.connection, pkg_id)
                 insert_assigment(self.connection, self.aname_id, pkg_id)
             except psycopg2.DatabaseError as error:
                 self.log.error(error)
@@ -282,6 +283,11 @@ def load_complete(conn, aid):
     sql = 'UPDATE AssigmentName SET complete=true WHERE id={0}'.format(aid)
     with conn.cursor() as cur:
         cur.execute(sql)
+
+
+def package_set_complete(conn, pid):
+    with conn.cursor() as cur:
+        cur.execute('UPDATE Package SET complete=true WHERE id={0}'.format(pid))
 
 
 def clean_assigment(conn):

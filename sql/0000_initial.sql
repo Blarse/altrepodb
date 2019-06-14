@@ -55,6 +55,7 @@ CREATE TABLE Package (
 	sourcerpm varchar,
 	filename varchar,
 	sha1srcheader varchar(40),
+	complete boolean DEFAULT false,
 
 	FOREIGN KEY (task_id) REFERENCES Task (id),
 	FOREIGN KEY (packager_id) REFERENCES Packager (id),
