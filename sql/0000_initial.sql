@@ -149,16 +149,25 @@ CREATE TABLE FileClass (
 	value varchar UNIQUE
 );
 
+
+CREATE TABLE FileInfo (
+	id bigserial PRIMARY KEY,
+	filemd5 varchar,
+	filelinkto varchar,
+	basename varchar,
+	UNIQUE(filemd5, filelinkto, basename)
+);
+
+
 CREATE TABLE File (
 	id bigserial PRIMARY KEY,
 	package_id bigint,
+	fileinfo_id bigint,
 	pathname_id bigint,
 	filesize bigint,
 	filemode integer,
 	filerdev integer,
 	filemtime timestamp,
-	filemd5 varchar,
-	filelinkto varchar,
 	fileflag integer,
 	fileusername_id bigint,
 	filegroupname_id bigint,
@@ -168,9 +177,9 @@ CREATE TABLE File (
 	filelang_id bigint,
 	fileclass_id bigint,
 	dirindex integer,
-	basename varchar,
 
 	FOREIGN KEY (package_id) REFERENCES Package (id),
+	FOREIGN KEY (fileinfo_id) REFERENCES FileInfo (id),
 	FOREIGN KEY (pathname_id) REFERENCES PathName (id),
 	FOREIGN KEY (fileusername_id) REFERENCES FileUserName (id),
 	FOREIGN KEY (filegroupname_id) REFERENCES FileUserGroup (id),
@@ -179,7 +188,6 @@ CREATE TABLE File (
 );
 
 CREATE INDEX ON File (package_id);
-CREATE INDEX ON File (filemd5);
 
 CREATE TABLE Require (
 	id bigserial PRIMARY KEY,
@@ -246,6 +254,21 @@ END;
 $BODY$
 LANGUAGE PLPGSQL;
 
+-- filemd5 varchar,
+-- 	filelinkto varchar,
+-- 	basename varchar,
+
+CREATE FUNCTION insert_fileinfo (_filemd5 varchar, _filelinkto varchar, _basename varchar) RETURNS bigint AS
+$BODY$
+DECLARE
+result bigint;
+BEGIN
+	EXECUTE format('INSERT INTO FileInfo (filemd5, filelinkto, basename) VALUES (%1$L, %2$L, %3$L) ON CONFLICT (filemd5, filelinkto, basename) DO UPDATE set filemd5=EXCLUDED.filemd5, filelinkto=EXCLUDED.filelinkto, basename=EXCLUDED.basename RETURNING id', _filemd5, _filelinkto, _basename) into result;
+RETURN result;
+END;
+$BODY$
+LANGUAGE PLPGSQL;
+
 
 CREATE OR REPLACE FUNCTION insert_file (
 package_id bigint, pathname_id varchar, filesize bigint, filemode integer, filerdev integer,
@@ -254,13 +277,13 @@ filegroupname_id varchar, fileverifyflag bigint, filedevice bigint, fileinode bi
 fileclass_id varchar, dirindex integer, basename varchar) RETURNS bigint AS
 $BODY$
 INSERT INTO File (
-    package_id, pathname_id, filesize, filemode, filerdev, filemtime, filemd5, 
-    filelinkto, fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
-    filedevice, fileinode, filelang_id, fileclass_id, dirindex, basename
+    package_id, fileinfo_id, pathname_id, filesize, filemode, filerdev, filemtime,
+    fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
+    filedevice, fileinode, filelang_id, fileclass_id, dirindex
     ) VALUES (
-    package_id, insert_smart('PathName', pathname_id), filesize, filemode, filerdev, filemtime, filemd5, 
-    filelinkto, fileflag, insert_smart('FileUserName', fileusername_id), insert_smart('FileUserGroup', filegroupname_id), fileverifyflag, 
-    filedevice, fileinode, insert_smart('FileLang', filelang_id), insert_smart('FileClass', fileclass_id), dirindex, basename
+    package_id, insert_fileinfo(filemd5, filelinkto, basename), insert_smart('PathName', pathname_id), filesize, filemode, filerdev, filemtime,
+    fileflag, insert_smart('FileUserName', fileusername_id), insert_smart('FileUserGroup', filegroupname_id), fileverifyflag, 
+    filedevice, fileinode, insert_smart('FileLang', filelang_id), insert_smart('FileClass', fileclass_id), dirindex
     ) RETURNING id;
 
 $BODY$
