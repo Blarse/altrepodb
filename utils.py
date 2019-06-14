@@ -189,4 +189,4 @@ class Cache:
 
     def load(self, it):
         for k, v in it:
-            self.__dict[k] = v
+            self.__data[k] = v
