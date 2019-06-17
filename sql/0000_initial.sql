@@ -111,7 +111,6 @@ CREATE TABLE PackageInfo (
 
 
 CREATE TABLE Assigment (
-	id bigserial PRIMARY KEY,
 	assigmentname_id bigint,
 	package_id bigint,
 

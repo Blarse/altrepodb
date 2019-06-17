@@ -150,15 +150,9 @@ def insert_assigment_name(conn, assigment_name, assigment_tag=None, datetime_rel
 
 @Timing.timeit('extract')
 def insert_assigment(conn, assigmentname_id, package_id):
-    sql = (
-        'INSERT INTO Assigment (assigmentname_id, package_id)'
-        ' VALUES (%s, %s) RETURNING id'
-    )
+    sql = 'INSERT INTO Assigment (assigmentname_id, package_id) VALUES (%s, %s)'
     with conn.cursor() as cur:
         cur.execute(sql, (assigmentname_id, package_id))
-        as_id = cur.fetchone()
-        if as_id:
-            return as_id[0]
 
 
 @Timing.timeit('extract')
