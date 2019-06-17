@@ -15,12 +15,14 @@ def valid_date(s):
         raise argparse.ArgumentTypeError(msg)
 
 
-def get_logger(name, tag='none'):
+def get_logger(name, tag=None, date=None):
     """Create and configure logger."""
     logger = logging.getLogger(name)
     fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    if date is None:
+        date = datetime.date.today()
     fh = handlers.RotatingFileHandler(
-        filename='{0}_{1}.log'.format(name, tag),
+        filename='{0}-{1}-{2}.log'.format(name, tag, date.strftime('%Y-%m-%d')),
         maxBytes=2**26,
         backupCount=10
     )

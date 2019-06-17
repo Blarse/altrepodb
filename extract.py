@@ -355,7 +355,7 @@ def set_config(args):
 def main():
     args = get_args()
     args = set_config(args)
-    log = get_logger('extract', args.assigment)
+    log = get_logger('extract', args.assigment, args.date)
     if args.debug:
         log.setLevel(logging.DEBUG)
     if args.timing:
