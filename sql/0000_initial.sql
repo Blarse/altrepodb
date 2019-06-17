@@ -272,7 +272,7 @@ LANGUAGE PLPGSQL;
 
 
 CREATE OR REPLACE FUNCTION insert_file (
-package_id bigint, pathname_id bigint, filesize bigint, filemode integer, filerdev integer,
+package_id bigint, pathname_id varchar, filesize bigint, filemode integer, filerdev integer,
 filemtime timestamp, filemd5 varchar, filelinkto varchar, fileflag integer, fileusername_id bigint, 
 filegroupname_id bigint, fileverifyflag bigint, filedevice bigint, fileinode bigint, filelang_id bigint, 
 fileclass_id bigint, dirindex integer, basename varchar) RETURNS bigint AS
@@ -282,7 +282,7 @@ INSERT INTO File (
     fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
     filedevice, fileinode, filelang_id, fileclass_id, dirindex
     ) VALUES (
-    package_id, insert_fileinfo(filemd5, filelinkto, basename), pathname_id, filesize, filemode, filerdev, filemtime,
+    package_id, insert_fileinfo(filemd5, filelinkto, basename), insert_smart('PathName', pathname_id), filesize, filemode, filerdev, filemtime,
     fileflag, fileusername_id, filegroupname_id, fileverifyflag, 
     filedevice, fileinode, filelang_id, fileclass_id, dirindex
     ) RETURNING id;

@@ -104,7 +104,6 @@ def insert_package(conn,  cache, hdr, **kwargs):
 @Timing.timeit('extract')
 def insert_file(conn, cache, hdr, package_id,):
     map_file = mapper.get_file_map(hdr)
-    map_file['pathname_id'] = [cache['PathName'].get(i) for i in map_file['pathname_id']]
     map_file['fileusername_id'] = [cache['FileUserName'].get(i) for i in map_file['fileusername_id']]
     map_file['filegroupname_id'] = [cache['FileGroupName'].get(i) for i in map_file['filegroupname_id']]
     map_file['filelang_id'] = [cache['FileLang'].get(i) for i in map_file['filelang_id']]
@@ -248,7 +247,7 @@ def load(args):
         raise RuntimeError('Incorrect database schema version')
     if args.clean:
         clean_assigment(conn)
-    cache = init_cache(conn, ['Arch', 'PathName', 'FileUserName', 'FileGroupName', 'FileLang', 'FileClass'])
+    cache = init_cache(conn, ['Arch', 'FileUserName', 'FileGroupName', 'FileLang', 'FileClass'])
     packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
