@@ -188,6 +188,8 @@ CREATE TABLE File (
 );
 
 CREATE INDEX ON File (package_id);
+CREATE INDEX ON File (fileinfo_id);
+CREATE INDEX ON File (pathname_id);
 
 CREATE TABLE Require (
 	id bigserial PRIMARY KEY,
