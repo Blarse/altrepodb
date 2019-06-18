@@ -5,7 +5,7 @@ import os.path
 import argparse
 import psycopg2
 import rpm
-from extract import get_header, insert_package
+from extract import get_header, insert_package, init_cache, package_set_complete
 from utils import get_logger, cvt, get_conn_str, get_logger
 from manager import check_latest_version
 
@@ -44,32 +44,38 @@ class Task:
             r = cur.fetchone()
             if r:
                 self.db_id = r[0]
-        conn.commit()
 
     def save_subtasks(self, conn):
+        cache = init_cache(conn, load=False)
         src_list = self._get_pkg_list('plan/add-src')
         bin_list = self._get_pkg_list('plan/add-bin')
         subtasks = {}
         for pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
-            sha1header = insert_package(
+            pkg_id = insert_package(
                 conn,
+                cache,
                 hdr,
                 filename=os.path.basename(pkg),
                 task_id=self.db_id,
                 subtask=int(n)
             )
-            subtasks[n] = sha1header
+            if pkg_id:
+                package_set_complete(conn, pkg_id)
+            subtasks[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
         for pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
-            insert_package(
+            pkg_id = insert_package(
                 conn,
+                cache,
                 hdr,
                 filename=os.path.basename(pkg),
                 sha1srcheader=subtasks[n],
                 task_id=self.db_id,
                 subtask=int(n)
             )
+            if pkg_id:
+                package_set_complete(conn, pkg_id)
 
     def save(self, conn):
         self.save_task(conn)
@@ -85,7 +91,7 @@ class Girar:
         try:
             r = urllib.request.urlopen(url)
         except Exception as e:
-            log.error(e)
+            log.error('{0} - {1}'.format(e, url))
             if status:
                 return False
             return None
@@ -144,6 +150,7 @@ def main():
     conn = None
     try:
         conn = psycopg2.connect(get_conn_str(args))
+        conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         if not check_latest_version(conn):
             raise RuntimeError('Incorrect database schema version')
         load(args, conn)

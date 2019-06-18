@@ -14,6 +14,9 @@ from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str,
 from manager import check_latest_version
 
 
+CACHE_TABLES = ['Arch', 'FileUserName', 'FileGroupName', 'FileLang', 'FileClass']
+
+
 @Timing.timeit('extract')
 def check_package(conn, hdr):
     """Check whether the package is in the database.
@@ -241,7 +244,7 @@ def load(args):
         raise RuntimeError('Incorrect database schema version')
     if args.clean:
         clean_assigment(conn)
-    cache = init_cache(conn, ['Arch', 'FileUserName', 'FileGroupName', 'FileLang', 'FileClass'])
+    cache = init_cache(conn)
     packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
@@ -294,15 +297,16 @@ def clean_assigment(conn):
             cur.execute('DELETE FROM AssigmentName WHERE id=%s', i)
 
 
-def init_cache(conn, tables):
+def init_cache(conn, load=True):
     cache = {}
-    for tab in tables:
+    for tab in CACHE_TABLES:
         cb = insert_smart_wrap(conn, tab)
         ch = Cache(cb)
-        sql = 'SELECT value, id FROM {0}'.format(tab)
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            ch.load(cur)
+        if load:
+            sql = 'SELECT value, id FROM {0}'.format(tab)
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                ch.load(cur)
         cache[tab] = ch
     return cache
 

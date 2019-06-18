@@ -17,7 +17,9 @@ CREATE TABLE Task (
 	iteration integer NOT NULL,
 	status varchar NOT NULL,
 	is_test boolean NOT NULL,
-	branch varchar NOT NULL
+	branch varchar NOT NULL,
+
+	UNIQUE (task_id, try, iteration)
 );
 
 CREATE TABLE Packager (
