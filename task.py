@@ -5,6 +5,7 @@ import os.path
 import argparse
 import psycopg2
 import rpm
+import configparser
 from extract import get_header, insert_package, init_cache, package_set_complete
 from utils import get_logger, cvt, get_conn_str, get_logger
 from manager import check_latest_version
