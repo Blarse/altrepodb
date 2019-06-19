@@ -226,7 +226,7 @@ class Worker(threading.Thread):
                     self.log.error('No id for {0}'.format(package))
                     raise RuntimeError('Unexpected behavior')
                 self.log.debug('Add assigment: {0} id={1}'.format(package, pkg_id))
-                package_set_complete(self.connection, pkg_id)
+                package_update(self.connection, pkg_id, complete=True)
                 insert_assigment(self.connection, self.aname_id, pkg_id)
             except psycopg2.DatabaseError as error:
                 self.log.error(error)
@@ -281,9 +281,14 @@ def load_complete(conn, aid):
         cur.execute(sql)
 
 
-def package_set_complete(conn, pid):
+def package_update(conn, pid, **fields):
+    sql = 'UPDATE Package SET {0} WHERE id={1}'
+    sql = sql.format(
+        ', '.join(['{0}={1}'.format(k, v) for k, v in fields.items()]),
+        pid
+    )
     with conn.cursor() as cur:
-        cur.execute('UPDATE Package SET complete=true WHERE id={0}'.format(pid))
+        cur.execute(sql)
 
 
 def clean_assigment(conn):
@@ -337,7 +342,7 @@ def set_config(args):
         with open(args.config) as f:
             cfg.read_file(f)
         # default
-        args.workers = args.workers or cfg['DEFAULT'].get('workers', 10)
+        args.workers = args.workers or cfg['DEFAULT'].getint('workers', 10)
         # database
         if cfg.has_section('DATABASE'):
             section_db = cfg['DATABASE']
@@ -346,6 +351,8 @@ def set_config(args):
             args.port = args.port or section_db.get('port', None)
             args.user = args.user or section_db.get('user', None)
             args.password = args.password or section_db.get('password', None)
+    else:
+        args.workers = args.workers or 10
     return args
 
 

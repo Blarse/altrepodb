@@ -6,7 +6,7 @@ import argparse
 import psycopg2
 import rpm
 import configparser
-from extract import get_header, insert_package, init_cache, package_set_complete
+from extract import get_header, insert_package, init_cache, package_update, check_package
 from utils import get_logger, cvt, get_conn_str, get_logger
 from manager import check_latest_version
 
@@ -31,6 +31,11 @@ class Task:
     def _get_pkg_list(self, method):
         return [i.split('\t')[-2:] for i in self.girar.get(method).split('\n') if len(i) > 0]
 
+    def _log(self, action, hdr, subtask_id):
+        log.info('{0} package: {1} taskid: {2}, subtask: {3}'.format(
+            action, cvt(hdr[rpm.RPMTAG_NAME]), self.db_id, subtask_id)
+        )
+
     def save_task(self, conn):
         if not self.fields:
             log.info('Nothing to save')
@@ -45,6 +50,7 @@ class Task:
             r = cur.fetchone()
             if r:
                 self.db_id = r[0]
+                log.info('Add new task id={0}'.format(self.fields['task_id']))
 
     def save_subtasks(self, conn):
         cache = init_cache(conn, load=False)
@@ -53,30 +59,53 @@ class Task:
         subtasks = {}
         for pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
-            pkg_id = insert_package(
-                conn,
-                cache,
-                hdr,
-                filename=os.path.basename(pkg),
-                task_id=self.db_id,
-                subtask=int(n)
-            )
+            pkg_id = check_package(conn, hdr)
             if pkg_id:
-                package_set_complete(conn, pkg_id)
+                package_update(
+                    conn,
+                    pkg_id,
+                    task_id=self.db_id,
+                    subtask=int(n)
+                )
+                self._log('Update', hdr, n)
+            else:
+                pkg_id = insert_package(
+                    conn,
+                    cache,
+                    hdr,
+                    filename=os.path.basename(pkg),
+                    task_id=self.db_id,
+                    subtask=int(n)
+                )
+                if pkg_id:
+                    package_update(conn, pkg_id, complete=True)
+                self._log('Insert', hdr, n)
             subtasks[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
         for pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
-            pkg_id = insert_package(
-                conn,
-                cache,
-                hdr,
-                filename=os.path.basename(pkg),
-                sha1srcheader=subtasks[n],
-                task_id=self.db_id,
-                subtask=int(n)
-            )
+            pkg_id = check_package(conn, hdr)
             if pkg_id:
-                package_set_complete(conn, pkg_id)
+                package_update(
+                    conn, 
+                    pkg_id, 
+                    sha1srcheader=subtasks[n],
+                    task_id=self.db_id, 
+                    subtask=int(n)
+                )
+                self._log('Update', hdr, n)
+            else:
+                pkg_id = insert_package(
+                    conn,
+                    cache,
+                    hdr,
+                    filename=os.path.basename(pkg),
+                    sha1srcheader=subtasks[n],
+                    task_id=self.db_id,
+                    subtask=int(n)
+                )
+                if pkg_id:
+                    package_update(conn, pkg_id, complete=True)
+                self._log('Insert', hdr, n)
 
     def save(self, conn):
         self.save_task(conn)
