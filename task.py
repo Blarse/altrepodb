@@ -10,7 +10,11 @@ from extract import get_header, insert_package, init_cache, package_update, chec
 from utils import get_logger, cvt, get_conn_str, get_logger
 from manager import check_latest_version
 
-log = get_logger('task')
+
+NAME = 'task'
+
+log = logging.getLogger(NAME)
+
 
 class Task:
     def __init__(self, girar):
@@ -38,7 +42,7 @@ class Task:
 
     def save_task(self, conn):
         if not self.fields:
-            log.info('Nothing to save')
+            log.info('nothing to save')
             return
         sql = 'INSERT INTO Task ({0}) VALUES ({1}) RETURNING id'
         sql = sql.format(
@@ -50,7 +54,7 @@ class Task:
             r = cur.fetchone()
             if r:
                 self.db_id = r[0]
-                log.info('Add new task id={0}'.format(self.fields['task_id']))
+                log.info('add new task id={0}'.format(self.fields['task_id']))
 
     def save_subtasks(self, conn):
         cache = init_cache(conn, load=False)
@@ -67,7 +71,7 @@ class Task:
                     task_id=self.db_id,
                     subtask=int(n)
                 )
-                self._log('Update', hdr, n)
+                self._log('update', hdr, n)
             else:
                 pkg_id = insert_package(
                     conn,
@@ -79,7 +83,7 @@ class Task:
                 )
                 if pkg_id:
                     package_update(conn, pkg_id, complete=True)
-                self._log('Insert', hdr, n)
+                self._log('insert', hdr, n)
             subtasks[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
         for pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
@@ -92,7 +96,7 @@ class Task:
                     task_id=self.db_id, 
                     subtask=int(n)
                 )
-                self._log('Update', hdr, n)
+                self._log('update', hdr, n)
             else:
                 pkg_id = insert_package(
                     conn,
@@ -105,10 +109,14 @@ class Task:
                 )
                 if pkg_id:
                     package_update(conn, pkg_id, complete=True)
-                self._log('Insert', hdr, n)
+                self._log('insert', hdr, n)
 
     def save(self, conn):
-        self.save_task(conn)
+        try:
+            self.save_task(conn)
+        except psycopg2.errors.UniqueViolation:
+            log.info('task already loaded')
+            return
         self.save_subtasks(conn)
 
 
@@ -172,20 +180,21 @@ def load(args, conn):
         task = Task(girar)
         task.save(conn)
     else:
-        log.info('Task not found: {0}'.format(args.url))
+        log.info('task not found: {0}'.format(args.url))
 
 
 def main():
     args = get_args()
+    logger = get_logger(NAME)
     conn = None
     try:
         conn = psycopg2.connect(get_conn_str(args))
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         if not check_latest_version(conn):
-            raise RuntimeError('Incorrect database schema version')
+            raise RuntimeError('incorrect database schema version')
         load(args, conn)
     except Exception as error:
-        log.error(error)
+        logger.error(error, exc_info=True)
     finally:
         if conn is not None:
             conn.close()

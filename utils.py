@@ -18,17 +18,25 @@ def valid_date(s):
 def get_logger(name, tag=None, date=None):
     """Create and configure logger."""
     logger = logging.getLogger(name)
-    fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    logger.setLevel(logging.INFO)
+
     if date is None:
         date = datetime.date.today()
-    fh = handlers.RotatingFileHandler(
+    file_handler = handlers.RotatingFileHandler(
         filename='{0}-{1}-{2}.log'.format(name, tag, date.strftime('%Y-%m-%d')),
         maxBytes=2**26,
         backupCount=10
     )
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s')
+    file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.DEBUG)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(logging.Formatter('%(asctime)s\t%(message)s'))
+    stream_handler.setLevel(logging.INFO)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
     return logger
 
 
@@ -36,8 +44,9 @@ class Display:
     MSG = 'Processed {0} packages in {1:.2f} sec. {2:.3f} sec. per package on average.'
 
     """Show information about progress."""
-    def __init__(self, step=1000):
+    def __init__(self, log, step=1000):
         self.lock = threading.Lock()
+        self.log = log
         self.counter = 0
         self.timer = None
         self.step = step
@@ -45,8 +54,8 @@ class Display:
 
     def _showmsg(self):
         t = time() - self.timer
-        print(self.MSG.format(self.step, t, t / self.step), end=' ')
-        print('Total: {0}'.format(self.counter))
+        self.log.info(self.MSG.format(self.step, t, t / self.step))
+        self.log.info('Total: {0}'.format(self.counter))
 
     def _update(self):
         self.counter += 1
@@ -63,8 +72,7 @@ class Display:
             self._update()
 
     def conclusion(self):
-        print('=' * 80)
-        print(self.MSG.format(self.counter, self.timesum, self.timesum / self.counter))
+        self.log.info(self.MSG.format(self.counter, self.timesum, self.timesum / self.counter))
 
 
 class Timing:
