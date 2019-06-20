@@ -284,7 +284,7 @@ def load_complete(conn, aid):
 def package_update(conn, pid, **fields):
     sql = 'UPDATE Package SET {0} WHERE id={1}'
     sql = sql.format(
-        ', '.join(['{0}={1}'.format(k, v) for k, v in fields.items()]),
+        ', '.join(["{0}='{1}'".format(k, v) for k, v in fields.items()]),
         pid
     )
     with conn.cursor() as cur:
