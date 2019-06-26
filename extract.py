@@ -8,7 +8,10 @@ import mapper
 import threading
 import logging
 import configparser
+import tempfile
+import pycdlib
 
+from io import BufferedRandom
 from psycopg2 import extras
 from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display, valid_date, Cache
 from manager import check_latest_version
@@ -212,10 +215,34 @@ def find_packages(path):
                 yield f
 
 
+def iso_find_packages(iso):
+    for dirname, _, filenames in iso.walk(iso_path='/'):
+        for filename in filenames:
+            f = os.path.join(dirname, filename)
+            if f.endswith('.RPM;1'):
+                tmp_file = tempfile.TemporaryFile()
+                iso.get_file_from_iso_fp(tmp_file, iso_path=f)
+                tmp_file.seek(0)
+                tmp_file.iname = f.lower()[:-2]
+                yield tmp_file
+
+
 @Timing.timeit(NAME)
 def get_header(ts, rpmfile):
     log.debug('read header {0}'.format(rpmfile))
     return ts.hdrFromFdno(rpmfile)
+
+
+def check_iso(path):
+    if os.path.isdir(path):
+        return None
+    iso = pycdlib.PyCdlib()
+    try:
+        iso.open(path)
+    except pycdlib.pycdlibexception.PyCdlibInvalidInput:
+        log.error('error open iso: {0}'.format(path))
+        return None
+    return iso
 
 
 class Worker(threading.Thread):
@@ -231,9 +258,12 @@ class Worker(threading.Thread):
         ts = rpm.TransactionSet()
         log.debug('thread start')
         for package in self.packages:
-            log.debug('process: {0}'.format(package))
             try:
                 header = get_header(ts, package)
+                if isinstance(package, BufferedRandom):
+                    package.close()
+                    package = package.iname
+                log.debug('process: {0}'.format(package))
                 pkg_id = check_package(self.connection, header)
                 if pkg_id is None:
                     pkg_id = insert_package(self.connection, self.cache, header, filename=os.path.basename(package))
@@ -259,7 +289,11 @@ def load(args):
     if args.clean:
         clean_assigment(conn)
     cache = init_cache(conn)
-    packages = LockedIterator(find_packages(args.path))
+    iso = check_iso(args.path)
+    if iso:
+        packages = LockedIterator(iso_find_packages(iso))
+    else:
+        packages = LockedIterator(find_packages(args.path))
     aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
     if aname_id is None:
         raise RuntimeError('unexpected behavior')
@@ -280,6 +314,9 @@ def load(args):
         w.join()
 
     load_complete(conn, aname_id)
+
+    if iso:
+        iso.close()
 
     for c in connections:
         if c is not None:
