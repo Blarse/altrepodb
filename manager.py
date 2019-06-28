@@ -4,8 +4,6 @@ import os
 import re
 import psycopg2
 
-from utils import get_conn_str
-
 SQL_DIR = './sql'
 filename_pattern = re.compile('\d{4}_[a-z0-9\-]+\.sql')
 
@@ -28,11 +26,10 @@ def get_current_version(files):
 
 def get_actual_version(conn):
     sql = "SELECT value FROM Config WHERE key='DBVERSION'"
-    with conn.cursor() as cur:
-        cur.execute(sql)
-        result = cur.fetchone()
-        if result:
-            return int(result[0])
+    result = conn.execute(sql)
+    if result:
+        return int(result[0][0])
+    return -1
 
 
 def get_args():
@@ -54,11 +51,17 @@ def set_config(args):
             cfg.read_file(f)
         if cfg.has_section('DATABASE'):
             section_db = cfg['DATABASE']
-            args.dbname = args.dbname or section_db.get('dbname', None)
-            args.host = args.host or section_db.get('host', None)
+            args.dbname = args.dbname or section_db.get('dbname', 'default')
+            args.host = args.host or section_db.get('host', 'localhost')
             args.port = args.port or section_db.get('port', None)
-            args.user = args.user or section_db.get('user', None)
-            args.password = args.password or section_db.get('password', None)
+            args.user = args.user or section_db.get('user', 'default')
+            args.password = args.password or section_db.get('password', '')
+    else:
+        args.dbname = args.dbname or 'default'
+        args.host = args.host or 'localhost'
+        args.port = args.port or None
+        args.user = args.user or 'default'
+        args.password = args.password or ''
     return args
 
 
@@ -98,7 +101,7 @@ def check_latest_version(conn):
 def main():
     args = get_args()
     args = set_config(args)
-    conn = psycopg2.connect(get_conn_str(args))
+    conn = psycopg2.connect(args)
     conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
     try:

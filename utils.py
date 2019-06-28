@@ -89,20 +89,24 @@ class Timing:
                 result = f(*args, **kw)
                 te = time()
                 if cls.timing:
-                    log.info('F:{0} T:{1:.5f}'.format(f.__name__, te-ts))
+                    log.debug('F:{0} T:{1:.5f}'.format(f.__name__, te-ts))
                 return result
             return wrap
         return timer
 
 
-def cvt(b):
+def cvt(b, t=str):
     """Convert byte string or list of byte strings to strings
     or list strings.
     """
-    if isinstance(b, bytes):
+    if isinstance(b, bytes) and t is str:
         return b.decode('latin-1')
     if isinstance(b, list):
         return [cvt(i) for i in b]
+    if b is None:
+        if t is bytes: return ''
+        if t is str: return ''
+        if t is int: return 0
     return b
 
 
@@ -143,21 +147,6 @@ def packager_parse(packager):
     m = packager_pattern.search(packager)
     if m is not None:
         return m.group(1), m.group(3)
-
-
-def get_conn_str(args):
-    r = []
-    if args.dbname is not None:
-        r.append("dbname={0}".format(args.dbname))
-    if args.user is not None:
-        r.append("user={0}".format(args.user))
-    if args.password is not None:
-        r.append("password={0}".format(args.password))
-    if args.host is not None:
-        r.append("host={0}".format(args.host))
-    if args.port is not None:
-        r.append("port={0}".format(args.port))
-    return ' '.join(r)
 
 
 class LockedIterator:

@@ -1,42 +1,42 @@
 CREATE TABLE AssigmentName (
 	id 					UUID,
 	name 				String,
-	datetime_release 	UInt64,
+	datetime_release 	DateTime,
 	tag 				String,
 	complete 			UInt8
 ) 
 ENGINE = MergeTree
-ORDER BY (id, name, datetime_release, complete);
+ORDER BY (id, name, datetime_release, tag);
 
 
 CREATE TABLE Tasks (
 	id 				UInt32,
 	subtask 		UInt32,
-	sourcepkg_cs 	FixedString(20),
+	sourcepkg_cs 	FixedString(40),
 	try 			UInt16,
 	iteration 		UInt8,
 	status 			String,
 	is_test 		UInt8,
 	branch 			String,
-	pkgs 			Array(FixedString(20))
+	pkgs 			Array(FixedString(40))
 ) 
-ENGINE = ReplacingMergeTree
+ENGINE = MergeTree
 ORDER BY (id, subtask);
 
 
 CREATE TABLE Assigment (
-	assigment_id 	UUID,
-	package 		FixedString(20)
+	uuid 		UUID,
+	pkgcs 		FixedString(40)
 ) 
-ENGINE = ReplacingMergeTree
-ORDER BY (assigment_id, package);
+ENGINE = MergeTree
+ORDER BY (uuid, pkgcs);
 
 
 CREATE TABLE File (
-	pkgcs 			FixedString(20),
+	pkgcs 			FixedString(40),
 	filename 		String,
 	filelinkto 		String,
-	filemd5 		FixedString(16),
+	filemd5 		FixedString(32),
 	filesize 		UInt32,
 	filemode 		UInt16,
 	filerdev 		UInt16,
@@ -49,13 +49,12 @@ CREATE TABLE File (
 	filelang 		String,
 	fileclass 		String
 ) 
-ENGINE = ReplacingMergeTree
+ENGINE = MergeTree
 ORDER BY (filename, pkgcs);
 
 
-CREATE TABLE Package
-(
-    pkgcs 				FixedString(20), 
+CREATE TABLE Package (
+    pkgcs 				FixedString(40), 
     packager 			String, 
     packager_email 		String, 
     name 				String, 
@@ -74,7 +73,7 @@ CREATE TABLE Package
     disttag 			String, 
     sourcerpm 			String, 
     filename 			String, 
-    sha1srcheader 		FixedString(20), 
+    sha1srcheader 		FixedString(40), 
     complete 			UInt8, 
     summary 			String, 
     description 		String, 
@@ -108,18 +107,18 @@ CREATE TABLE Package
     payloadflags 		String, 
     platform 			String
 )
-ENGINE = ReplacingMergeTree
+ENGINE = MergeTree
 ORDER BY (pkgcs, name);
 
 
 CREATE TABLE Depends (
-	pkgcs 		FixedString(20),
+	pkgcs 		FixedString(40),
 	name 		String,
 	version 	String,
 	flag 		UInt32,
 	dptype 		Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 )
-ENGINE =  ReplacingMergeTree
+ENGINE =  MergeTree
 ORDER BY (pkgcs, name, version, flag, dptype);
 
 
@@ -127,5 +126,8 @@ CREATE TABLE Config (
 	key 		String,
 	value 		String
 )
-ENGINE =  ReplacingMergeTree
+ENGINE =  MergeTree
 ORDER BY (key, value);
+
+
+INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');

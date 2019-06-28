@@ -3,21 +3,21 @@ import os
 import sys
 import datetime
 import rpm
-import psycopg2
+import clickhouse_driver as chd
 import mapper
 import threading
 import logging
 import configparser
 import tempfile
 import pycdlib
+import itertools
 
+from uuid import uuid4
 from io import BufferedRandom
-from psycopg2 import extras
-from utils import cvt, packager_parse, get_logger, LockedIterator, get_conn_str, Timing, Display, valid_date, Cache
+from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache
 from manager import check_latest_version
 
 
-CACHE_TABLES = ['Arch', 'FileUserName', 'FileGroupName', 'FileLang', 'FileClass']
 NAME = 'extract'
 
 
@@ -30,21 +30,19 @@ def check_package(conn, hdr):
 
     return id of package from database or None
     """
-    sql = "SELECT id FROM Package WHERE sha1header='{0}'"
+    sql = "SELECT COUNT(pkgcs) FROM Package WHERE pkgcs=%(sha1)s"
     sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
     log.debug('check package for sha1: {0}'.format(sha1))
-    with conn.cursor() as cur:
-        cur.execute(sql.format(sha1))
-        result = cur.fetchone()
-        if result:
-            log.debug('package sha1:{0} found return id: {1}'.format(sha1, result[0]))
-            return result[0]
-        log.debug('package sha1: {0} not found'.format(sha1))
-        return None
+    result = conn.execute(sql, {'sha1': sha1})
+    if result[0][0] > 0:
+        log.debug('package sha1:{0} found return id: {1}'.format(sha1, result[0]))
+        return sha1
+    log.debug('package sha1: {0} not found'.format(sha1))
+    return None
 
 
 @Timing.timeit(NAME)
-def insert_package(conn,  cache, hdr, **kwargs):
+def insert_package(conn, hdr, **kwargs):
     """Insert information about package into database.
 
     Also:
@@ -52,154 +50,83 @@ def insert_package(conn,  cache, hdr, **kwargs):
     """
     map_package = mapper.get_package_map(hdr)
     map_package.update(**kwargs)
-    # add packager
-    name_email = packager_parse(cvt(hdr[rpm.RPMTAG_PACKAGER]))
-    if name_email:
-        pname, pemail = name_email
-        pid = insert_smart(conn, 'Packager', name=pname, email=pemail)
-        if pid:
-            map_package.update(packager_id=pid)
-    # add arch
-    arch = mapper.detect_arch(hdr)
-    map_package.update(arch_id=cache['Arch'].get(arch))
 
-    sql_insert = 'INSERT INTO {0} ({1}) VALUES ({2}) ON CONFLICT DO NOTHING RETURNING id'
-
-    sql_insert_package = sql_insert.format(
-        'Package',
-        ', '.join(map_package.keys()),
-        ', '.join(['%s'] * len(map_package))
+    sql_insert = 'INSERT INTO Package ({0}) VALUES'.format(
+        ', '.join(map_package.keys())
     )
 
-    package_id = None
+    conn.execute(sql_insert, [map_package])
 
-    with conn.cursor() as cur:
-        try:
-            cur.execute(sql_insert_package, tuple(map_package.values()))
-            package_id = cur.fetchone()
-        except Exception as e:
-            log.error('{0} - {1}'.format(e, cur.query))
+    pkgcs = map_package['pkgcs']
 
-    if not package_id:
-        return
-
-    package_id = package_id[0]
-
-    # insert package info
-    map_package_info = mapper.get_package_info_map(hdr)
-    map_package_info.update(package_id=package_id)
-    sql_insert_package_info = sql_insert.format(
-        'PackageInfo',
-        ', '.join(map_package_info.keys()),
-        ', '.join(['%s'] * len(map_package_info))
-    )
-    with conn.cursor() as cur:
-        try:
-            cur.execute(sql_insert_package_info, tuple(map_package_info.values()))
-        except Exception as e:
-            log.error('{0} - {1}'.format(e, cur.query))
-
-    insert_file(conn, cache, hdr, package_id)
+    insert_file(conn, pkgcs, hdr)
 
     map_require = mapper.get_require_map(hdr)
-    insert_list(conn, map_require, package_id, 'Require')
+    insert_list(conn, map_require, pkgcs, 'require')
 
     map_conflict = mapper.get_conflict_map(hdr)
-    insert_list(conn, map_conflict, package_id, 'Conflict')
+    insert_list(conn, map_conflict, pkgcs, 'conflict')
 
     map_obsolete = mapper.get_obsolete_map(hdr)
-    insert_list(conn, map_obsolete, package_id, 'Obsolete')
+    insert_list(conn, map_obsolete, pkgcs, 'obsolete')
 
     map_provide = mapper.get_provide_map(hdr)
-    insert_list(conn, map_provide, package_id, 'Provide')
+    insert_list(conn, map_provide, pkgcs, 'provide')
 
-    return package_id
+    return pkgcs
 
 
 @Timing.timeit(NAME)
-def insert_file(conn, cache, hdr, package_id):
+def insert_file(conn, pkgcs, hdr):
     map_file = mapper.get_file_map(hdr)
-    map_file['fileusername_id'] = [cache['FileUserName'].get(i) for i in map_file['fileusername_id']]
-    map_file['filegroupname_id'] = [cache['FileGroupName'].get(i) for i in map_file['filegroupname_id']]
-    map_file['filelang_id'] = [cache['FileLang'].get(i) for i in map_file['filelang_id']]
-    map_file['fileclass_id'] = [cache['FileClass'].get(i) for i in map_file['fileclass_id']]
-    r = [(package_id,) + i for i in zip(*map_file.values())]
-    with conn.cursor() as cur:
-        for i in r:
-            try:
-                cur.callproc('insert_file', i)
-            except Exception as e:
-                log.error('{0} - {1}'.format(e, cur.query))
-    log.debug('insert file for package_id: {0}'.format(package_id))
+    map_file['pkgcs'] = itertools.cycle([pkgcs])
+    data = [dict(zip(map_file, v)) for v in zip(*map_file.values())]
+    conn.execute(
+        'INSERT INTO File ({0}) VALUES'.format(', '.join(map_file.keys())), 
+        data
+    )
+    log.debug('insert file for pkgcs: {0}'.format(pkgcs))
 
 
 @Timing.timeit('extract')
-def insert_list(conn, tagmap, package_id, table_name):
+def insert_list(conn, tagmap, pkgcs, dptype):
     """Insert list as batch."""
-    sql = 'INSERT INTO {0} (package_id, {1}) VALUES (%s, {2})'
-    sql = sql.format(
-        table_name,
-        ', '.join(tagmap.keys()),
-        ', '.join(['%s'] * len(tagmap))
+    tagmap['pkgcs'] = itertools.cycle([pkgcs])
+    tagmap['dptype'] = itertools.cycle([dptype])
+    data = [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
+    conn.execute(
+        'INSERT INTO Depends ({0}) VALUES'.format(', '.join(tagmap.keys())),
+        data
     )
-    r = [(package_id,) + i for i in zip(*tagmap.values())]
-    with conn.cursor() as cur:
-        try:
-            extras.execute_batch(cur, sql, r)
-        except Exception as e:
-            log.error('{0} - {1}'.format(e, cur.query))
-    log.debug('insert list into: {0} for package_id: {1}'.format(table_name, package_id))
+    log.debug('insert list into: {0} for pkgcs: {1}'.format(dptype, pkgcs))
 
 
 @Timing.timeit(NAME)
-def insert_assigment_name(conn, assigment_name, assigment_tag=None, datetime_release=None):
+def insert_assigment_name(conn, name=None, uuid=None, tag=None, datetime_release=None, complete=0):
     if datetime_release is None:
         datetime_release = datetime.datetime.now()
-    with conn.cursor() as cur:
-        sql = (
-            'INSERT INTO AssigmentName (name, datetime_release, tag) '
-            'VALUES (%s, %s, %s) RETURNING id'
-        )
-        cur.execute(sql, (assigment_name, datetime_release, assigment_tag))
-        an_id = cur.fetchone()
-        if an_id:
-            log.debug('insert assigment name id: {0}'.format(an_id))
-            return an_id[0]
+    sql = 'INSERT INTO AssigmentName (id, name, datetime_release, tag, complete) VALUES'
+    if uuid is None:
+        uuid = str(uuid4())
+    data = {
+        'id': uuid,
+        'name': name,
+        'datetime_release': datetime_release,
+        'tag': tag, 
+        'complete': complete
+    }
+    conn.execute(sql, [data])
+    log.debug('insert assigment name id: {0}'.format(uuid))
+    # return data
 
 
 @Timing.timeit(NAME)
-def insert_assigment(conn, assigmentname_id, package_id):
-    sql = 'INSERT INTO Assigment (assigmentname_id, package_id) VALUES (%s, %s)'
-    with conn.cursor() as cur:
-        cur.execute(sql, (assigmentname_id, package_id))
-    log.debug('insert assigment assigmentname_id: {0}, package_id: {1}'.format(assigmentname_id, package_id))
-
-
-@Timing.timeit(NAME)
-def insert_smart(conn, table, **fields):
-    sql = (
-        "INSERT INTO {table} ({key}) VALUES ({value}) ON CONFLICT ({key}) DO UPDATE set {conflicts} RETURNING id"
+def insert_assigment(conn, uuid, pkgcs):
+    conn.execute(
+        'INSERT INTO Assigment (uuid, pkgcs) VALUES',
+        [(uuid, pkgcs)]
     )
-    sql = sql.format(
-        table=table,
-        key=', '.join(fields.keys()),
-        value=', '.join(['\'{0}\''.format(k) for k in fields.values()]),
-        conflicts=', '.join(['{0}=EXCLUDED.{0}'.format(k) for k in fields.keys()]))
-    result = None
-    with conn.cursor() as cur:
-        try:
-            cur.execute(sql, fields)
-            result = cur.fetchone()[0]
-        except Exception as e:
-            log.error('{0} - {1}'.format(e, cur.query))
-    log.debug('insert smart for {0}'.format(table))
-    return result
-
-
-def insert_smart_wrap(conn, table):
-    def wrap(key):
-        return insert_smart(conn, table, value=key)
-    return wrap
+    log.debug('insert assigment uuid: {0}, pkgcs: {1}'.format(uuid, pkgcs))
 
 
 def find_packages(path):
@@ -245,10 +172,19 @@ def check_iso(path):
     return iso
 
 
+def get_client(args):
+    return chd.Client(
+        args.host,
+        port=args.port,
+        database=args.dbname,
+        user=args.user,
+        password=args.password
+    )
+
+
 class Worker(threading.Thread):
-    def __init__(self, connection, cache, packages, aname_id, display, *args, **kwargs):
+    def __init__(self, connection, packages, aname_id, display, *args, **kwargs):
         self.connection = connection
-        self.cache = cache
         self.packages = packages
         self.aname_id = aname_id
         self.display = display
@@ -264,14 +200,13 @@ class Worker(threading.Thread):
                     package.close()
                     package = package.iname
                 log.debug('process: {0}'.format(package))
-                pkg_id = check_package(self.connection, header)
-                if pkg_id is None:
-                    pkg_id = insert_package(self.connection, self.cache, header, filename=os.path.basename(package))
-                if pkg_id is None:
-                    raise RuntimeError('no id for {1}'.format(package))
-                package_update(self.connection, pkg_id, complete=True)
-                insert_assigment(self.connection, self.aname_id, pkg_id)
-            except psycopg2.DatabaseError as error:
+                pkgcs = check_package(self.connection, header)
+                if pkgcs is None:
+                    pkgcs = insert_package(self.connection, header, filename=os.path.basename(package))
+                if pkgcs is None:
+                    raise RuntimeError('no id for {0}'.format(package))
+                insert_assigment(self.connection, self.aname_id, pkgcs)
+            except Exception as error:
                 log.error(error, exc_info=True)
             else:
                 if self.display is not None:
@@ -280,104 +215,62 @@ class Worker(threading.Thread):
 
 
 def load(args):
-    conn = psycopg2.connect(get_conn_str(args))
-    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+    conn = get_client(args)
     if not check_latest_version(conn):
-        conn.close()
+        conn.disconnect()
         raise RuntimeError('Incorrect database schema version')
     log.debug('check database version complete')
-    if args.clean:
-        clean_assigment(conn)
-    cache = init_cache(conn)
     iso = check_iso(args.path)
     if iso:
         packages = LockedIterator(iso_find_packages(iso))
     else:
         packages = LockedIterator(find_packages(args.path))
-    aname_id = insert_assigment_name(conn, args.assigment, args.tag, args.date)
-    if aname_id is None:
-        raise RuntimeError('unexpected behavior')
+    aname_id = str(uuid4())
     workers = []
     connections = [conn]
     display = None
     if args.verbose:
         display = Display(log)
     for i in range(args.workers):
-        conn = psycopg2.connect(get_conn_str(args))
-        conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        conn = get_client(args)
         connections.append(conn)
-        worker = Worker(conn, cache, packages, aname_id, display)
+        worker = Worker(conn, packages, aname_id, display)
         worker.start()
         workers.append(worker)
 
     for w in workers:
         w.join()
 
-    load_complete(conn, aname_id)
+    insert_assigment_name(
+        conn,
+        name=args.assigment,
+        uuid=aname_id,
+        tag=args.tag,
+        datetime_release=args.date,
+        complete=1
+    )
 
     if iso:
         iso.close()
 
     for c in connections:
         if c is not None:
-            c.close()
+            c.disconnect()
 
     if display is not None:
         display.conclusion()
 
 
 @Timing.timeit(NAME)
-def load_complete(conn, aid):
-    sql = 'UPDATE AssigmentName SET complete=true WHERE id={0}'.format(aid)
-    with conn.cursor() as cur:
-        cur.execute(sql)
-
-
-@Timing.timeit(NAME)
-def package_update(conn, pid, **fields):
-    sql = 'UPDATE Package SET {0} WHERE id={1}'
-    sql = sql.format(
-        ', '.join(["{0}='{1}'".format(k, v) for k, v in fields.items()]),
-        pid
-    )
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    log.debug('update packge id: {0}'.format(pid))
-
-
-@Timing.timeit(NAME)
 def clean_assigment(conn):
-    with conn.cursor() as cur:
-        sql = 'SELECT id FROM AssigmentName WHERE complete=false'
-        cur.execute(sql)
-        ls = cur.fetchall()
-        for i in ls:
-            cur.execute('DELETE FROM Assigment WHERE assigmentname_id=%s', i)
-            cur.execute('DELETE FROM AssigmentName WHERE id=%s', i)
-    log.debug('assigment cleaned')
-
-
-@Timing.timeit(NAME)
-def init_cache(conn, load=True):
-    cache = {}
-    for tab in CACHE_TABLES:
-        cb = insert_smart_wrap(conn, tab)
-        ch = Cache(cb)
-        if load:
-            sql = 'SELECT value, id FROM {0}'.format(tab)
-            with conn.cursor() as cur:
-                cur.execute(sql)
-                ch.load(cur)
-        cache[tab] = ch
-    log.debug('init cache load: {0}'.format(load))
-    return cache
+    pass
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('assigment', type=str, help='Assigment name')
     parser.add_argument('path', type=str, help='Path to packages')
-    parser.add_argument('-t', '--tag', type=str, help='Assigment tag')
+    parser.add_argument('-t', '--tag', type=str, help='Assigment tag', default='')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
@@ -403,13 +296,18 @@ def set_config(args):
         # database
         if cfg.has_section('DATABASE'):
             section_db = cfg['DATABASE']
-            args.dbname = args.dbname or section_db.get('dbname', None)
-            args.host = args.host or section_db.get('host', None)
+            args.dbname = args.dbname or section_db.get('dbname', 'default')
+            args.host = args.host or section_db.get('host', 'localhost')
             args.port = args.port or section_db.get('port', None)
-            args.user = args.user or section_db.get('user', None)
-            args.password = args.password or section_db.get('password', None)
+            args.user = args.user or section_db.get('user', 'default')
+            args.password = args.password or section_db.get('password', '')
     else:
         args.workers = args.workers or 10
+        args.dbname = args.dbname or 'default'
+        args.host = args.host or 'localhost'
+        args.port = args.port or None
+        args.user = args.user or 'default'
+        args.password = args.password or ''
     return args
 
 
