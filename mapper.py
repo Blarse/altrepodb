@@ -32,7 +32,7 @@ def get_package_map(hdr):
         'serial_': cvt(hdr[rpm.RPMTAG_SERIAL], int),
         'buildtime': cvt(hdr[rpm.RPMTAG_BUILDTIME]),
         'buildhost': cvt(hdr[rpm.RPMTAG_BUILDHOST]),
-        'size': cvt(hdr[rpm.RPMTAG_SIZE]),
+        'size': cvt(hdr[rpm.RPMTAG_SIZE], int),
         'archivesize': cvt(hdr[rpm.RPMTAG_ARCHIVESIZE]),
         'rpmversion': cvt(hdr[rpm.RPMTAG_RPMVERSION]),
         'cookie': cvt(hdr[rpm.RPMTAG_COOKIE]),
