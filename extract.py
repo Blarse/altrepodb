@@ -25,19 +25,15 @@ log = logging.getLogger(NAME)
 
 
 @Timing.timeit(NAME)
-def check_package(conn, hdr):
+def check_package(cache, hdr):
     """Check whether the package is in the database.
 
     return id of package from database or None
     """
-    sql = "SELECT COUNT(pkgcs) FROM Package WHERE pkgcs=%(sha1)s"
     sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
     log.debug('check package for sha1: {0}'.format(sha1))
-    result = conn.execute(sql, {'sha1': sha1})
-    if result[0][0] > 0:
-        log.debug('package sha1:{0} found return id: {1}'.format(sha1, result[0]))
+    if sha1 in cache:
         return sha1
-    log.debug('package sha1: {0} not found'.format(sha1))
     return None
 
 
@@ -55,8 +51,6 @@ def insert_package(conn, hdr, **kwargs):
         ', '.join(map_package.keys())
     )
 
-    conn.execute(sql_insert, [map_package])
-
     pkgcs = map_package['pkgcs']
 
     insert_file(conn, pkgcs, hdr)
@@ -72,6 +66,8 @@ def insert_package(conn, hdr, **kwargs):
 
     map_provide = mapper.get_provide_map(hdr)
     insert_list(conn, map_provide, pkgcs, 'provide')
+
+    conn.execute(sql_insert, [map_package])
 
     return pkgcs
 
@@ -183,11 +179,12 @@ def get_client(args):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, packages, aname_id, display, *args, **kwargs):
+    def __init__(self, connection, cache, packages, aname_id, display, *args, **kwargs):
         self.connection = connection
         self.packages = packages
         self.aname_id = aname_id
         self.display = display
+        self.cache = cache
         super().__init__(*args, **kwargs)
 
     def run(self):
@@ -200,9 +197,10 @@ class Worker(threading.Thread):
                     package.close()
                     package = package.iname
                 log.debug('process: {0}'.format(package))
-                pkgcs = check_package(self.connection, header)
+                pkgcs = check_package(self.cache, header)
                 if pkgcs is None:
                     pkgcs = insert_package(self.connection, header, filename=os.path.basename(package))
+                    self.cache.add(pkgcs)
                 if pkgcs is None:
                     raise RuntimeError('no id for {0}'.format(package))
                 insert_assigment(self.connection, self.aname_id, pkgcs)
@@ -212,6 +210,11 @@ class Worker(threading.Thread):
                 if self.display is not None:
                     self.display.inc()
         log.debug('thread stop')
+
+
+def init_cache(conn):
+    result = conn.execute('SELECT pkgcs FROM Package')
+    return {i[0] for i in result}
 
 
 def load(args):
@@ -231,10 +234,11 @@ def load(args):
     display = None
     if args.verbose:
         display = Display(log)
+    cache = init_cache(conn)
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = Worker(conn, packages, aname_id, display)
+        worker = Worker(conn, cache, packages, aname_id, display)
         worker.start()
         workers.append(worker)
 
