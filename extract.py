@@ -120,9 +120,9 @@ def insert_assigment_name(conn, name=None, uuid=None, tag=None, datetime_release
 def insert_assigment(conn, uuid, pkgcs):
     conn.execute(
         'INSERT INTO Assigment (uuid, pkgcs) VALUES',
-        [(uuid, pkgcs)]
+        [dict(uuid=uuid, pkgcs=p) for p in pkgcs]
     )
-    log.debug('insert assigment uuid: {0}, pkgcs: {1}'.format(uuid, pkgcs))
+    log.debug('insert assigment uuid: {0}, pkgcs: {1}'.format(uuid, len(pkgcs)))
 
 
 def find_packages(path):
@@ -179,10 +179,10 @@ def get_client(args):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, cache, packages, aname_id, display, *args, **kwargs):
+    def __init__(self, connection, cache, packages, aname, display, *args, **kwargs):
         self.connection = connection
         self.packages = packages
-        self.aname_id = aname_id
+        self.aname = aname
         self.display = display
         self.cache = cache
         super().__init__(*args, **kwargs)
@@ -203,7 +203,7 @@ class Worker(threading.Thread):
                     self.cache.add(pkgcs)
                 if pkgcs is None:
                     raise RuntimeError('no id for {0}'.format(package))
-                insert_assigment(self.connection, self.aname_id, pkgcs)
+                self.aname.add(pkgcs)
             except Exception as error:
                 log.error(error, exc_info=True)
             else:
@@ -228,23 +228,24 @@ def load(args):
         packages = LockedIterator(iso_find_packages(iso))
     else:
         packages = LockedIterator(find_packages(args.path))
-    aname_id = str(uuid4())
     workers = []
     connections = [conn]
     display = None
     if args.verbose:
         display = Display(log)
     cache = init_cache(conn)
+    aname = set()
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = Worker(conn, cache, packages, aname_id, display)
+        worker = Worker(conn, cache, packages, aname, display)
         worker.start()
         workers.append(worker)
 
     for w in workers:
         w.join()
 
+    aname_id = str(uuid4())
     insert_assigment_name(
         conn,
         name=args.assigment,
@@ -253,6 +254,7 @@ def load(args):
         datetime_release=args.date,
         complete=1
     )
+    insert_assigment(conn, aname_id, aname)
 
     if iso:
         iso.close()
