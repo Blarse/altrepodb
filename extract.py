@@ -47,7 +47,7 @@ def insert_package(conn, hdr, **kwargs):
     map_package = mapper.get_package_map(hdr)
     map_package.update(**kwargs)
 
-    sql_insert = 'INSERT INTO Package ({0}) VALUES'.format(
+    sql_insert = 'INSERT INTO Package_buffer ({0}) VALUES'.format(
         ', '.join(map_package.keys())
     )
 
@@ -78,7 +78,7 @@ def insert_file(conn, pkgcs, hdr):
     map_file['pkgcs'] = itertools.cycle([pkgcs])
     data = [dict(zip(map_file, v)) for v in zip(*map_file.values())]
     conn.execute(
-        'INSERT INTO File ({0}) VALUES'.format(', '.join(map_file.keys())), 
+        'INSERT INTO File_buffer ({0}) VALUES'.format(', '.join(map_file.keys())), 
         data
     )
     log.debug('insert file for pkgcs: {0}'.format(pkgcs))
@@ -91,7 +91,7 @@ def insert_list(conn, tagmap, pkgcs, dptype):
     tagmap['dptype'] = itertools.cycle([dptype])
     data = [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
     conn.execute(
-        'INSERT INTO Depends ({0}) VALUES'.format(', '.join(tagmap.keys())),
+        'INSERT INTO Depends_buffer ({0}) VALUES'.format(', '.join(tagmap.keys())),
         data
     )
     log.debug('insert list into: {0} for pkgcs: {1}'.format(dptype, pkgcs))
@@ -119,7 +119,7 @@ def insert_assigment_name(conn, name=None, uuid=None, tag=None, datetime_release
 @Timing.timeit(NAME)
 def insert_assigment(conn, uuid, pkgcs):
     conn.execute(
-        'INSERT INTO Assigment (uuid, pkgcs) VALUES',
+        'INSERT INTO Assigment_buffer (uuid, pkgcs) VALUES',
         [dict(uuid=uuid, pkgcs=p) for p in pkgcs]
     )
     log.debug('insert assigment uuid: {0}, pkgcs: {1}'.format(uuid, len(pkgcs)))
@@ -213,7 +213,7 @@ class Worker(threading.Thread):
 
 
 def init_cache(conn):
-    result = conn.execute('SELECT pkgcs FROM Package')
+    result = conn.execute('SELECT pkgcs FROM Package_buffer')
     return {i[0] for i in result}
 
 

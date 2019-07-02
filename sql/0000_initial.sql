@@ -130,4 +130,20 @@ ENGINE =  MergeTree
 ORDER BY (key, value);
 
 
+CREATE TABLE Assigment_buffer AS Assigment
+ENGINE = Buffer(currentDatabase(), Assigment, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+
+CREATE TABLE File_buffer AS File
+ENGINE = Buffer(currentDatabase(), File, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+
+CREATE TABLE Package_buffer AS Package
+ENGINE = Buffer(currentDatabase(), Package, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+
+CREATE TABLE Depends_buffer AS Depends
+ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+
 INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');
