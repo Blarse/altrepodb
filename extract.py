@@ -267,11 +267,6 @@ def load(args):
         display.conclusion()
 
 
-@Timing.timeit(NAME)
-def clean_assigment(conn):
-    pass
-
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('assigment', type=str, help='Assigment name')
@@ -287,7 +282,6 @@ def get_args():
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
-    parser.add_argument('-C', '--clean', action='store_true', help='Delete uncompleted assigments')
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     return parser.parse_args()
 
