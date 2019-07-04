@@ -2,10 +2,21 @@ import argparse
 import configparser
 import os
 import re
-import psycopg2
+import clickhouse_driver as chd
+import subprocess
 
 SQL_DIR = './sql'
 filename_pattern = re.compile('\d{4}_[a-z0-9\-]+\.sql')
+
+
+def get_client(args):
+    return chd.Client(
+        args.host,
+        port=args.port,
+        database=args.dbname,
+        user=args.user,
+        password=args.password
+    )
 
 
 def scan_migration_files():
@@ -25,7 +36,7 @@ def get_current_version(files):
 
 
 def get_actual_version(conn):
-    sql = "SELECT value FROM Config WHERE key='DBVERSION'"
+    sql = "SELECT MAX(value) FROM Config WHERE key='DBVERSION'"
     result = conn.execute(sql)
     if result:
         return int(result[0][0])
@@ -65,31 +76,45 @@ def set_config(args):
     return args
 
 
-def update_all(conn, files, actual_version):
+def update_all(conn, _args, files, actual_version):
     files.sort()
     for fname in files:
         file_version = get_file_version(fname)
         if file_version > actual_version:
-            result = update(conn, fname, file_version)
+            result = update(conn, _args, fname)
             if result:
                 actual_version += 1
 
 
-def update(conn, fname, file_version=None):
+def update(conn, _args, fname):
+    version = get_file_version(fname)
+    fname = os.path.join(SQL_DIR, fname)
+    args = ['clickhouse-client', '-n']
+    args.extend(['--database', _args.dbname])
+    args.extend(['--host', _args.host])
+    args.extend(['--user', _args.user])
+    if _args.port:
+        args.extend(['--port', _args.port])
+    if _args.password:
+        args.extend(['--password', _args.password])
+    f = None
     try:
-        with open(os.path.join(SQL_DIR, fname)) as f, conn.cursor() as cur:
-            cur.execute(f.read())
-            if file_version is not None:
-                cur.execute(
-                    "UPDATE Config SET value='%s' WHERE key='DBVERSION'",
-                    (file_version,)
-                )
+        f = os.open(fname, os.O_RDONLY)
+        result = subprocess.run(args, stdout=subprocess.DEVNULL, stdin=f)
+        result.check_returncode()
+        conn.execute(
+            'INSERT INTO Config (key, value) VALUES',
+            [{'key': 'DBVERSION', 'value': str(version)}]
+        )
     except Exception as e:
         print('update error: {0}, {1}'.format(fname, str(e)))
         return False
     else:
         print('update: {0}'.format(fname))
         return True
+    finally:
+        if f:
+            os.close(f)
 
 
 def check_latest_version(conn):
@@ -98,27 +123,30 @@ def check_latest_version(conn):
     return current_version == actual_version
 
 
+def check_database(conn):
+    result = conn.execute('EXISTS Config')
+    return result[0][0]
+
+
 def main():
     args = get_args()
     args = set_config(args)
-    conn = psycopg2.connect(args)
-    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+    conn = get_client(args)
 
-    try:
+    if check_database(conn):
         actual_version = get_actual_version(conn)
-    except psycopg2.ProgrammingError:
-        if args.update:
-            result = update(conn, '0000_initial.sql')
-            if result:
-                actual_version = get_actual_version(conn)
-            else:
-                print('Database initialisation failed ')
-                conn.close()
-                return 1
+    elif args.update:
+        result = update(conn, args, '0000_initial.sql')
+        if result:
+            actual_version = get_actual_version(conn)
         else:
-            print('Database not initialised! Use key --update for initialisation')
-            conn.close()
+            print('Database initialisation failed ')
+            conn.disconnect()
             return 1
+    else:
+        print('Database not initialised! Use key --update for initialisation')
+        conn.disconnect()
+        return 1
 
     migration_files = scan_migration_files()
     current_version = get_current_version(migration_files)
@@ -127,10 +155,10 @@ def main():
     print('Latest version by files: {0}'.format(current_version))
 
     if args.update and current_version > actual_version:
-        update_all(conn, migration_files, actual_version)
+        update_all(conn, args, migration_files, actual_version)
     elif current_version == actual_version:
         print('Nothing to update')
-    conn.close()
+    conn.disconnect()
 
 
 if __name__ == '__main__':

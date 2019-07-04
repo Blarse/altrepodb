@@ -144,6 +144,3 @@ ENGINE = Buffer(currentDatabase(), Package, 16, 10, 200, 10000, 1000000, 1000000
 
 CREATE TABLE Depends_buffer AS Depends
 ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
-
-
-INSERT INTO Config (key, value) VALUES ('DBVERSION', '0');
