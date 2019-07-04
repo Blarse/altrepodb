@@ -3,7 +3,8 @@
 
 Зависимости:
     python3-module-rpm
-    python3-module-psycopg2
+    python3-module-clickhouse-driver
+    python3-module-pycdlib
 
 
 Файлы:
@@ -58,7 +59,7 @@
 
 Аргументы запуска extract.py:
     assigment - обязательный позиционный аргумент. например: P8 или Sisyphus или C8
-    path - обязательный позиционный аргумент. путь к rpm файлам например /mnt/repo/Sisyphus/files/
+    path - обязательный позиционный аргумент. путь к rpm файлам например /mnt/repo/Sisyphus/files/ или файл iso образа
     -t, --tag - дополнительное имя для таблицы AssigmentName
     -c, --config - путь к файлу конфигурации
     -d, --dbname - имя базы данных
@@ -68,9 +69,15 @@
     -P, --password - пароль пользователя базы данных 
     -w, --workers - количество потоков 
     -D, --debug - включает вывод отладочной информации в лог файл
+    -T, --timing - включать в лог время исполнения функций
+    -v, --verbose - выводить промежуточный результат загрузки
+    -A, --date - позволяет указать конкретную дату для assigment
     -h, --help - вызов справки
 
+
+В качестве аргумента path можно указать файл iso образ, скрипт загрузит все доступные в указанном iso rpm пакеты
 
 Примеры запуска:
     python3 extract.py Sisyphus /mnt/repo/Sisyphus/files/ -d alt1 -w 10 -u underwit -D
     python3 extract.py P8 /mnt/repo/p8/branch/files/ --config ./config.ini -w 25
+    python3 extract.py P9 /home/test/iso/alt-workstation-8.3-x86_64.iso --config ./config.ini -w 10 -D -T
