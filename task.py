@@ -6,8 +6,10 @@ import argparse
 import psycopg2
 import rpm
 import configparser
-from extract import get_header, insert_package, init_cache, package_update, check_package
-from utils import get_logger, cvt, get_conn_str, get_logger
+import clickhouse_driver as chd
+from collections import defaultdict
+from extract import get_header, insert_package, init_cache, check_package
+from utils import get_logger, cvt
 from manager import check_latest_version
 
 
@@ -16,15 +18,26 @@ NAME = 'task'
 log = logging.getLogger(NAME)
 
 
+def get_client(args):
+    return chd.Client(
+        args.host,
+        port=args.port,
+        database=args.dbname,
+        user=args.user,
+        password=args.password
+    )
+
+
 class Task:
-    def __init__(self, girar):
-        self.db_id = None
+    def __init__(self, conn, girar):
         self.girar = girar
+        self.conn = conn
+        self.cache = init_cache(self.conn)
         self._prepare_fields()
 
     def _prepare_fields(self):
         self.fields = {
-            'task_id': int(self.girar.get('task/id').strip()),
+            'id': int(self.girar.get('task/id').strip()),
             'try': int(self.girar.get('task/try').strip()),
             'iteration': int(self.girar.get('task/iter').strip()),
             'status': self.girar.get('task/state').strip(),
@@ -35,89 +48,41 @@ class Task:
     def _get_pkg_list(self, method):
         return [i.split('\t')[-2:] for i in self.girar.get(method).split('\n') if len(i) > 0]
 
-    def _log(self, action, hdr, subtask_id):
-        log.info('{0} package: {1} taskid: {2}, subtask: {3}'.format(
-            action, cvt(hdr[rpm.RPMTAG_NAME]), self.db_id, subtask_id)
-        )
+    def _save_task(self):
+        src_pkgs = self._get_src()
+        bin_pkgs = self._get_bin(src_pkgs)
+        tasks = []
+        for subtask, sha1 in src_pkgs.items():
+            task = self.fields.copy()
+            task['subtask'] = int(subtask)
+            task['sourcepkg_cs'] = sha1
+            task['pkgs'] = bin_pkgs[subtask]
+            tasks.append(task)
+        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs) VALUES'
+        self.conn.execute(sql, tasks)
 
-    def save_task(self, conn):
-        if not self.fields:
-            log.info('nothing to save')
-            return
-        sql = 'INSERT INTO Task ({0}) VALUES ({1}) RETURNING id'
-        sql = sql.format(
-            ', '.join(self.fields.keys()),
-            ', '.join(['%s'] * len(self.fields))
-        )
-        with conn.cursor() as cur:
-            cur.execute(sql, tuple(self.fields.values()))
-            r = cur.fetchone()
-            if r:
-                self.db_id = r[0]
-                log.info('add new task id={0}'.format(self.fields['task_id']))
-
-    def save_subtasks(self, conn):
-        cache = init_cache(conn, load=False)
+    def _get_src(self):
         src_list = self._get_pkg_list('plan/add-src')
-        bin_list = self._get_pkg_list('plan/add-bin')
-        subtasks = {}
+        src_pkgs = {}
         for pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
-            pkg_id = check_package(conn, hdr)
-            if pkg_id:
-                package_update(
-                    conn,
-                    pkg_id,
-                    task_id=self.db_id,
-                    subtask=int(n)
-                )
-                self._log('update', hdr, n)
-            else:
-                pkg_id = insert_package(
-                    conn,
-                    cache,
-                    hdr,
-                    filename=os.path.basename(pkg),
-                    task_id=self.db_id,
-                    subtask=int(n)
-                )
-                if pkg_id:
-                    package_update(conn, pkg_id, complete=True)
-                self._log('insert', hdr, n)
-            subtasks[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
+            if not check_package(self.cache, hdr):
+                insert_package(self.conn, hdr, filename=os.path.basename(pkg))
+            src_pkgs[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
+        return src_pkgs
+
+    def _get_bin(self, src):
+        bin_list = self._get_pkg_list('plan/add-bin')
+        bin_pkgs = defaultdict(list)
         for pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
-            pkg_id = check_package(conn, hdr)
-            if pkg_id:
-                package_update(
-                    conn, 
-                    pkg_id, 
-                    sha1srcheader=subtasks[n],
-                    task_id=self.db_id, 
-                    subtask=int(n)
-                )
-                self._log('update', hdr, n)
-            else:
-                pkg_id = insert_package(
-                    conn,
-                    cache,
-                    hdr,
-                    filename=os.path.basename(pkg),
-                    sha1srcheader=subtasks[n],
-                    task_id=self.db_id,
-                    subtask=int(n)
-                )
-                if pkg_id:
-                    package_update(conn, pkg_id, complete=True)
-                self._log('insert', hdr, n)
+            if not check_package(self.cache, hdr):
+                insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
+            bin_pkgs[n].append(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+        return bin_pkgs
 
-    def save(self, conn):
-        try:
-            self.save_task(conn)
-        except psycopg2.errors.UniqueViolation:
-            log.info('task already loaded')
-            return
-        self.save_subtasks(conn)
+    def save(self):
+        self._save_task()
 
 
 class Girar:
@@ -166,19 +131,25 @@ def get_args():
             cfg.read_file(f)
         if cfg.has_section('DATABASE'):
             section_db = cfg['DATABASE']
-            args.dbname = args.dbname or section_db.get('dbname', None)
-            args.host = args.host or section_db.get('host', None)
+            args.dbname = args.dbname or section_db.get('dbname', 'default')
+            args.host = args.host or section_db.get('host', 'localhost')
             args.port = args.port or section_db.get('port', None)
-            args.user = args.user or section_db.get('user', None)
-            args.password = args.password or section_db.get('password', None)
+            args.user = args.user or section_db.get('user', 'default')
+            args.password = args.password or section_db.get('password', '')
+    else:
+        args.dbname = args.dbname or 'default'
+        args.host = args.host or 'localhost'
+        args.port = args.port or None
+        args.user = args.user or 'default'
+        args.password = args.password or ''
     return args
 
 
 def load(args, conn):
     girar = Girar(args.url)
     if girar.check():
-        task = Task(girar)
-        task.save(conn)
+        task = Task(conn, girar)
+        task.save()
     else:
         log.info('task not found: {0}'.format(args.url))
 
@@ -188,8 +159,7 @@ def main():
     logger = get_logger(NAME)
     conn = None
     try:
-        conn = psycopg2.connect(get_conn_str(args))
-        conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        conn = get_client(args)
         if not check_latest_version(conn):
             raise RuntimeError('incorrect database schema version')
         load(args, conn)
@@ -197,7 +167,7 @@ def main():
         logger.error(error, exc_info=True)
     finally:
         if conn is not None:
-            conn.close()
+            conn.disconnect()
 
 
 if __name__ == '__main__':
