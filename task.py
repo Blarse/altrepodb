@@ -60,15 +60,18 @@ class Task:
             tasks.append(task)
         sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs) VALUES'
         self.conn.execute(sql, tasks)
+        log.info('save task={0} try={1} iter={2}'.format(self.fields['id'], self.fields['try'], self.fields['iteration']))
 
     def _get_src(self):
         src_list = self._get_pkg_list('plan/add-src')
         src_pkgs = {}
         for pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
+            sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
             if not check_package(self.cache, hdr):
                 insert_package(self.conn, hdr, filename=os.path.basename(pkg))
-            src_pkgs[n] = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
+                log.info('add src package: {0}'.format(sha1))
+            src_pkgs[n] = sha1
         return src_pkgs
 
     def _get_bin(self, src):
@@ -76,9 +79,11 @@ class Task:
         bin_pkgs = defaultdict(list)
         for pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
+            sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
             if not check_package(self.cache, hdr):
                 insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
-            bin_pkgs[n].append(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+                log.info('add bin package: {0}'.format(sha1))
+            bin_pkgs[n].append(sha1)
         return bin_pkgs
 
     def save(self):
