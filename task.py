@@ -1,4 +1,5 @@
 import urllib.request
+import urllib.error
 import datetime
 import logging
 import os.path
@@ -45,6 +46,33 @@ class Task:
             'branch': self.girar.get('task/repo').strip()
         }
 
+    def _get_gears_info(self, n):
+        type_, hash_ = self.girar.get('gears/{0}/sid'.format(n)).strip().split(':')
+        userid = self.girar.get('gears/{0}/userid'.format(n))
+        userid = userid.strip() if userid else ''
+        dir_ = self.girar.get('gears/{0}/dir'.format(n))
+        dir_ = dir_.strip() if dir_ else ''
+        tag_name = self.girar.get('gears/{0}/tag_name'.format(n))
+        tag_name = tag_name.strip() if tag_name else ''
+        tag_id = self.girar.get('gears/{0}/tag_id'.format(n))
+        tag_id = tag_id.strip() if tag_id else ''
+        tag_author = self.girar.get('gears/{0}/tag_author'.format(n))
+        tag_author = tag_author.strip() if tag_author else ''
+        srpm = self.girar.get('gears/{0}/srpm'.format(n))
+        srpm = srpm.strip() if srpm else ''
+
+        fields = dict(
+            userid=userid,
+            dir=dir_,
+            tag_name=tag_name,
+            tag_id=tag_id,
+            tag_author=tag_author,
+            srpm=srpm,
+            type=type_,
+            hash=hash_
+        )
+        return fields
+
     def _get_pkg_list(self, method):
         return [i.split('\t')[-2:] for i in self.girar.get(method).split('\n') if len(i) > 0]
 
@@ -54,11 +82,12 @@ class Task:
         tasks = []
         for subtask, sha1 in src_pkgs.items():
             task = self.fields.copy()
+            task.update(self._get_gears_info(subtask))
             task['subtask'] = int(subtask)
             task['sourcepkg_cs'] = sha1
             task['pkgs'] = bin_pkgs[subtask]
             tasks.append(task)
-        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs) VALUES'
+        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash) VALUES'
         self.conn.execute(sql, tasks)
         log.info('save task={0} try={1} iter={2}'.format(self.fields['id'], self.fields['try'], self.fields['iteration']))
 
@@ -98,10 +127,13 @@ class Girar:
     def _get_content(self, url, status=False):
         try:
             r = urllib.request.urlopen(url)
-        except Exception as e:
-            log.error('{0} - {1}'.format(e, url))
+        except urllib.error.URLError as e:
+            log.debug('{0} - {1}'.format(e, url))
             if status:
                 return False
+            return None
+        except Exception as e:
+            log.error('{0} - {1}'.format(e, url))
             return None
         if r.getcode() == 200:
             if status:

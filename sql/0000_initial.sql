@@ -18,7 +18,15 @@ CREATE TABLE Tasks (
 	status 			String,
 	is_test 		UInt8,
 	branch 			String,
-	pkgs 			Array(FixedString(40))
+	pkgs 			Array(FixedString(40)),
+	userid 			String,
+	dir 			String,
+	tag_name		String,
+	tag_id			String,
+	tag_author		String,
+	srpm			String,
+	type			Enum8('srpm' = 0, 'gear' = 1),
+	hash			String
 ) 
 ENGINE = MergeTree
 ORDER BY (id, subtask);
