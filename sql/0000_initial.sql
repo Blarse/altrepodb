@@ -26,7 +26,10 @@ CREATE TABLE Tasks (
 	tag_author		String,
 	srpm			String,
 	type			Enum8('srpm' = 0, 'gear' = 1),
-	hash			String
+	hash			String,
+	arch 			String,
+	chroot_base 	Array(FixedString(40)),
+	chroot_BR 		Array(FixedString(40))
 ) 
 ENGINE = MergeTree
 ORDER BY (id, subtask);

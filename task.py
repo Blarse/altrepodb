@@ -74,27 +74,40 @@ class Task:
         return fields
 
     def _get_pkg_list(self, method):
-        return [i.split('\t')[-2:] for i in self.girar.get(method).split('\n') if len(i) > 0]
+        return [i.split('\t') for i in self.girar.get(method).split('\n') if len(i) > 0]
+
+    def _get_chroot_list(self, subtask, arch, chroot):
+        method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
+        return [i.split('\t')[-1].strip() for i in self.girar.get(method).split('\n') if len(i) > 0]
+
+    def _get_archs_list(self):
+        return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
 
     def _save_task(self):
         src_pkgs = self._get_src()
         bin_pkgs = self._get_bin(src_pkgs)
+        archs = self._get_archs_list()
         tasks = []
         for subtask, sha1 in src_pkgs.items():
             task = self.fields.copy()
             task.update(self._get_gears_info(subtask))
             task['subtask'] = int(subtask)
             task['sourcepkg_cs'] = sha1
-            task['pkgs'] = bin_pkgs[subtask]
-            tasks.append(task)
-        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash) VALUES'
+            for arch in archs:
+                task_ = task.copy()
+                task_['arch'] = arch
+                task_['pkgs'] = bin_pkgs[subtask][arch]
+                task_['chroot_base'] = self._get_chroot_list(subtask, arch, 'chroot_base')
+                task_['chroot_BR'] = self._get_chroot_list(subtask, arch, 'chroot_BR')
+                tasks.append(task_)
+        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, arch, chroot_base, chroot_BR) VALUES'
         self.conn.execute(sql, tasks)
         log.info('save task={0} try={1} iter={2}'.format(self.fields['id'], self.fields['try'], self.fields['iteration']))
 
     def _get_src(self):
         src_list = self._get_pkg_list('plan/add-src')
         src_pkgs = {}
-        for pkg, n in src_list:
+        for *_, pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
             sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
             if not check_package(self.cache, hdr):
@@ -105,14 +118,14 @@ class Task:
 
     def _get_bin(self, src):
         bin_list = self._get_pkg_list('plan/add-bin')
-        bin_pkgs = defaultdict(list)
-        for pkg, n in bin_list:
+        bin_pkgs = defaultdict(lambda: defaultdict(list))
+        for *_, arch, _, pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
             sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
             if not check_package(self.cache, hdr):
                 insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
                 log.info('add bin package: {0}'.format(sha1))
-            bin_pkgs[n].append(sha1)
+            bin_pkgs[n][arch].append(sha1)
         return bin_pkgs
 
     def save(self):
