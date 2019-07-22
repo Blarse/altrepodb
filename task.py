@@ -74,11 +74,19 @@ class Task:
         return fields
 
     def _get_pkg_list(self, method):
-        return [i.split('\t') for i in self.girar.get(method).split('\n') if len(i) > 0]
+        try:
+            return [i.split('\t') for i in self.girar.get(method).split('\n') if len(i) > 0]
+        except Exception as error:
+            log.error(error)
+            return []
 
     def _get_chroot_list(self, subtask, arch, chroot):
-        method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
-        return [i.split('\t')[-1].strip() for i in self.girar.get(method).split('\n') if len(i) > 0]
+        try:
+            method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
+            return [i.split('\t')[-1].strip() for i in self.girar.get(method).split('\n') if len(i) > 0]
+        except Exception as error:
+            log.error(error)
+            return []
 
     def _get_archs_list(self):
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
