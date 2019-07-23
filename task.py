@@ -91,7 +91,15 @@ class Task:
     def _get_archs_list(self):
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
 
+    def _check_task(self):
+        sql = 'SELECT COUNT(*) FROM Tasks WHERE id=%(id)s AND try=%(try)s AND iteration=%(iteration)s'
+        already = self.conn.execute(sql, {'id': self.fields['id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
+        return already[0][0] > 0
+
     def _save_task(self):
+        if self._check_task():
+            log.info('Task {0} already exist'.format(self.fields['id']))
+            return
         src_pkgs = self._get_src()
         bin_pkgs = self._get_bin(src_pkgs)
         archs = self._get_archs_list()
