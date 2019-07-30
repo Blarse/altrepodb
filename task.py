@@ -1,5 +1,6 @@
 import urllib.request
 import urllib.error
+import sys
 import datetime
 import logging
 import os.path
@@ -222,12 +223,13 @@ def load(args, conn):
         task = Task(conn, girar)
         task.save()
     else:
-        log.info('task not found: {0}'.format(args.url))
+        raise ValueError('task not found: {0}'.format(args.url))
 
 
 def main():
     args = get_args()
     logger = get_logger(NAME)
+    logger.setLevel(logging.DEBUG)
     conn = None
     try:
         conn = get_client(args)
@@ -236,6 +238,7 @@ def main():
         load(args, conn)
     except Exception as error:
         logger.error(error, exc_info=True)
+        sys.exit(1)
     finally:
         if conn is not None:
             conn.disconnect()
