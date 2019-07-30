@@ -47,7 +47,6 @@ class Task:
         }
 
     def _get_gears_info(self, n):
-        type_, hash_ = self.girar.get('gears/{0}/sid'.format(n)).strip().split(':')
         userid = self.girar.get('gears/{0}/userid'.format(n))
         userid = userid.strip() if userid else ''
         dir_ = self.girar.get('gears/{0}/dir'.format(n))
@@ -60,6 +59,12 @@ class Task:
         tag_author = tag_author.strip() if tag_author else ''
         srpm = self.girar.get('gears/{0}/srpm'.format(n))
         srpm = srpm.strip() if srpm else ''
+        try:
+            type_, hash_ = self.girar.get('gears/{0}/sid'.format(n)).strip().split(':')
+        except Exception as error:
+            log.error(error)
+            type_ = 'gear' if srpm == '' else 'srpm'
+            hash_ = ''
 
         fields = dict(
             userid=userid,
