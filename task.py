@@ -39,7 +39,7 @@ class Task:
 
     def _prepare_fields(self):
         self.fields = {
-            'id': int(self.girar.get('task/id').strip()),
+            'task_id': int(self.girar.get('task/id').strip()),
             'try': int(self.girar.get('task/try').strip()),
             'iteration': int(self.girar.get('task/iter').strip()),
             'status': self.girar.get('task/state').strip(),
@@ -98,13 +98,13 @@ class Task:
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
 
     def _check_task(self):
-        sql = 'SELECT COUNT(*) FROM Tasks WHERE id=%(id)s AND try=%(try)s AND iteration=%(iteration)s'
-        already = self.conn.execute(sql, {'id': self.fields['id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
+        sql = 'SELECT COUNT(*) FROM Tasks WHERE task_id=%(task_id)s AND try=%(try)s AND iteration=%(iteration)s'
+        already = self.conn.execute(sql, {'task_id': self.fields['task_id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
         return already[0][0] > 0
 
     def _save_task(self):
         if self._check_task():
-            log.info('Task {0} already exist'.format(self.fields['id']))
+            log.info('Task {0} already exist'.format(self.fields['task_id']))
             return
         src_pkgs = self._get_src()
         bin_pkgs = self._get_bin(src_pkgs)
@@ -117,14 +117,14 @@ class Task:
             task['sourcepkg_cs'] = sha1
             for arch in archs:
                 task_ = task.copy()
-                task_['arch'] = arch
+                task_['task_arch'] = arch
                 task_['pkgs'] = bin_pkgs[subtask][arch]
                 task_['chroot_base'] = self._get_chroot_list(subtask, arch, 'chroot_base')
                 task_['chroot_BR'] = self._get_chroot_list(subtask, arch, 'chroot_BR')
                 tasks.append(task_)
-        sql = 'INSERT INTO Tasks (id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, arch, chroot_base, chroot_BR) VALUES'
+        sql = 'INSERT INTO Tasks (task_id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, task_arch, chroot_base, chroot_BR) VALUES'
         self.conn.execute(sql, tasks)
-        log.info('save task={0} try={1} iter={2}'.format(self.fields['id'], self.fields['try'], self.fields['iteration']))
+        log.info('save task={0} try={1} iter={2}'.format(self.fields['task_id'], self.fields['try'], self.fields['iteration']))
 
     def _get_src(self):
         src_list = self._get_pkg_list('plan/add-src')

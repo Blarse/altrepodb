@@ -98,21 +98,21 @@ def insert_list(conn, tagmap, pkgcs, dptype):
 
 
 @Timing.timeit(NAME)
-def insert_assigment_name(conn, name=None, uuid=None, tag=None, datetime_release=None, complete=0):
-    if datetime_release is None:
-        datetime_release = datetime.datetime.now()
-    sql = 'INSERT INTO AssigmentName (id, name, datetime_release, tag, complete) VALUES'
+def insert_assigment_name(conn, assigment_name=None, uuid=None, tag=None, assigment_date=None, complete=0):
+    if assigment_date is None:
+        assigment_date = datetime.datetime.now()
+    sql = 'INSERT INTO AssigmentName (uuid, assigment_name, assigment_date, tag, complete) VALUES'
     if uuid is None:
         uuid = str(uuid4())
     data = {
-        'id': uuid,
-        'name': name,
-        'datetime_release': datetime_release,
+        'uuid': uuid,
+        'assigment_name': assigment_name,
+        'assigment_date': assigment_date,
         'tag': tag, 
         'complete': complete
     }
     conn.execute(sql, [data])
-    log.debug('insert assigment name id: {0}'.format(uuid))
+    log.debug('insert assigment name uuid: {0}'.format(uuid))
     # return data
 
 
@@ -248,10 +248,10 @@ def load(args):
     aname_id = str(uuid4())
     insert_assigment_name(
         conn,
-        name=args.assigment,
+        assigment_name=args.assigment,
         uuid=aname_id,
         tag=args.tag,
-        datetime_release=args.date,
+        assigment_date=args.date,
         complete=1
     )
     insert_assigment(conn, aname_id, aname)

@@ -98,8 +98,8 @@ def get_file_map(hdr):
 
 def get_require_map(hdr):
     map_require = {
-        'name': cvt(hdr[rpm.RPMTAG_REQUIRENAME]),
-        'version': cvt(hdr[rpm.RPMTAG_REQUIREVERSION]),
+        'dpname': cvt(hdr[rpm.RPMTAG_REQUIRENAME]),
+        'dpversion': cvt(hdr[rpm.RPMTAG_REQUIREVERSION]),
         'flag': hdr[rpm.RPMTAG_REQUIREFLAGS],
     }
     return map_require
@@ -107,8 +107,8 @@ def get_require_map(hdr):
 
 def get_conflict_map(hdr):
     map_conflict = {
-        'name': cvt(hdr[rpm.RPMTAG_CONFLICTNAME]),
-        'version': cvt(hdr[rpm.RPMTAG_CONFLICTVERSION]),
+        'dpname': cvt(hdr[rpm.RPMTAG_CONFLICTNAME]),
+        'dpversion': cvt(hdr[rpm.RPMTAG_CONFLICTVERSION]),
         'flag': hdr[rpm.RPMTAG_CONFLICTFLAGS],
     }
     return map_conflict
@@ -116,8 +116,8 @@ def get_conflict_map(hdr):
 
 def get_obsolete_map(hdr):
     map_obsolete = {
-        'name': cvt(hdr[rpm.RPMTAG_OBSOLETENAME]),
-        'version': cvt(hdr[rpm.RPMTAG_OBSOLETEVERSION]),
+        'dpname': cvt(hdr[rpm.RPMTAG_OBSOLETENAME]),
+        'dpversion': cvt(hdr[rpm.RPMTAG_OBSOLETEVERSION]),
         'flag': hdr[rpm.RPMTAG_OBSOLETEFLAGS],
     }
     return map_obsolete
@@ -125,8 +125,8 @@ def get_obsolete_map(hdr):
 
 def get_provide_map(hdr):
     map_provide = {
-        'name': cvt(hdr[rpm.RPMTAG_PROVIDENAME]),
-        'version': cvt(hdr[rpm.RPMTAG_PROVIDEVERSION]),
+        'dpname': cvt(hdr[rpm.RPMTAG_PROVIDENAME]),
+        'dpversion': cvt(hdr[rpm.RPMTAG_PROVIDEVERSION]),
         'flag': hdr[rpm.RPMTAG_PROVIDEFLAGS],
     }
     return map_provide
