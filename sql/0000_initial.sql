@@ -1,7 +1,7 @@
 CREATE TABLE AssigmentName (
-	id 					UUID,
-	name 				String,
-	datetime_release 	DateTime,
+	uuid 				UUID,
+	assigment_name 		String,
+	assigment_date 		DateTime,
 	tag 				String,
 	complete 			UInt8
 ) 
@@ -10,7 +10,7 @@ ORDER BY (id, name, datetime_release, tag);
 
 
 CREATE TABLE Tasks (
-	id 				UInt32,
+	task_id 		UInt32,
 	subtask 		UInt32,
 	sourcepkg_cs 	FixedString(40),
 	try 			UInt16,
@@ -27,7 +27,7 @@ CREATE TABLE Tasks (
 	srpm			String,
 	type			Enum8('srpm' = 0, 'gear' = 1),
 	hash			String,
-	arch 			String,
+	task_arch		String,
 	chroot_base 	Array(FixedString(40)),
 	chroot_BR 		Array(FixedString(40))
 ) 
@@ -124,8 +124,8 @@ ORDER BY (pkgcs, name);
 
 CREATE TABLE Depends (
 	pkgcs 		FixedString(40),
-	name 		String,
-	version 	String,
+	dpname 		String,
+	dpversion 	String,
 	flag 		UInt32,
 	dptype 		Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 )
