@@ -6,7 +6,7 @@ CREATE TABLE AssigmentName (
 	complete 			UInt8
 ) 
 ENGINE = MergeTree
-ORDER BY (id, name, datetime_release, tag);
+ORDER BY (uuid, assigment_name, assigment_date, tag);
 
 
 CREATE TABLE Tasks (
@@ -32,7 +32,7 @@ CREATE TABLE Tasks (
 	chroot_BR 		Array(FixedString(40))
 ) 
 ENGINE = MergeTree
-ORDER BY (id, subtask);
+ORDER BY (task_id, subtask);
 
 
 CREATE TABLE Assigment (
@@ -130,7 +130,7 @@ CREATE TABLE Depends (
 	dptype 		Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 )
 ENGINE =  MergeTree
-ORDER BY (pkgcs, name, version, flag, dptype);
+ORDER BY (pkgcs, dpname, dpversion, flag, dptype);
 
 
 CREATE TABLE Config (
