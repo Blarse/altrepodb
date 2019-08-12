@@ -6,7 +6,7 @@ CREATE TABLE AssigmentName (
 	complete 			UInt8
 ) 
 ENGINE = MergeTree
-ORDER BY (uuid, assigment_name, assigment_date, tag);
+ORDER BY (assigment_name, assigment_date, tag);
 
 
 CREATE TABLE Tasks (
@@ -15,24 +15,24 @@ CREATE TABLE Tasks (
 	sourcepkg_cs 	FixedString(40),
 	try 			UInt16,
 	iteration 		UInt8,
-	status 			String,
+	status 			LowCardinality(String),
 	is_test 		UInt8,
-	branch 			String,
+	branch 			LowCardinality(String),
 	pkgs 			Array(FixedString(40)),
-	userid 			String,
+	userid 			LowCardinality(String),
 	dir 			String,
 	tag_name		String,
 	tag_id			String,
-	tag_author		String,
+	tag_author		LowCardinality(String),
 	srpm			String,
 	type			Enum8('srpm' = 0, 'gear' = 1),
 	hash			String,
-	task_arch		String,
+	task_arch		LowCardinality(String),
 	chroot_base 	Array(FixedString(40)),
 	chroot_BR 		Array(FixedString(40))
 ) 
 ENGINE = MergeTree
-ORDER BY (task_id, subtask);
+ORDER BY (task_id, subtask,userid,status,branch,task_arch);
 
 
 CREATE TABLE Assigment (
@@ -53,32 +53,32 @@ CREATE TABLE File (
 	filerdev 		UInt16,
 	filemtime 		DateTime,
 	fileflag 		UInt16,
-	fileusername 	String,
-	filegroupname 	String,
+	fileusername 	LowCardinality(String),
+	filegroupname 	LowCardinality(String),
 	fileverifyflag 	UInt32,
 	filedevice 		UInt32,
-	filelang 		String,
-	fileclass 		String
+	filelang 		LowCardinality(String),
+	fileclass 		LowCardinality(String)
 ) 
 ENGINE = MergeTree
-ORDER BY (filename, pkgcs);
+ORDER BY (filename, pkgcs, filemd5, fileclass);
 
 
 CREATE TABLE Package (
     pkgcs 				FixedString(40), 
-    packager 			String, 
-    packager_email 		String, 
+    packager 			LowCardinality(String), 
+    packager_email 		LowCardinality(String), 
     name 				String, 
-    arch 				String, 
+    arch 				LowCardinality(String), 
     version 			String, 
     release 			String, 
     epoch 				UInt32, 
     serial_ 			UInt32, 
     buildtime 			UInt32, 
-    buildhost 			String, 
+    buildhost 			LowCardinality(String), 
     size 				UInt64, 
     archivesize 		UInt64, 
-    rpmversion 			String, 
+    rpmversion 			LowCardinality(String), 
     cookie 				String, 
     sourcepackage 		UInt8, 
     disttag 			String, 
@@ -89,14 +89,14 @@ CREATE TABLE Package (
     summary 			String, 
     description 		String, 
     changelog 			String, 
-    distribution 		String, 
-    vendor 				String, 
+    distribution 		LowCardinality(String), 
+    vendor 				LowCardinality(String), 
     gif 				String, 
     xpm 				String, 
-    license 			String, 
+    license 			LowCardinality(String), 
     group_ 				String, 
-    url 				String, 
-    os 					String, 
+    url 				LowCardinality(String), 
+    os 					LowCardinality(String), 
     prein 				String, 
     postin 				String, 
     preun 				String, 
@@ -106,20 +106,20 @@ CREATE TABLE Package (
     postinprog 			Array(String),
     preunprog 			Array(String),
     postunprog 			Array (String),
-    buildarchs 			Array (String),
+    buildarchs 			Array (LowCardinality(String)),
     verifyscript 		String, 
     verifyscriptprog 	Array(String),
-    prefixes 			Array(String),
+    prefixes 			Array(LowCardinality(String)),
     instprefixes 		Array(String),
-    optflags 			String, 
+    optflags 			LowCardinality(String), 
     disturl 			String, 
-    payloadformat 		String, 
-    payloadcompressor 	String, 
-    payloadflags 		String, 
-    platform 			String
+    payloadformat 		LowCardinality(String), 
+    payloadcompressor 	LowCardinality(String), 
+    payloadflags 		LowCardinality(String), 
+    platform 			LowCardinality(String)
 )
 ENGINE = MergeTree
-ORDER BY (pkgcs, name);
+ORDER BY (name, version,release,serial_, epoch, disttag, arch,packager,packager_email,replaceRegexpOne(sourcerpm, '-[0-9.]*-alt.*.src.rpm', ''),sha1srcheader,sourcerpm);
 
 
 CREATE TABLE Depends (
@@ -155,3 +155,14 @@ ENGINE = Buffer(currentDatabase(), Package, 16, 10, 200, 10000, 1000000, 1000000
 
 CREATE TABLE Depends_buffer AS Depends
 ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+CREATE OR REPLACE VIEW last_assigments AS SELECT pkgcs, assigment_name, date AS assigment_date FROM Assigment 
+    RIGHT JOIN (SELECT argMax(uuid, assigment_date) AS uuid, assigment_name, max(assigment_date) 
+    AS date FROM AssigmentName GROUP BY assigment_name) USING (uuid);
+
+CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_date, pkgcs 
+    FROM last_assigments ALL INNER JOIN (SELECT * FROM Package) AS pkg USING (pkgcs);
+
+CREATE OR REPLACE VIEW last_depends AS SELECT Depends.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch
+     FROM Depends ALL INNER JOIN (SELECT pkgcs, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name 
+     AS pkgname, sourcepackage,arch FROM last_packages) USING (pkgcs);
