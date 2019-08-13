@@ -167,5 +167,5 @@ CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_
     FROM last_assigments ALL INNER JOIN (SELECT * FROM Package) AS pkg USING (pkghash);
 
 CREATE OR REPLACE VIEW last_depends AS SELECT Depends.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch
-     FROM Depends ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name, arch 
-     AS pkgname, sourcepackage,arch FROM last_packages) USING (pkghash);
+     FROM Depends ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
+     sourcepackage, arch FROM last_packages) USING (pkghash);
