@@ -12,7 +12,7 @@ ORDER BY (assigment_name, assigment_date, tag) PRIMARY KEY assigment_name;
 CREATE TABLE Tasks (
 	task_id 		UInt32,
 	subtask 		UInt32,
-	sourcepkg_cs 	FixedString(40),
+	sourcepkg_hash 	UInt64,
 	try 			UInt16,
 	iteration 		UInt8,
 	status 			LowCardinality(String),
