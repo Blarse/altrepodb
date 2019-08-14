@@ -233,8 +233,8 @@ def main():
     conn = None
     try:
         conn = get_client(args)
-        if not check_latest_version(conn):
-            raise RuntimeError('incorrect database schema version')
+        # if not check_latest_version(conn):
+        #     raise RuntimeError('incorrect database schema version')
         load(args, conn)
     except Exception as error:
         logger.error(error, exc_info=True)

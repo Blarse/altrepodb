@@ -30,8 +30,9 @@ def check_package(cache, hdr):
 
     return id of package from database or None
     """
-    pkghash = mmhash(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
-    log.debug('check package for sha1: {0}'.format(pkghash))
+    sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
+    pkghash = mmhash(sha1)
+    log.debug('check package for sha1: {0}'.format(sha1))
     if pkghash in cache:
         return pkghash
     return None
@@ -219,10 +220,10 @@ def init_cache(conn):
 
 def load(args):
     conn = get_client(args)
-    if not check_latest_version(conn):
-        conn.disconnect()
-        raise RuntimeError('Incorrect database schema version')
-    log.debug('check database version complete')
+    # if not check_latest_version(conn):
+    #     conn.disconnect()
+    #     raise RuntimeError('Incorrect database schema version')
+    # log.debug('check database version complete')
     iso = check_iso(args.path)
     if iso:
         packages = LockedIterator(iso_find_packages(iso))
