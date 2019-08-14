@@ -11,7 +11,7 @@ import configparser
 import clickhouse_driver as chd
 from collections import defaultdict
 from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt
+from utils import get_logger, cvt, mmhash
 from manager import check_latest_version
 
 
@@ -114,15 +114,15 @@ class Task:
             task = self.fields.copy()
             task.update(self._get_gears_info(subtask))
             task['subtask'] = int(subtask)
-            task['sourcepkg_cs'] = sha1
+            task['sourcepkg_hash'] = mmhash(sha1)
             for arch in archs:
                 task_ = task.copy()
                 task_['task_arch'] = arch
-                task_['pkgs'] = bin_pkgs[subtask][arch]
-                task_['chroot_base'] = self._get_chroot_list(subtask, arch, 'chroot_base')
-                task_['chroot_BR'] = self._get_chroot_list(subtask, arch, 'chroot_BR')
+                task_['pkgs'] = [mmhash(p) for p in bin_pkgs[subtask][arch]]
+                task_['chroot_base'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_base')]
+                task_['chroot_BR'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_BR')]
                 tasks.append(task_)
-        sql = 'INSERT INTO Tasks (task_id, subtask, sourcepkg_cs, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, task_arch, chroot_base, chroot_BR) VALUES'
+        sql = 'INSERT INTO Tasks (task_id, subtask, sourcepkg_hash, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, task_arch, chroot_base, chroot_BR) VALUES'
         self.conn.execute(sql, tasks)
         log.info('save task={0} try={1} iter={2}'.format(self.fields['task_id'], self.fields['try'], self.fields['iteration']))
 

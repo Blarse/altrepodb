@@ -14,7 +14,7 @@ import itertools
 
 from uuid import uuid4
 from io import BufferedRandom
-from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache
+from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache, mmhash
 from manager import check_latest_version
 
 
@@ -30,10 +30,10 @@ def check_package(cache, hdr):
 
     return id of package from database or None
     """
-    sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
-    log.debug('check package for sha1: {0}'.format(sha1))
-    if sha1 in cache:
-        return sha1
+    pkghash = mmhash(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+    log.debug('check package for sha1: {0}'.format(pkghash))
+    if pkghash in cache:
+        return pkghash
     return None
 
 
@@ -51,50 +51,50 @@ def insert_package(conn, hdr, **kwargs):
         ', '.join(map_package.keys())
     )
 
-    pkgcs = map_package['pkgcs']
+    pkghash = map_package['pkghash']
 
-    insert_file(conn, pkgcs, hdr)
+    insert_file(conn, pkghash, hdr)
 
     map_require = mapper.get_require_map(hdr)
-    insert_list(conn, map_require, pkgcs, 'require')
+    insert_list(conn, map_require, pkghash, 'require')
 
     map_conflict = mapper.get_conflict_map(hdr)
-    insert_list(conn, map_conflict, pkgcs, 'conflict')
+    insert_list(conn, map_conflict, pkghash, 'conflict')
 
     map_obsolete = mapper.get_obsolete_map(hdr)
-    insert_list(conn, map_obsolete, pkgcs, 'obsolete')
+    insert_list(conn, map_obsolete, pkghash, 'obsolete')
 
     map_provide = mapper.get_provide_map(hdr)
-    insert_list(conn, map_provide, pkgcs, 'provide')
+    insert_list(conn, map_provide, pkghash, 'provide')
 
     conn.execute(sql_insert, [map_package])
 
-    return pkgcs
+    return pkghash
 
 
 @Timing.timeit(NAME)
-def insert_file(conn, pkgcs, hdr):
+def insert_file(conn, pkghash, hdr):
     map_file = mapper.get_file_map(hdr)
-    map_file['pkgcs'] = itertools.cycle([pkgcs])
+    map_file['pkghash'] = itertools.cycle([pkghash])
     data = [dict(zip(map_file, v)) for v in zip(*map_file.values())]
     conn.execute(
         'INSERT INTO File_buffer ({0}) VALUES'.format(', '.join(map_file.keys())), 
         data
     )
-    log.debug('insert file for pkgcs: {0}'.format(pkgcs))
+    log.debug('insert file for pkghash: {0}'.format(pkghash))
 
 
 @Timing.timeit('extract')
-def insert_list(conn, tagmap, pkgcs, dptype):
+def insert_list(conn, tagmap, pkghash, dptype):
     """Insert list as batch."""
-    tagmap['pkgcs'] = itertools.cycle([pkgcs])
+    tagmap['pkghash'] = itertools.cycle([pkghash])
     tagmap['dptype'] = itertools.cycle([dptype])
     data = [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
     conn.execute(
         'INSERT INTO Depends_buffer ({0}) VALUES'.format(', '.join(tagmap.keys())),
         data
     )
-    log.debug('insert list into: {0} for pkgcs: {1}'.format(dptype, pkgcs))
+    log.debug('insert list into: {0} for pkghash: {1}'.format(dptype, pkghash))
 
 
 @Timing.timeit(NAME)
@@ -117,12 +117,12 @@ def insert_assigment_name(conn, assigment_name=None, uuid=None, tag=None, assigm
 
 
 @Timing.timeit(NAME)
-def insert_assigment(conn, uuid, pkgcs):
+def insert_assigment(conn, uuid, pkghash):
     conn.execute(
-        'INSERT INTO Assigment_buffer (uuid, pkgcs) VALUES',
-        [dict(uuid=uuid, pkgcs=p) for p in pkgcs]
+        'INSERT INTO Assigment_buffer (uuid, pkghash) VALUES',
+        [dict(uuid=uuid, pkghash=p) for p in pkghash]
     )
-    log.debug('insert assigment uuid: {0}, pkgcs: {1}'.format(uuid, len(pkgcs)))
+    log.debug('insert assigment uuid: {0}, pkghash: {1}'.format(uuid, len(pkghash)))
 
 
 def find_packages(path):
@@ -197,13 +197,13 @@ class Worker(threading.Thread):
                     package.close()
                     package = package.iname
                 log.debug('process: {0}'.format(package))
-                pkgcs = check_package(self.cache, header)
-                if pkgcs is None:
-                    pkgcs = insert_package(self.connection, header, filename=os.path.basename(package))
-                    self.cache.add(pkgcs)
-                if pkgcs is None:
+                pkghash = check_package(self.cache, header)
+                if pkghash is None:
+                    pkghash = insert_package(self.connection, header, filename=os.path.basename(package))
+                    self.cache.add(pkghash)
+                if pkghash is None:
                     raise RuntimeError('no id for {0}'.format(package))
-                self.aname.add(pkgcs)
+                self.aname.add(pkghash)
             except Exception as error:
                 log.error(error, exc_info=True)
             else:
@@ -213,7 +213,7 @@ class Worker(threading.Thread):
 
 
 def init_cache(conn):
-    result = conn.execute('SELECT pkgcs FROM Package_buffer')
+    result = conn.execute('SELECT pkghash FROM Package_buffer')
     return {i[0] for i in result}
 
 

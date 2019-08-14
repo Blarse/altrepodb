@@ -2,9 +2,15 @@ import re
 import datetime
 import logging
 import threading
+import mmh3
 from logging import handlers
 from functools import wraps
 from time import time
+
+
+def mmhash(val):
+    a, b = mmh3.hash64(val, signed=False)
+    return a ^ b
 
 
 def valid_date(s):

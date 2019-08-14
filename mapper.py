@@ -1,6 +1,6 @@
 import rpm
 
-from utils import changelog_to_text, cvt, cvt_ts, strip_end, symbolic, packager_parse
+from utils import changelog_to_text, cvt, cvt_ts, strip_end, symbolic, packager_parse, mmhash
 
 
 def detect_arch(hdr):
@@ -21,6 +21,7 @@ def get_package_map(hdr):
         pname, pemail = packager, ''
 
     map_package = {
+        'pkghash': mmhash(cvt(hdr[rpm.RPMDBI_SHA1HEADER])),
         'pkgcs': cvt(hdr[rpm.RPMDBI_SHA1HEADER]),
         'packager': pname,
         'packager_email': pemail,
