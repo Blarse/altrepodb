@@ -161,8 +161,9 @@ def check_iso(path):
     if os.path.isdir(path):
         return None
     iso = pycdlib.PyCdlib()
+    fp = open(path, 'rb')
     try:
-        iso.open(path)
+        iso.open_fp(fp)
     except pycdlib.pycdlibexception.PyCdlibInvalidInput:
         log.error('error open iso: {0}'.format(path))
         return None
