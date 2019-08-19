@@ -6,7 +6,7 @@ CREATE TABLE AssigmentName (
 	complete 			UInt8
 ) 
 ENGINE = MergeTree
-ORDER BY (assigment_name, assigment_date, tag) PRIMARY KEY assigment_name;
+ORDER BY (assigment_date, assigment_name) PRIMARY KEY assigment_date;
 
 
 CREATE TABLE Tasks (
@@ -37,7 +37,7 @@ ORDER BY (task_id, subtask,userid,status,branch,task_arch);
 
 CREATE TABLE Assigment (
 	uuid 		UUID,
-	pkghash 	UInt64
+	pkghash 	UInt64 CODEC(NONE)
 ) 
 ENGINE = MergeTree
 ORDER BY (uuid, pkghash) PRIMARY KEY (uuid);
@@ -46,7 +46,7 @@ ORDER BY (uuid, pkghash) PRIMARY KEY (uuid);
 CREATE TABLE File (
 	pkghash			UInt64,
 	filename 		String,
-	hashname		UInt64 MATERIALIZED murmurHash3_64(filename),
+	hashname		UInt64 MATERIALIZED murmurHash3_64(filename) CODEC(NONE),
 	filelinkto 		String,
 	filemd5 		FixedString(32),
 	filesize 		UInt32,
@@ -62,12 +62,12 @@ CREATE TABLE File (
 	fileclass 		String
 ) 
 ENGINE = MergeTree
-ORDER BY (pkghash, filename, filemd5, fileclass) PRIMARY KEY pkghash;
+ORDER BY (pkghash, filename, fileclass, filemd5) PRIMARY KEY pkghash;
 
 
 CREATE TABLE Package (
-    pkghash 				UInt64, 
-    pkgcs 				FixedString(40), 
+    pkghash 				UInt64 CODEC(NONE), 
+    pkgcs 				FixedString(40) CODEC(NONE), 
     packager 			LowCardinality(String), 
     packager_email 		LowCardinality(String), 
     name 				String, 
@@ -121,8 +121,8 @@ CREATE TABLE Package (
     platform 			LowCardinality(String)
 )
 ENGINE = MergeTree
-ORDER BY (name, version,release,serial_, epoch, disttag, arch,packager,packager_email,replaceRegexpOne(sourcerpm, '-[0-9.]*-alt.*.src.rpm', ''),sha1srcheader,sourcerpm)
-PRIMARY KEY name;
+ORDER BY (name,arch,version,release,serial_,epoch,disttag,filename, sourcerpm,packager,packager_email)
+PRIMARY KEY (name,arch) SETTINGS index_granularity = 2048;
 
 
 CREATE TABLE Depends (
@@ -133,7 +133,7 @@ CREATE TABLE Depends (
 	dptype 		Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 )
 ENGINE =  MergeTree
-ORDER BY (pkghash, dpname, dpversion, flag, dptype) PRIMARY KEY pkghash;
+ORDER BY (pkghash, dptype, dpname, dpversion, flag) PRIMARY KEY pkghash;
 
 
 CREATE TABLE Config (
@@ -159,13 +159,13 @@ ENGINE = Buffer(currentDatabase(), Package, 16, 10, 200, 10000, 1000000, 1000000
 CREATE TABLE Depends_buffer AS Depends
 ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
 
-CREATE OR REPLACE VIEW last_assigments AS SELECT pkghash, assigment_name, date AS assigment_date FROM Assigment 
+CREATE OR REPLACE VIEW last_assigments AS SELECT pkghash, assigment_name, date AS assigment_date FROM Assigment_buffer
     RIGHT JOIN (SELECT argMax(uuid, assigment_date) AS uuid, assigment_name, max(assigment_date) 
     AS date FROM AssigmentName GROUP BY assigment_name) USING (uuid);
 
 CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_date, pkghash 
-    FROM last_assigments ALL INNER JOIN (SELECT * FROM Package) AS pkg USING (pkghash);
+    FROM last_assigments ALL INNER JOIN (SELECT * FROM Package_buffer) AS pkg USING (pkghash);
 
-CREATE OR REPLACE VIEW last_depends AS SELECT Depends.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch
-     FROM Depends ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
-     sourcepackage, arch FROM last_packages) USING (pkghash);
+CREATE OR REPLACE VIEW last_depends AS SELECT Depends_buffer.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch, filename, sourcerpm
+     FROM Depends_buffer ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
+     sourcepackage, arch, filename, sourcerpm FROM last_packages) USING (pkghash);
