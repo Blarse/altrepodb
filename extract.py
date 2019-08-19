@@ -228,6 +228,9 @@ def load(args):
     iso = check_iso(args.path)
     if iso:
         packages = LockedIterator(iso_find_packages(iso))
+        if args.date is None:
+            r = os.stat(args.path)
+            args.date = datetime.datetime.fromtimestamp(r.st_mtime)
     else:
         packages = LockedIterator(find_packages(args.path))
     workers = []
