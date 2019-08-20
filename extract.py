@@ -13,7 +13,7 @@ import pycdlib
 import itertools
 
 from uuid import uuid4
-from io import BufferedRandom
+from io import BufferedRandom, BytesIO
 from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache, mmhash
 from manager import check_latest_version
 
@@ -214,6 +214,21 @@ class Worker(threading.Thread):
         log.debug('thread stop')
 
 
+def iso_get_info(iso, args):
+    result = {}
+    try:
+        for dirname, _, filenames in iso.walk(iso_path='/.DISK'):
+            for filename in filenames:
+                f = os.path.join(dirname, filename)
+                data = BytesIO()
+                iso.get_file_from_iso_fp(data, iso_path=f)
+                result[filename.split('.')[0]] = data.getvalue().strip().decode('latin-1')
+        result_string = '\n'.join(['{0}: {1}'.format(k, v) for k, v in result.items()])
+        args.tag = result_string
+    except Exception as error:
+        log.error(error, exc_info=True)
+
+
 def init_cache(conn):
     result = conn.execute('SELECT pkghash FROM Package_buffer')
     return {i[0] for i in result}
@@ -231,6 +246,7 @@ def load(args):
         if args.date is None:
             r = os.stat(args.path)
             args.date = datetime.datetime.fromtimestamp(r.st_mtime)
+        iso_get_info(iso, args)
     else:
         packages = LockedIterator(find_packages(args.path))
     workers = []
