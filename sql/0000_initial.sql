@@ -143,6 +143,26 @@ CREATE TABLE Config (
 ENGINE =  MergeTree
 ORDER BY (key, value);
 
+CREATE TABLE Acl (
+    acl_date	DateTime,
+    pkgname	String,
+    acl_branch	String,
+    acl	Array(String)
+)
+ENGINE =  MergeTree
+ORDER BY (acl_date, acl_branch, pkgname, acl) PRIMARY KEY (acl_date,acl_branch);
+
+
+CREATE TABLE AclGroup (
+    aclgroup_date	DateTime,
+    aclgroup	String,
+    aclgroup_branch	String,
+    acl_group	Array(String)
+)
+ENGINE =  MergeTree
+ORDER BY (aclgroup_date, aclgroup_branch,aclgroup, acl_group) PRIMARY KEY (aclgroup_date,aclgroup_branch);
+
+
 
 CREATE TABLE Assigment_buffer AS Assigment
 ENGINE = Buffer(currentDatabase(), Assigment, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
