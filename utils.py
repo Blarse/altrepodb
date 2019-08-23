@@ -195,3 +195,16 @@ class Cache:
     def load(self, it):
         for k, v in it:
             self.__data[k] = v
+
+
+def chunks(data, size): 
+    it = iter(data) 
+    while True: 
+        acc = [] 
+        try: 
+            for _ in range(size): 
+                acc.append(next(it)) 
+        except StopIteration: 
+            break 
+        finally: 
+            yield acc 

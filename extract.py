@@ -11,6 +11,7 @@ import configparser
 import tempfile
 import pycdlib
 import itertools
+import iso as isopkg
 
 from uuid import uuid4
 from io import BufferedRandom, BytesIO
@@ -278,6 +279,7 @@ def load(args):
     insert_assigment(conn, aname_id, aname)
 
     if iso:
+        isopkg.process_iso(conn, iso, aname_id)
         iso.close()
 
     for c in connections:
