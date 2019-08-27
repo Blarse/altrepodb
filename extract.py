@@ -141,14 +141,14 @@ def find_packages(path):
 
 
 def iso_find_packages(iso):
-    for dirname, _, filenames in iso.walk(iso_path='/'):
+    for dirname, _, filenames in iso.walk(rr_path='/'):
         for filename in filenames:
             f = os.path.join(dirname, filename)
-            if f.endswith('.RPM;1'):
+            if f.endswith('.rpm'):
                 tmp_file = tempfile.TemporaryFile()
-                iso.get_file_from_iso_fp(tmp_file, iso_path=f)
+                iso.get_file_from_iso_fp(tmp_file, rr_path=f)
                 tmp_file.seek(0)
-                tmp_file.iname = f.lower()[:-2]
+                tmp_file.iname = f
                 yield tmp_file
 
 
@@ -218,11 +218,11 @@ class Worker(threading.Thread):
 def iso_get_info(iso, args):
     result = {}
     try:
-        for dirname, _, filenames in iso.walk(iso_path='/.DISK'):
+        for dirname, _, filenames in iso.walk(rr_path='/.disk'):
             for filename in filenames:
                 f = os.path.join(dirname, filename)
                 data = BytesIO()
-                iso.get_file_from_iso_fp(data, iso_path=f)
+                iso.get_file_from_iso_fp(data, rr_path=f)
                 result[filename.split('.')[0]] = data.getvalue().strip().decode('latin-1')
         result_string = '\n'.join(['{0}: {1}'.format(k, v) for k, v in result.items()])
         args.tag = result_string

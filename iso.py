@@ -24,10 +24,10 @@ def mmhash(val):
 
 
 def process_iso(conn, iso, aname_id):
-    for sqfs in ['/ALTINST.;1', '/LIVE.;1', '/RESCUE.;1']:
+    for sqfs in ['/altinst', '/live', '/rescue']:
         tmp_file = tempfile.NamedTemporaryFile()
         try:
-            iso.get_file_from_iso_fp(tmp_file, iso_path=sqfs)
+            iso.get_file_from_iso_fp(tmp_file, rr_path=sqfs)
         except pycdlib.pycdlibexception.PyCdlibInvalidInput as e:
             log.error(e)
             continue
