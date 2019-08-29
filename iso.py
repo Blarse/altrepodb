@@ -6,24 +6,19 @@ import rpm
 import tempfile
 import hashlib
 import logging
-import mmh3
 import utils
 from io import BytesIO
+from uuid import uuid4
 from collections import defaultdict
 from PySquashfsImage import SquashFsImage
-from extract import insert_assigment
+from extract import insert_assigment, insert_assigment_name
 from functools import reduce
 
 
 log = logging.getLogger('extract')
 
 
-def mmhash(val):
-    a, b = mmh3.hash64(val, signed=False)
-    return a ^ b
-
-
-def process_iso(conn, iso, aname_id):
+def process_iso(conn, iso, args):
     for sqfs in ['/altinst', '/live', '/rescue']:
         tmp_file = tempfile.NamedTemporaryFile()
         try:
@@ -36,18 +31,35 @@ def process_iso(conn, iso, aname_id):
         m.update(tmp_file.read())
         squash_sha1 = m.hexdigest()
         log.info('iso processing sqfs: {}, sha1: {}'.format(sqfs, squash_sha1))
+
         path_md5 = process_squashfs(tmp_file.name, squash_sha1) # {(filename, filemd5): {'data': ...}}
         log.info('iso read {} files'.format(len(path_md5)))
+
         packages = get_package(conn, path_md5) # [(pkghash, name, buildtime), ...]
-        log.info('iso finded {} packages'.format(len(packages)))
+        log.info('iso found {} packages'.format(len(packages)))
+
         files = get_file(conn, packages) # {pkghash: {(filename, filemd5), ...}}
         assigments = make_assigments(path_md5, packages, files)
-        log.info('iso saved: {}, assigments'.format(len(assigments)))
-        insert_assigment(conn, aname_id, assigments)
+
+        aname_id = str(uuid4())
+        aname = args.assigment + sqfs
+        insert_assigment_name(
+            conn,
+            assigment_name=aname,
+            uuid=aname_id,
+            tag=args.tag,
+            assigment_date=args.date,
+            complete=1
+        )
+
         orphan_files = get_orphan_files(files, path_md5)
-        make_orphan_package(conn, sqfs, squash_sha1)
-        log.info('iso save: {}, orphan files'.format(len(orphan_files)))
+        name = '{0}-not-found-files-{1}'.format(sqfs.replace('/', ''), args.assigment)
+        orphan_pkghash = make_orphan_package(conn, name, squash_sha1)
+        assigments.add(orphan_pkghash)
         write_orphan_files(conn, orphan_files, path_md5)
+        log.info('iso saved: {}, orphan files'.format(len(orphan_files)))
+        insert_assigment(conn, aname_id, assigments)
+        log.info('iso saved: {}, assigments'.format(len(assigments)))
         tmp_file.close()
 
 
@@ -57,7 +69,7 @@ def get_orphan_files(files, path_md5):
 
 
 def make_orphan_package(conn, name, sha1):
-    pkghash = mmhash(sha1)
+    pkghash = utils.mmhash(sha1)
     conn.execute('INSERT INTO Package_buffer (pkghash, name) VALUES', [{'pkghash': pkghash, 'name': name}])
     return pkghash
 
@@ -113,7 +125,7 @@ def process_squashfs(filename, squash_sha1):
         data['filename'] = f.getPath()
         data['filelinkto'] = l_
         data['filemd5'] = h_
-        data['pkghash'] = mmhash(squash_sha1)
+        data['pkghash'] = utils.mmhash(squash_sha1)
         data['filesize'] = f.getLength()
         data['filemode'] = f.inode.mode
         data['filemtime'] = utils.cvt_ts(f.inode.time)

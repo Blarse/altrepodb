@@ -279,7 +279,7 @@ def load(args):
     insert_assigment(conn, aname_id, aname)
 
     if iso:
-        isopkg.process_iso(conn, iso, aname_id)
+        isopkg.process_iso(conn, iso, args)
         iso.close()
 
     for c in connections:
