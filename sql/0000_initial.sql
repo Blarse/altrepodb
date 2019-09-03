@@ -47,6 +47,7 @@ CREATE TABLE File (
 	pkghash			UInt64,
 	filename 		String,
 	hashname		UInt64 MATERIALIZED murmurHash3_64(filename) CODEC(NONE),
+	hashdir 		UInt64 MATERIALIZED murmurHash3_64(extract(filename, '^(.+)/([^/]+)$')),
 	filelinkto 		String,
 	filemd5 		FixedString(32),
 	filesize 		UInt32,
@@ -151,6 +152,15 @@ CREATE TABLE Acl (
 )
 ENGINE =  MergeTree
 ORDER BY (acl_date, acl_branch, pkgname, acl) PRIMARY KEY (acl_date,acl_branch);
+
+CREATE TABLE CveChecked (
+    cveid	String,
+    pkgname	String,
+    checkdate	DateTime,
+    description String
+)
+ENGINE =  MergeTree
+ORDER BY (cveid,  pkgname, checkdate) PRIMARY KEY (cveid,pkgname);
 
 
 CREATE TABLE AclGroup (
