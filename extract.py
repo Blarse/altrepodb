@@ -11,6 +11,8 @@ import configparser
 import tempfile
 import pycdlib
 import itertools
+import fnmatch
+import re
 import iso as isopkg
 
 from uuid import uuid4
@@ -127,15 +129,19 @@ def insert_assigment(conn, uuid, pkghash):
     log.debug('insert assigment uuid: {0}, pkghash: {1}'.format(uuid, len(pkghash)))
 
 
-def find_packages(path):
+def find_packages(args):
     """Recursively walk through directory for find rpm packages.
 
     return generator
     """
+    path = args.path
     log.debug('scanning directory: {0}'.format(path))
     for dirname, _, filenames in os.walk(path):
         for filename in filenames:
             f = os.path.join(dirname, filename)
+            if args.exclude is not None and fnmatch.fnmatch(f, args.exclude):
+                log.debug('skip {}'.format(f))
+                continue
             if f.endswith('.rpm') and not os.path.islink(f):
                 yield f
 
@@ -249,7 +255,7 @@ def load(args):
             args.date = datetime.datetime.fromtimestamp(r.st_mtime)
         iso_get_info(iso, args)
     else:
-        packages = LockedIterator(find_packages(args.path))
+        packages = LockedIterator(find_packages(args))
     workers = []
     connections = [conn]
     display = None
@@ -298,7 +304,7 @@ def get_args():
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
-    parser.add_argument('-p', '--port', type=str, help='Database password')
+    parser.add_argument('-p', '--port', type=str, help='Database port')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
     parser.add_argument('-w', '--workers', type=int, help='Workers count')
@@ -306,6 +312,7 @@ def get_args():
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
+    parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
     return parser.parse_args()
 
 
