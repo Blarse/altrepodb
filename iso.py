@@ -139,7 +139,7 @@ def process_squashfs(filename, squash_sha1):
 
 
 def get_package(conn, path_md5):
-    sql = 'SELECT pkghash, name, buildtime FROM Package_buffer WHERE sourcepackage=%(srcp)s AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer WHERE (filename, filemd5) IN %(path_md5)s)'
+    sql = "SELECT pkghash, name, buildtime FROM Package_buffer WHERE notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer WHERE (filename, filemd5) IN %(path_md5)s)"
     result = set()
     for chunk in utils.chunks(path_md5.keys(), 1000):
         result.update(conn.execute(sql, {'path_md5': tuple(chunk), 'srcp': 0}))
