@@ -47,7 +47,7 @@ CREATE TABLE File (
 	pkghash			UInt64,
 	filename 		String,
 	hashname		UInt64 MATERIALIZED murmurHash3_64(filename) CODEC(NONE),
-	hashdir 		UInt64 MATERIALIZED murmurHash3_64(extract(filename, '^(.+)/([^/]+)$')),
+	hashdir 		UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', filename)))),
 	filelinkto 		String,
 	filemd5 		FixedString(32),
 	filesize 		UInt32,
