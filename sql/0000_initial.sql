@@ -199,3 +199,7 @@ CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_
 CREATE OR REPLACE VIEW last_depends AS SELECT Depends_buffer.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch, filename, sourcerpm
      FROM Depends_buffer ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
      sourcepackage, arch, filename, sourcerpm FROM last_packages) USING (pkghash);
+
+CREATE OR REPLACE VIEW last_packages_with_source AS SELECT last_packages.*, srcPackage.* FROM last_packages 
+    LEFT JOIN (  SELECT  pkghash AS sourcepkghash,  name AS sourcepkgname, filename AS sourcerpm FROM last_packages WHERE sourcepackage = 1)
+     AS srcPackage USING (sourcerpm) WHERE sourcepackage = 0;
