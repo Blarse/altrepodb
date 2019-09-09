@@ -173,6 +173,32 @@ ENGINE =  MergeTree
 ORDER BY (aclgroup_date, aclgroup_branch,aclgroup, acl_group) PRIMARY KEY (aclgroup_date,aclgroup_branch);
 
 
+CREATE TABLE FstecBduList (
+    bdu_identifier                  String,
+    bdu_name                        String,
+    bdu_description                 String,
+    bdu_identify_date               DateTime,
+    bdu_severity                    String,
+    bdu_solution                    String,
+    bdu_vul_status                  String,
+    bdu_exploit_status              String,
+    bdu_fix_status                  String,
+    bdu_sources                     String,
+    bdu_other                       String,
+    bdu_vulnerable_software_vendor  String,
+    bdu_vulnerable_software_type    String,
+    bdu_vulnerable_software_name    String,
+    bdu_vulnerable_software_version String,
+    bdu_environment_vendor          String,
+    bdu_environment_version         String,
+    bdu_environment_name            String,
+    bdu_environment_platform        String,
+    bdu_cwe                         String,
+    bdu_cvss                        String
+) 
+ENGINE = MergeTree
+ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
+
 
 CREATE TABLE Assigment_buffer AS Assigment
 ENGINE = Buffer(currentDatabase(), Assigment, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
