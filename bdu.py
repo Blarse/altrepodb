@@ -1,4 +1,5 @@
 import clickhouse_driver as chd
+import sys
 import datetime
 import zipfile
 import logging
@@ -8,10 +9,10 @@ import urllib.request as req
 from lxml import etree
 from io import BytesIO
 from itertools import product
-from utils import get_logger
+from utils import get_logger, chunks
 
 
-NAME = 'cve'
+NAME = 'bdu'
 
 log = logging.getLogger(NAME)
 
@@ -84,7 +85,11 @@ class Vul:
 
     @property
     def cvss(self):
-        return self._root.xpath('cvss/vector/text()')
+        return self._root.xpath('cvss/vector')
+
+    @property
+    def identifiers(self):
+        return self._root.xpath('identifiers/identifier')
 
     def make_insert(self):
         result = []
@@ -101,7 +106,7 @@ class Vul:
             bdu_sources=self.sources,
             bdu_other=self.other
         )
-        for vs, env, cwe, cvss in product(self.vulnerable_software, self.environment, self.cwe, self.cvss):
+        for vs, env, cwe, cvss, idef in product(self.vulnerable_software, self.environment, self.cwe, self.cvss, self.identifiers):
             for vs_type in vs['types']:
                 record = general.copy()
                 record.update(
@@ -114,7 +119,11 @@ class Vul:
                     bdu_environment_name=env['name'],
                     bdu_environment_platform=env['platform'],
                     bdu_cwe=cwe,
-                    bdu_cvss=cvss,
+                    bdu_cvss=cvss.text,
+                    bdu_cvss_score=float(cvss.attrib.get('score')),
+                    bdu_identifiers=idef.text,
+                    bdu_identifiers_type=idef.attrib.get('type'),
+                    bdu_identifiers_link=idef.attrib.get('link', 'test')
                 )
                 result.append(record)
         return result
@@ -149,21 +158,25 @@ def cleanup(conn):
 
 
 def write2db(conn, xml):
-    sql = ('INSERT INTO FstecBduList (bdu_identifier, bdu_name, '
-           'bdu_description, bdu_identify_date, bdu_severity, bdu_solution, '
-           'bdu_vul_status, bdu_exploit_status, bdu_fix_status, bdu_sources, '
-           'bdu_other, bdu_vulnerable_software_vendor, '
-           'bdu_vulnerable_software_type, bdu_vulnerable_software_name, '
-           'bdu_vulnerable_software_version, bdu_environment_vendor, '
-           'bdu_environment_version, bdu_environment_name, '
-           'bdu_environment_platform, bdu_cwe, bdu_cvss) VALUES')
+    sql = (
+        'INSERT INTO FstecBduList (bdu_identifier, bdu_name, '
+        'bdu_description, bdu_identify_date, bdu_severity, bdu_solution, '
+        'bdu_vul_status, bdu_exploit_status, bdu_fix_status, bdu_sources, '
+        'bdu_other, bdu_vulnerable_software_vendor, '
+        'bdu_vulnerable_software_type, bdu_vulnerable_software_name, '
+        'bdu_vulnerable_software_version, bdu_environment_vendor, '
+        'bdu_environment_version, bdu_environment_name, '
+        'bdu_environment_platform, bdu_cwe, bdu_cvss, bdu_cvss_score, '
+        'bdu_identifiers, bdu_identifiers_type, bdu_identifiers_link) VALUES'
+    )
 
     data = []
     log.info('parsing xml')
     for vul in xml.iterchildren():
         data.extend(Vul(vul).make_insert())
     log.info('save data from xml to database')
-    conn.execute(sql, data)
+    for chunk in chunks(data, 100000):
+        conn.execute(sql, chunk)
     log.info('{0} records saved to database'.format(len(data)))
 
 

@@ -194,7 +194,11 @@ CREATE TABLE FstecBduList (
     bdu_environment_name            String,
     bdu_environment_platform        String,
     bdu_cwe                         String,
-    bdu_cvss                        String
+    bdu_cvss                        String,
+    bdu_cvss_score                  Float32,
+    bdu_identifiers                 String,
+    bdu_identifiers_type            String,
+    bdu_identifiers_link            String
 ) 
 ENGINE = MergeTree
 ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
