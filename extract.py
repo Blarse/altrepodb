@@ -285,7 +285,11 @@ def load(args):
     insert_assigment(conn, aname_id, aname)
 
     if iso:
-        isopkg.process_iso(conn, iso, args)
+        if args.constraint is not None:
+            constraint_name = args.constraint
+        else:
+            constraint_name = args.assigment
+        isopkg.process_iso(conn, iso, args, constraint_name)
         iso.close()
 
     for c in connections:
@@ -313,6 +317,7 @@ def get_args():
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
+    parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
     return parser.parse_args()
 
 

@@ -18,7 +18,7 @@ from functools import reduce
 log = logging.getLogger('extract')
 
 
-def process_iso(conn, iso, args):
+def process_iso(conn, iso, args, constraint_name):
     for sqfs in ['/altinst', '/live', '/rescue']:
         tmp_file = tempfile.NamedTemporaryFile()
         try:
@@ -35,7 +35,7 @@ def process_iso(conn, iso, args):
         path_md5 = process_squashfs(tmp_file.name, squash_sha1) # {(filename, filemd5): {'data': ...}}
         log.info('iso read {} files'.format(len(path_md5)))
 
-        packages = get_package(conn, path_md5) # [(pkghash, name, buildtime), ...]
+        packages = get_package(conn, path_md5, constraint_name) # [(pkghash, name, buildtime), ...]
         log.info('iso found {} packages'.format(len(packages)))
 
         files = get_file(conn, packages) # {pkghash: {(filename, filemd5), ...}}
@@ -138,11 +138,18 @@ def process_squashfs(filename, squash_sha1):
     return path_md5
 
 
-def get_package(conn, path_md5):
-    sql = "SELECT pkghash, name, buildtime FROM Package_buffer WHERE notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer WHERE (filename, filemd5) IN %(path_md5)s)"
+def get_package(conn, path_md5, constraint_name):
+    sql = (
+        "SELECT pkghash, name, buildtime FROM Package_buffer WHERE "
+        "pkghash IN (SELECT pkghash FROM Assigment_buffer INNER JOIN "
+        "(SELECT uuid FROM AssigmentName WHERE assigment_name=%(constraint_name)s) "
+        "USING uuid) AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
+        "AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer "
+        "WHERE (filename, filemd5) IN %(path_md5)s)"
+    )
     result = set()
     for chunk in utils.chunks(path_md5.keys(), 1000):
-        result.update(conn.execute(sql, {'path_md5': tuple(chunk), 'srcp': 0}))
+        result.update(conn.execute(sql, {'path_md5': tuple(chunk), 'srcp': 0, 'constraint_name': constraint_name}))
     return result
 
 
