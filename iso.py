@@ -141,9 +141,9 @@ def process_squashfs(filename, squash_sha1):
 def get_package(conn, path_md5, constraint_name):
     sql = (
         "SELECT pkghash, name, buildtime FROM Package_buffer WHERE "
-        "pkghash IN (SELECT pkghash FROM Assigment_buffer INNER JOIN "
-        "(SELECT uuid FROM AssigmentName WHERE assigment_name=%(constraint_name)s) "
-        "USING uuid) AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
+        "pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid IN "
+        "(SELECT uuid FROM AssigmentName WHERE assigment_name=%(constraint_name)s)) "
+        "AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
         "AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer "
         "WHERE (filename, filemd5) IN %(path_md5)s)"
     )
