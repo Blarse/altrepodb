@@ -286,10 +286,11 @@ def load(args):
 
     if iso:
         if args.constraint is not None:
-            constraint_name = args.constraint
+            constraint_name = args.constraint,
         else:
-            constraint_name = args.assigment
-        isopkg.process_iso(conn, iso, args, constraint_name)
+            constraint_name = detect_assigment_name(conn, aname_id)
+        if constraint_name:
+            isopkg.process_iso(conn, iso, args, constraint_name)
         iso.close()
 
     for c in connections:
@@ -298,6 +299,17 @@ def load(args):
 
     if display is not None:
         display.conclusion()
+
+
+def detect_assigment_name(conn, uuid):
+    sql = (
+        'SELECT assigment_name FROM AssigmentName INNER JOIN '
+        '(SELECT COUNT(pkghash) as countPkg, uuid FROM Assigment_buffer WHERE '
+        'pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid=%(uuid)s) '
+        'GROUP BY uuid) USING uuid ORDER BY countPkg DESC LIMIT 10'
+    )
+    result = conn.execute(sql, {'uuid': uuid})
+    return tuple({i[0] for i in result})
 
 
 def get_args():
