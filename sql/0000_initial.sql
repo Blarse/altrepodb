@@ -240,6 +240,52 @@ CREATE OR REPLACE VIEW last_depends AS SELECT Depends_buffer.*, pkgname, pkgvers
      FROM Depends_buffer ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
      sourcepackage, arch, filename, sourcerpm FROM last_packages) USING (pkghash);
 
+-- view to get joined list packages with sourcepackage
+
 CREATE OR REPLACE VIEW last_packages_with_source AS SELECT last_packages.*, srcPackage.* FROM last_packages 
     LEFT JOIN (  SELECT  pkghash AS sourcepkghash,  name AS sourcepkgname, filename AS sourcerpm FROM last_packages WHERE sourcepackage = 1)
      AS srcPackage USING (sourcerpm) WHERE sourcepackage = 0;
+
+-- view to get last list from ACL
+CREATE OR REPLACE VIEW last_acl AS
+SELECT 
+    acl_branch, 
+    max(acl_date) AS acl_date_last, 
+    any(acl_for) AS acl_for, 
+    argMax(acl_list, acl_date) AS acl_list
+FROM Acl
+GROUP BY 
+    Acl.acl_branch, 
+    Acl.acl_for;
+
+
+-- view to get expanded list ACLs from database with groups
+CREATE OR REPLACE VIEW last_acl_with_groups AS
+SELECT 
+    acl_branch, 
+    acl_date_last AS acl_date, 
+    acl_for AS pkgname, 
+    if(notEmpty(AclGroups.aclg), AclGroups.aclg, aclu) AS acl_user, 
+    order_u, 
+    AclGroups.order_g
+FROM last_acl AS AclUsers
+ARRAY JOIN 
+    acl_list AS aclu, 
+    arrayEnumerate(acl_list) AS order_u
+LEFT JOIN 
+(
+    SELECT 
+        acl_for, 
+        aclg, 
+        order_g, 
+        acl_branch
+    FROM last_acl
+    ARRAY JOIN 
+        acl_list AS aclg, 
+        arrayEnumerate(acl_list) AS order_g
+    WHERE acl_for LIKE '@%'
+) AS AclGroups ON (aclu = AclGroups.acl_for) AND (last_acl.acl_branch = AclGroups.acl_branch)
+ORDER BY 
+    order_u ASC, 
+    order_g ASC;
+
