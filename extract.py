@@ -285,7 +285,12 @@ def load(args):
     insert_assigment(conn, aname_id, aname)
 
     if iso:
-        isopkg.process_iso(conn, iso, args)
+        if args.constraint is not None:
+            constraint_name = args.constraint,
+        else:
+            constraint_name = detect_assigment_name(conn, aname_id)
+        if constraint_name:
+            isopkg.process_iso(conn, iso, args, constraint_name)
         iso.close()
 
     for c in connections:
@@ -294,6 +299,17 @@ def load(args):
 
     if display is not None:
         display.conclusion()
+
+
+def detect_assigment_name(conn, uuid):
+    sql = (
+        'SELECT assigment_name FROM AssigmentName INNER JOIN '
+        '(SELECT COUNT(pkghash) as countPkg, uuid FROM Assigment_buffer WHERE '
+        'pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid=%(uuid)s) '
+        'GROUP BY uuid) USING uuid ORDER BY countPkg DESC LIMIT 10'
+    )
+    result = conn.execute(sql, {'uuid': uuid})
+    return tuple({i[0] for i in result})
 
 
 def get_args():
@@ -313,6 +329,7 @@ def get_args():
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
+    parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
     return parser.parse_args()
 
 

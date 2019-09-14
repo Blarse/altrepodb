@@ -177,7 +177,7 @@ CREATE TABLE FstecBduList (
     bdu_identifier                  String,
     bdu_name                        String,
     bdu_description                 String,
-    bdu_identify_date               DateTime,
+    bdu_identify_date               Date,
     bdu_severity                    String,
     bdu_solution                    String,
     bdu_vul_status                  String,
@@ -185,16 +185,30 @@ CREATE TABLE FstecBduList (
     bdu_fix_status                  String,
     bdu_sources                     String,
     bdu_other                       String,
-    bdu_vulnerable_software_vendor  String,
-    bdu_vulnerable_software_type    String,
-    bdu_vulnerable_software_name    String,
-    bdu_vulnerable_software_version String,
-    bdu_environment_vendor          String,
-    bdu_environment_version         String,
-    bdu_environment_name            String,
-    bdu_environment_platform        String,
-    bdu_cwe                         String,
-    bdu_cvss                        String
+    bdu_vulnerable_software Nested (
+        vendor          String,
+        type            Array(String),
+        name            String,
+        version         String
+    ),
+    bdu_environment Nested (
+        vendor          String,
+        version         String,
+        name            String,
+        platform        String
+    ),
+    bdu_cwe Nested (
+        identifier      String
+    ),
+    bdu_cvss Nested (
+        vector          String,
+        score           Float32
+    ),
+    bdu_identifiers Nested (
+        identifier      String,
+        type            String,
+        link            String
+    )
 ) 
 ENGINE = MergeTree
 ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
