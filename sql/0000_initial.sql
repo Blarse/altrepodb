@@ -146,12 +146,12 @@ ORDER BY (key, value);
 
 CREATE TABLE Acl (
     acl_date	DateTime,
-    pkgname	String,
+    acl_for	String,
     acl_branch	String,
-    acl	Array(String)
+    acl_list	Array(String)
 )
 ENGINE =  MergeTree
-ORDER BY (acl_date, acl_branch, pkgname, acl) PRIMARY KEY (acl_date,acl_branch);
+ORDER BY (acl_date, acl_branch, acl_for, acl_list) PRIMARY KEY (acl_date,acl_branch);
 
 CREATE TABLE CveChecked (
     cveid	String,
