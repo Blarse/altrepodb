@@ -129,6 +129,10 @@ class Acl:
             return False
         if not self._put_to_database():
             return False
+        log.info('Saved {n} updated ACLs from {url}'
+                 .format(n=sum(len(acl.data) for acl in self.loaddata),
+                         url=self.url.url))
+        return True
 
     def save(self):
         self._save_acl()
