@@ -172,6 +172,35 @@ CREATE TABLE AclGroup (
 ENGINE =  MergeTree
 ORDER BY (aclgroup_date, aclgroup_branch,aclgroup, acl_group) PRIMARY KEY (aclgroup_date,aclgroup_branch);
 
+CREATE TABLE Cve (`pkghash` UInt64,
+    `cveid` String,
+    `cve_description` String,
+    `url` String,
+    `score` Float64,
+    `attacktype` String,
+    `status` Enum8('check' = 0,
+    'patched' = 1),
+    `uris` Array(String),
+    `modifieddate` DateTime,
+    `parsingdate` DateTime)
+     ENGINE = MergeTree
+    ORDER BY
+    (pkghash, cveid, modifieddate,parsingdate)
+    SETTINGS index_granularity = 8192;
+
+CREATE TABLE CveAbsentPackages (`product_name` String,
+    `cveid` String,
+    `cve_description` String,
+    `url` String,
+    `score` Float64,
+    `attacktype` String,
+    `uris` Array(String),
+    `modifieddate` DateTime,
+    `parsingdate` DateTime)
+     ENGINE = MergeTree
+    ORDER BY
+    (product_name, cveid, modifieddate, parsingdate)
+    SETTINGS index_granularity = 8192;
 
 CREATE TABLE FstecBduList (
     bdu_identifier                  String,
@@ -212,6 +241,19 @@ CREATE TABLE FstecBduList (
 ) 
 ENGINE = MergeTree
 ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
+
+CREATE TABLE CveChecked (`cveid` String,
+    `pkgname` String,
+    `checkdate` DateTime,
+    `description` String,
+    `description_ru` String,
+    `checked_ver.pkg_evr` Array(String),
+    `checked_ver.pkg_branch` Array(String))
+     ENGINE = MergeTree
+     PRIMARY KEY (cveid,pkgname)
+     ORDER BY
+    (cveid, pkgname,checkdate)
+     SETTINGS index_granularity = 8192;
 
 
 CREATE TABLE Assigment_buffer AS Assigment
