@@ -64,7 +64,9 @@ class Acl:
                 self.dbhash[key] = set()
             self.dbhash[key].add(value)
         if not self.dbhash:
-            log.error('WARNING:database is empty, first Load')
+            log.error('WARNING:database is empty. First Load.')
+        else:
+            log.info('Loaded {n} ACLs from database'.format(n=sum(len(k) for k in self.dbhash.values())))
         return True
 
     def _save_branch(self, branch, date, values):
