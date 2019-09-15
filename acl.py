@@ -112,7 +112,7 @@ class Acl:
             filename = i.name
             file_date = datetime.datetime.fromtimestamp(time.mktime(i.modified))
             if filename.startswith('list.groups') or filename.startswith('list.packages'):
-                branch = self._get_branch(filename)
+                branch = self._get_branch_from_filename(filename)
                 self.loaddata.append(AclData(branch, file_date, self._get_list_acl(filename, branch)))
         if self.loaddata:
             return True
@@ -167,6 +167,9 @@ class Url:
 
 
 def get_args():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('url', type=str, default='http://git.altlinux.org/acl', nargs='?',
+                        help='git.altlinux ACL directory url')
     parser = argparse.ArgumentParser()
     parser.add_argument('url', type=str, help='git.altlinux acl directory url')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
