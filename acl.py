@@ -35,7 +35,7 @@ class Acl:
         self.loaddata = []
         self.dbhash = {}
 
-    def _get_branch(self, filename):
+    def _get_branch_from_filename(self, filename):
         return re.split(r'\W+', filename, 2)[2]
 
     def _get_list_acl(self, filename, branch):
