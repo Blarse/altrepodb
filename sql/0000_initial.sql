@@ -289,3 +289,37 @@ ORDER BY
     order_u ASC, 
     order_g ASC;
 
+-- view for all CVE's and packages
+CREATE OR REPLACE VIEW last_cve AS
+SELECT *
+FROM Cve
+LEFT JOIN last_packages USING (pkghash);
+
+-- view for cve-check-tool with source, array of binary packages and changelogs.
+
+CREATE OR REPLACE VIEW packages_for_cvecheck AS
+SELECT DISTINCT
+    pkghash,
+    name AS pkgname,
+    version,
+    release,
+    assigment_name,
+    any(changelog) AS changelog,
+    groupUniqArray(name_evr) AS binlist
+FROM all_packages
+INNER JOIN
+(
+    SELECT DISTINCT
+        concat(name, ':', version, ':', release) AS name_evr,
+        sourcerpm
+    FROM Package
+    WHERE (sourcepackage = 0) AND (name NOT LIKE '%-debuginfo') AND (name NOT LIKE 'i586-%')
+) AS Bin ON Bin.sourcerpm = filename
+WHERE sourcepackage = 1
+GROUP BY
+    pkghash,
+    name,
+    version,
+    release,
+    assigment_name;
+
