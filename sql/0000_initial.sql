@@ -153,15 +153,6 @@ CREATE TABLE Acl (
 ENGINE =  MergeTree
 ORDER BY (acl_date, acl_branch, acl_for, acl_list) PRIMARY KEY (acl_date,acl_branch);
 
-CREATE TABLE AclGroup (
-    aclgroup_date	DateTime,
-    aclgroup	String,
-    aclgroup_branch	String,
-    acl_group	Array(String)
-)
-ENGINE =  MergeTree
-ORDER BY (aclgroup_date, aclgroup_branch,aclgroup, acl_group) PRIMARY KEY (aclgroup_date,aclgroup_branch);
-
 CREATE TABLE Cve (`pkghash` UInt64,
     `cveid` String,
     `cve_description` String,
