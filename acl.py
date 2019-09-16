@@ -112,6 +112,7 @@ class Acl:
             return False
         for i in listing[1]:
             filename = i.name
+            if not filename: continue
             file_date = datetime.datetime.fromtimestamp(time.mktime(i.modified))
             if filename.startswith('list.groups') or filename.startswith('list.packages'):
                 branch = self._get_branch_from_filename(filename)
