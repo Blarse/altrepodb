@@ -153,16 +153,6 @@ CREATE TABLE Acl (
 ENGINE =  MergeTree
 ORDER BY (acl_date, acl_branch, acl_for, acl_list) PRIMARY KEY (acl_date,acl_branch);
 
-CREATE TABLE CveChecked (
-    cveid	String,
-    pkgname	String,
-    checkdate	DateTime,
-    description String
-)
-ENGINE =  MergeTree
-ORDER BY (cveid,  pkgname, checkdate) PRIMARY KEY (cveid,pkgname);
-
-
 CREATE TABLE AclGroup (
     aclgroup_date	DateTime,
     aclgroup	String,
@@ -336,6 +326,37 @@ CREATE OR REPLACE VIEW last_cve AS
 SELECT *
 FROM Cve
 LEFT JOIN last_packages USING (pkghash);
+
+-- all pkgset's with date, name and pkghash
+CREATE VIEW all_assigments
+AS
+SELECT
+    pkghash,
+    assigment_name,
+    date AS assigment_date
+FROM Assigment_buffer
+RIGHT JOIN
+(
+    SELECT
+        uuid,
+        assigment_name,
+        assigment_date AS date
+    FROM AssigmentName
+) USING (uuid);
+
+-- all packages from all assigments
+CREATE VIEW all_packages AS
+SELECT
+    pkg.*,
+    assigment_name,
+    assigment_date,
+    pkghash
+FROM all_assigments
+ALL INNER JOIN
+(
+    SELECT *
+    FROM Package_buffer
+) AS pkg USING (pkghash);
 
 -- view for cve-check-tool with source, array of binary packages and changelogs.
 
