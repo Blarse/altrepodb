@@ -177,8 +177,6 @@ def get_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('url', type=str, default='http://git.altlinux.org/acl', nargs='?',
                         help='git.altlinux ACL directory url')
-    parser = argparse.ArgumentParser()
-    parser.add_argument('url', type=str, help='git.altlinux acl directory url')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
