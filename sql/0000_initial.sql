@@ -283,10 +283,18 @@ WHERE sourcepackage = 0;
 
 
 -- view to get joined list packages with sourcepackage
-
-CREATE OR REPLACE VIEW last_packages_with_source AS SELECT last_packages.*, srcPackage.* FROM last_packages 
-    LEFT JOIN (  SELECT  pkghash AS sourcepkghash,  name AS sourcepkgname, filename AS sourcerpm FROM last_packages WHERE sourcepackage = 1)
-     AS srcPackage USING (sourcerpm) WHERE sourcepackage = 0;
+CREATE OR REPLACE VIEW last_packages_with_source AS
+SELECT
+    pkg.*,
+    assigment_name,
+    assigment_date,
+    pkghash
+FROM last_assigments
+ALL INNER JOIN
+(
+    SELECT *
+    FROM all_packages_with_source
+) AS pkg USING (pkghash);
 
 -- view to get last list from ACL
 CREATE OR REPLACE VIEW last_acl AS
