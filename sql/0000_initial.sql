@@ -267,16 +267,16 @@ CREATE OR REPLACE VIEW last_depends AS SELECT Depends_buffer.*, pkgname, pkgvers
 
 CREATE OR REPLACE VIEW all_packages_with_source AS
 SELECT
-    Package.*,
+    Package_buffer.*,
     srcPackage.*
-FROM Package
+FROM Package_buffer
 LEFT JOIN
 (
     SELECT
         pkghash AS sourcepkghash,
         name AS sourcepkgname,
         filename AS sourcerpm
-    FROM Package
+    FROM Package_buffer
     WHERE sourcepackage = 1
 ) AS srcPackage USING (sourcerpm)
 WHERE sourcepackage = 0;
