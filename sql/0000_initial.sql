@@ -252,9 +252,36 @@ ENGINE = Buffer(currentDatabase(), Package, 16, 10, 200, 10000, 1000000, 1000000
 CREATE TABLE Depends_buffer AS Depends
 ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
 
-CREATE OR REPLACE VIEW last_assigments AS SELECT pkghash, assigment_name, date AS assigment_date FROM Assigment_buffer
-    RIGHT JOIN (SELECT argMax(uuid, assigment_date) AS uuid, assigment_name, max(assigment_date) 
-    AS date FROM AssigmentName GROUP BY assigment_name) USING (uuid);
+-- return pkghash, name and date for recent pkgset's
+
+CREATE OR REPLACE VIEW last_assigments AS
+SELECT 
+    pkghash, 
+    assigment_name, 
+    date AS assigment_date
+FROM Assigment_buffer
+RIGHT JOIN 
+(
+    SELECT 
+        argMax(uuid, assigment_date) AS uuid, 
+        assigment_name, 
+        max(assigment_date) AS date
+    FROM AssigmentName
+    GROUP BY assigment_name
+) USING (uuid)
+PREWHERE uuid IN 
+(
+    SELECT uuid
+    FROM 
+    (
+        SELECT 
+            argMax(uuid, assigment_date) AS uuid, 
+            assigment_name, 
+            max(assigment_date) AS date
+        FROM AssigmentName
+        GROUP BY assigment_name
+    )
+);
 
 CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_date, pkghash 
     FROM last_assigments ALL INNER JOIN (SELECT * FROM Package_buffer) AS pkg USING (pkghash);
