@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-'
+
 import urllib.request
 import urllib.error
 import htmllistparse
@@ -34,11 +37,19 @@ class Acl:
         self.conn = conn
         self.loaddata = []
         self.dbhash = {}
-
     def _get_branch_from_filename(self, filename):
+        '''
+            Parse branch name from ACL filename.
+        '''
         return re.split(r'\W+', filename, 2)[2]
 
     def _get_list_acl(self, filename, branch):
+        '''
+        Download and parse for update ACL's from URL
+        :param filename: URL for filename with ACL
+        :param branch: key for URL branch
+        :return: structure ACL for updated ACL's
+        '''
         f = self.url.get('/{0}'.format(filename)).splitlines()
         listacl = []
         for line in f:
@@ -46,19 +57,26 @@ class Acl:
             if branch not in self.dbhash.keys():
                 self.dbhash[branch] = set()
             # check hash for loaded ACL exists in latest database
-            if mmhash(line.translate({ord(i): None for i in ' \t'})) not in self.dbhash[branch]:
+            if mmhash(line.translate({ord(i): None for i in ' \t'})) \
+                    not in self.dbhash[branch]:
                 listacl.append(line.strip().split('\t'))
         return (listacl)
 
-    # get murmurhash from database for existing ACLs
     def _load_hash_from_db(self):
-        sql = "SELECT acl_branch,murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list))) FROM last_acl"
+        '''
+        get murmurhash from database for latest existing ACLs
+        :return: False if parsed with errors else True
+        '''
+        sql = "SELECT acl_branch," \
+              "murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list))) " \
+              "FROM last_acl"
         try:
             result = self.conn.execute(sql)
         except Exception as error:
             log.error('Error with loading data from database')
             log.error(error)
             return False
+        # add loaded hashes to local list of sets [branch].set(hash)
         for key, value in result:
             if key not in self.dbhash.keys():
                 self.dbhash[key] = set()
@@ -66,11 +84,21 @@ class Acl:
         if not self.dbhash:
             log.info('WARNING:database is empty. First Load.')
         else:
-            log.info('Loaded {n} ACLs from database'.format(n=sum(len(k) for k in self.dbhash.values())))
+            log.info('Loaded {n} ACLs from database'
+                     ''.format(n=sum(len(k) for k in self.dbhash.values()))
+                     )
         return True
 
     def _save_branch(self, branch, date, values):
+        '''
+        Save updates to database for specified branch
+        :param branch: - branch name
+        :param date: - update datetime
+        :param values: ACL's to save
+        :return: False/True
+        '''
         sqlvalues = []
+        # always only insert Acl to database
         sql = "INSERT INTO Acl (acl_date,acl_for,acl_branch,acl_list) VALUES"
         for value in values:
             aclvalue = {
@@ -90,6 +118,10 @@ class Acl:
                 return False
 
     def _put_to_database(self):
+        '''
+        Save all loaded data for every branch to database
+        :return: True/False
+        '''
         for acl in self.loaddata:
             if acl.data:
                 if not self._save_branch(acl.branch, acl.datetime, acl.data):
@@ -97,7 +129,12 @@ class Acl:
         return True
 
     def _get_acls(self):
+        '''
+        Get all ACL's from URL
+        :return: True/False
+        '''
         a = self.url.get()
+        # html listing parser
         try:
             soup = BeautifulSoup(a, 'html.parser')
             listing = htmllistparse.parse(soup)
@@ -105,29 +142,45 @@ class Acl:
             log.error('Error parse URL')
             log.error(error, exc_info=True)
             return False
-
-        AclData = namedtuple('AclData', ['branch', 'datetime', 'data'])
         if not listing[0]:
-            log.error('Can\'t get directory listing on given URL {url}'.format(url=self.url.url))
+            log.error('Can\'t get directory listing on '
+                      'given URL {url}'.format(url=self.url.url))
             return False
+        # process files from listing
+        AclData = namedtuple('AclData', ['branch', 'datetime', 'data'])
         for i in listing[1]:
             filename = i.name
+            # skip empty lines (sometimes on bad connect the lines are empty)
             if not filename: continue
+            # get the ACL modification date and time
             file_date = datetime.datetime.fromtimestamp(time.mktime(i.modified))
-            if filename.startswith('list.groups') or filename.startswith('list.packages'):
+            # proccess only groups and packages listing
+            if filename.startswith('list.groups') \
+                    or filename.startswith('list.packages'):
                 branch = self._get_branch_from_filename(filename)
-                self.loaddata.append(AclData(branch, file_date, self._get_list_acl(filename, branch)))
+                # append to loading only modified ACL
+                self.loaddata.append(
+                    AclData(branch,
+                            file_date,
+                            self._get_list_acl(filename, branch)
+                            )
+                )
+
         if self.loaddata:
             return True
         else:
-            log.error('Can\'t find files with ACL listing on given URL {url}'.format(url=self.url.url))
+            log.error('Can\'t find files with ACL '
+                      'listing on given URL {url}'.format(url=self.url.url))
             return False
 
     def _save_acl(self):
+        # load hashtable with last ACL from database
         if not self._load_hash_from_db():
             return False
+        # get modificated ACL's from web
         if not self._get_acls():
             return False
+        # save new ACL's to DB
         if not self._put_to_database():
             return False
         log.info('Saved {n} updated ACLs from {url}'
@@ -174,10 +227,18 @@ class Url:
 
 
 def get_args():
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('url', type=str, default='http://git.altlinux.org/acl', nargs='?',
-                        help='git.altlinux ACL directory url')
-    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('url',
+                        type=str,
+                        default='http://git.altlinux.org/acl',
+                        nargs='?',
+                        help='git.altlinux ACL directory url'
+                        )
+    parser.add_argument('-c', '--config',
+                        type=str,
+                        help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
     parser.add_argument('-p', '--port', type=str, help='Database password')
