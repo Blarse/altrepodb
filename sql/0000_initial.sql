@@ -308,6 +308,27 @@ LEFT JOIN
 ) AS srcPackage USING (sourcerpm)
 WHERE sourcepackage = 0;
 
+-- view to JOIN all pkgset's for source packages
+CREATE VIEW all_assigments_sources AS
+SELECT
+    pkghash,
+    assigment_name,
+    date AS assigment_date
+FROM Assigment_buffer
+RIGHT JOIN
+(
+    SELECT
+        uuid,
+        assigment_name,
+        assigment_date AS date
+    FROM AssigmentName
+) USING (uuid)
+PREWHERE pkghash IN
+(
+    SELECT pkghash
+    FROM Package
+    WHERE sourcepackage = 1
+);
 
 -- view to get joined list packages with sourcepackage
 CREATE OR REPLACE VIEW last_packages_with_source AS
@@ -335,6 +356,39 @@ GROUP BY
     Acl.acl_branch, 
     Acl.acl_for;
 
+-- view to prepare source packages with array of binary packages
+CREATE OR REPLACE VIEW source_with_binary_array_packages AS
+SELECT DISTINCT
+    pkghash,
+    any(name) AS pkgname,
+    any(version) AS version,
+    any(release) AS release,
+    any(changelog) AS changelog,
+    groupUniqArray(name_evr) AS binlist
+FROM Package_buffer
+LEFT JOIN
+(
+    SELECT
+        concat(name, ':', version, ':', release) AS name_evr,
+        sourcerpm
+    FROM Package_buffer
+    WHERE (sourcepackage = 0) AND (name NOT LIKE '%-debuginfo') AND (name NOT LIKE 'i586-%')
+) AS Bin ON Bin.sourcerpm = filename
+WHERE sourcepackage = 1
+GROUP BY pkghash;
+
+-- VIEW to get all pkghash with a unique array of pkgset names
+
+CREATE VIEW all_source_pkghash_with_uniq_branch_name
+(
+    `pkghash` UInt64,
+    `pkgsetarray` Array(String)
+) AS
+SELECT
+    pkghash,
+    groupUniqArray(assigment_name) AS pkgsetarray
+FROM all_assigments_sources
+GROUP BY pkghash;
 
 -- view to get expanded list ACLs from database with groups
 CREATE OR REPLACE VIEW last_acl_with_groups AS
@@ -406,28 +460,13 @@ ALL INNER JOIN
 -- view for cve-check-tool with source, array of binary packages and changelogs.
 
 CREATE OR REPLACE VIEW packages_for_cvecheck AS
-SELECT DISTINCT
-    pkghash,
-    name AS pkgname,
-    version,
-    release,
-    assigment_name,
-    any(changelog) AS changelog,
-    groupUniqArray(name_evr) AS binlist
-FROM all_packages
-INNER JOIN
+SELECT
+    source_with_binary_array_packages.*,
+    SrcSet.pkgsetarray
+FROM source_with_binary_array_packages
+LEFT JOIN
 (
-    SELECT DISTINCT
-        concat(name, ':', version, ':', release) AS name_evr,
-        sourcerpm
-    FROM Package
-    WHERE (sourcepackage = 0) AND (name NOT LIKE '%-debuginfo') AND (name NOT LIKE 'i586-%')
-) AS Bin ON Bin.sourcerpm = filename
-WHERE sourcepackage = 1
-GROUP BY
-    pkghash,
-    name,
-    version,
-    release,
-    assigment_name;
+    SELECT *
+    FROM all_source_pkghash_with_uniq_branch_name
+) AS SrcSet USING (pkghash);
 
