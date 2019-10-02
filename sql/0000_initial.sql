@@ -223,6 +223,43 @@ CREATE TABLE FstecBduList (
 ENGINE = MergeTree
 ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
 
+CREATE TABLE AptPkgRelease (
+    apr_uuid         UUID,
+    apr_hashrelease  UInt64,
+    apr_origin       String,
+    apr_label        String,
+    apr_suite        String,
+    apr_codename     UInt64,
+    apr_arch         String,
+    apr_archive      String,
+    apr_date         DateTime,
+    apr_description  String,
+    apr_notautomatic UInt8,
+    apr_version      UInt64,
+    apr_component    String
+)
+ENGINE = MergeTree
+ORDER BY (apr_date, apr_suite, apr_arch, apr_version) PRIMARY KEY (apr_date, apr_suite, apr_arch);
+
+CREATE TABLE AptPkgSet (
+    apr_uuid        UUID,
+    aps_uuid        UUID,
+    aps_name        String,
+    aps_version     String,
+    aps_release     String,
+    aps_epoch       UInt32, 
+    aps_serial      UInt32,
+    aps_buildtime   UInt32,
+    aps_disttag     String,
+    aps_arch        String,
+    aps_sourcerpm   String,
+    aps_md5         String,
+    aps_filesize    UInt64,
+    aps_filename    String
+)
+ENGINE = MergeTree
+ORDER BY (apr_uuid, aps_md5, aps_sourcerpm, aps_filename) PRIMARY KEY (apr_uuid, aps_md5);
+
 CREATE TABLE CveChecked (`cveid` String,
     `pkgname` String,
     `checkdate` DateTime,
