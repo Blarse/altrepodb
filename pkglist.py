@@ -36,6 +36,10 @@ COMPRESSORS = {
     'gz': gzip.open
 }
 
+
+log = logging.getLogger(NAME)
+
+
 def parse_release(content):
     strs = content.split('\n')
     data = {}
@@ -115,6 +119,9 @@ def load_headers(baseurl, args, release):
         hdrs = rpm.readHeaderListFromFD(r)
         prep_hdrs = [prepare_header(hdr, release['apr_uuid']) for hdr in hdrs]
         conn.execute(SQL_APS_INSERT, prep_hdrs)
+        log.info('saved {0} headers for {1}'.format(
+            len(prep_hdrs), release['apr_uuid'])
+        )
         conn.disconnect()
     else:  # Decompressor
         r.close()
@@ -157,6 +164,7 @@ def load_release(conn, url):
     if release_content:
         apr_hashrelease = mmhash(release_content)
         if check_release(conn, apr_hashrelease):
+            log.info('release already loaded: {0}'.format(apr_hashrelease))
             return
         release = parse_release(release_content.decode())
         release['apr_hashrelease'] = apr_hashrelease
@@ -180,8 +188,10 @@ def load(args):
         baseurl = parse.urljoin(url, '{0}/base/'.format(arch))
         releases = load_release(conn, parse.urljoin(baseurl, 'release'))
         if not releases:
+            log.info('releases is empty: {0}'.format(arch))
             continue
         conn.execute(SQL_APR_INSERT, releases)
+        log.info('saved {0} releases'.format(len(releases)))
         for release in releases:
             pkglist_url = parse.urljoin(baseurl, 'pkglist.{0}.xz'.format(release['apr_component']))
             load_headers(pkglist_url, args, release)
