@@ -3,11 +3,15 @@ import os
 import lzma
 import bz2
 import gzip
+import time
 import argparse
 import logging
 import sys
 import configparser
 import clickhouse_driver as chd
+import htmllistparse
+from http.client import IncompleteRead
+from bs4 import BeautifulSoup
 from urllib import request, parse
 from datetime import datetime
 from utils import get_logger, mmhash, cvt
@@ -18,7 +22,7 @@ from uuid import uuid4
 NAME = 'pkglist'
 ARCHS = ['aarch64', 'i586', 'noarch', 'ppc64le', 'x86_64', 'x86_64-i586']
 SQL_APR_INSERT = (
-    'INSERT INTO AptPkgRelease (apr_uuid, apr_hashrelease, apr_origin, '
+    'INSERT INTO AptPkgRelease (apr_uuid, apr_tag, apr_hashrelease, apr_origin, '
     'apr_label, apr_suite, apr_codename, apr_arch, apr_archive, apr_date, '
     'apr_description, apr_notautomatic, apr_version, apr_component) VALUES'
 )
@@ -30,14 +34,60 @@ SQL_APS_INSERT = (
 SQL_CHECK_RELEASE = (
     'SELECT COUNT(*) FROM AptPkgRelease WHERE apr_hashrelease=%(hsh)s'
 )
-COMPRESSORS = {
-    'xz': lzma.open,
-    'bz2': bz2.open,
-    'gz': gzip.open
+DECOMPRESSORS = {
+    '.xz': lzma.open,
+    '.bz2': bz2.open,
+    '.gz': gzip.open,
+    '': lambda x: x
 }
-
+get_mtime = lambda p, f: int(os.stat(os.path.join(p, f)).st_mtime)
 
 log = logging.getLogger(NAME)
+
+
+def validate_url(url):
+    if not url:
+        raise ValueError('not valid url')
+    if not parse.urlparse(url).scheme:
+        raise ValueError('url must have a scheme file:// or http://')
+    if not url.endswith('/'):
+        url = url + '/'
+    return url
+
+
+def get_files_mktime(url):
+    result = {}
+    url = parse.urlparse(url)
+    if url.scheme.startswith('file'):
+        files = [(f, get_mtime(url.path, f)) for f in os.listdir(url.path)]
+    elif url.scheme.startswith('http'):
+        content = get_content(url.geturl())
+        soup = BeautifulSoup(content, 'html.parser')
+        cwd, listing = htmllistparse.parse(soup)
+        if not cwd:
+            log.error('Can\'t get directory listing on '
+                      'given URL {0}'.format(url.geturl()))
+        files = [(f.name, int(time.mktime(f.modified))) for f in listing]
+    result.update(files)
+    return result
+
+
+def update_buildtime(prep_hdrs, baseurl, release):
+    cache = None
+    for hdr in prep_hdrs:
+        if hdr['aps_buildtime']:
+            continue
+        if cache is None:
+            url = parse.urljoin(
+                baseurl[:-5],
+                'RPMS.{0}/'.format(release['apr_component'])
+            )
+            cache = get_files_mktime(url)
+            log.info('initialize cache for getting build time')
+        new_value = cache.get(hdr['aps_filename'], None)
+        if new_value is None:
+            raise ValueError('can\'t get build time from cache')
+        hdr['aps_buildtime'] = new_value
 
 
 def parse_release(content):
@@ -75,6 +125,8 @@ def parse_release(content):
             data['apr_arch'] = _ps(s)
         if s.startswith('NotAutomatic:'):
             data['apr_notautomatic'] = 1 if _ps(s) == 'true' else 0
+        if s.startswith('MD5Sum:'):
+            break
     return data
 
 
@@ -97,7 +149,7 @@ def prepare_header(hdr, apr_uuid):
         'aps_release': cvt(hdr[rpm.RPMTAG_RELEASE]),
         'aps_epoch': cvt(hdr[rpm.RPMTAG_EPOCH], int),
         'aps_serial': cvt(hdr[rpm.RPMTAG_SERIAL], int),
-        'aps_buildtime': cvt(hdr[rpm.RPMTAG_BUILDTIME]),
+        'aps_buildtime': cvt(hdr[rpm.RPMTAG_BUILDTIME], int),
         'aps_disttag': cvt(hdr[rpm.RPMTAG_DISTTAG]),
         'aps_arch': cvt(hdr[rpm.RPMTAG_ARCH]),
         'aps_sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
@@ -118,18 +170,31 @@ def load_headers(baseurl, args, release):
         ts = rpm.TransactionSet()
         hdrs = rpm.readHeaderListFromFD(r)
         prep_hdrs = [prepare_header(hdr, release['apr_uuid']) for hdr in hdrs]
-        conn.execute(SQL_APS_INSERT, prep_hdrs)
-        log.info('saved {0} headers for {1}'.format(
-            len(prep_hdrs), release['apr_uuid'])
-        )
+        update_buildtime(prep_hdrs, baseurl, release)
+        lh = len(prep_hdrs)
+        if lh > 0:
+            conn.execute(SQL_APS_INSERT, prep_hdrs)
+            conn.execute(SQL_APR_INSERT, [release])
+            log.info('save {0} headers for {1}'.format(lh, release['apr_uuid']))
+        else:
+            log.info('list headers is empty, nothing to insert {0}'.format(release['apr_uuid']))
         conn.disconnect()
     else:  # Decompressor
         r.close()
         conn.disconnect()
-        response = get_fd(baseurl)
-        if response:
-            fdno = lzma.open(response, mode='rb')
-            copyfileobj(fdno, w)
+        for k, v in DECOMPRESSORS.items():
+            pkglist_url = parse.urljoin(
+                baseurl,
+                'pkglist.{0}{1}'.format(release['apr_component'], k)
+            )
+            response = get_fd(pkglist_url)
+            if response:
+                fdno = v(response)
+                copyfileobj(fdno, w)
+                log.info('parse headers from {0}'.format(pkglist_url))
+                break
+            else:
+                log.debug('error reading {0}'.format(pkglist_url))
         os._exit(0)
 
 
@@ -142,9 +207,16 @@ def get_fd(url):
 
 
 def get_bytes(url):
-    r = get_fd(url)
-    if r: r = r.read()
-    return r
+    for i in range(5):
+        r = get_fd(url)
+        try:
+            if r: r = r.read()
+        except IncompleteRead as e:
+            log.error('{0} for {1}'.format(e, url))
+            continue
+        else:
+            return r
+    raise SystemError('can\'t read resource {0}'.format(url))
 
 
 def get_content(url):
@@ -153,17 +225,20 @@ def get_content(url):
     return r
 
 
-def check_release(conn, hsh):
+def check_release(args, hsh):
+    conn = get_client(args)
     r = conn.execute(SQL_CHECK_RELEASE, {'hsh': hsh})
+    conn.disconnect()
     return r[0][0] > 0
 
 
-def load_release(conn, url):
+def load_release(args, baseurl):
+    url = parse.urljoin(baseurl, 'release')
     result = []
     release_content = get_bytes(url)
     if release_content:
         apr_hashrelease = mmhash(release_content)
-        if check_release(conn, apr_hashrelease):
+        if check_release(args, apr_hashrelease):
             log.info('release already loaded: {0}'.format(apr_hashrelease))
             return
         release = parse_release(release_content.decode())
@@ -173,6 +248,7 @@ def load_release(conn, url):
             del comp['components']
             del comp['archs']
             comp['apr_uuid'] = str(uuid4())
+            comp['apr_tag'] = args.tag
             comp_content = get_content(url + '.' + compname)
             if comp_content:
                 comp.update(parse_release(comp_content))
@@ -181,27 +257,22 @@ def load_release(conn, url):
 
 
 def load(args):
-    url = args.taskspath
-    conn = get_client(args)
+    url = validate_url(args.taskspath)
     for arch in ARCHS:
-        if not url.endswith('/'): url = url + '/'
         baseurl = parse.urljoin(url, '{0}/base/'.format(arch))
-        releases = load_release(conn, parse.urljoin(baseurl, 'release'))
+        releases = load_release(args, baseurl)
         if not releases:
             log.info('releases is empty: {0}'.format(arch))
             continue
-        conn.execute(SQL_APR_INSERT, releases)
-        log.info('saved {0} releases'.format(len(releases)))
         for release in releases:
-            pkglist_url = parse.urljoin(baseurl, 'pkglist.{0}.xz'.format(release['apr_component']))
-            load_headers(pkglist_url, args, release)
-    conn.disconnect()
+            load_headers(baseurl, args, release)
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('taskspath', type=str, nargs='?',
                         help='Path to directory with tasks')
+    parser.add_argument('-t', '--tag', type=str, help='Tag name', default='')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')

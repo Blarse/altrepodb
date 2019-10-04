@@ -225,6 +225,7 @@ ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifi
 
 CREATE TABLE AptPkgRelease (
     apr_uuid         UUID,
+    apr_tag          String,
     apr_hashrelease  UInt64,
     apr_origin       String,
     apr_label        String,
@@ -239,7 +240,7 @@ CREATE TABLE AptPkgRelease (
     apr_component    String
 )
 ENGINE = MergeTree
-ORDER BY (apr_date, apr_suite, apr_arch, apr_version) PRIMARY KEY (apr_date, apr_suite, apr_arch);
+ORDER BY (apr_date, apr_tag, apr_suite, apr_arch, apr_version) PRIMARY KEY (apr_date, apr_tag, apr_suite, apr_arch);
 
 CREATE TABLE AptPkgSet (
     apr_uuid        UUID,
