@@ -119,8 +119,30 @@ CREATE TABLE UniqPkgs (
     pkg_platform 			LowCardinality(String)
 )
 ENGINE = MergeTree
-ORDER BY (name,arch,version,release,serial_,epoch,disttag,filename, sourcerpm,packager,packager_email)
-PRIMARY KEY (name,arch) SETTINGS index_granularity = 2048;
+ORDER BY (pkg_name,pkg_arch,pkg_version,pkg_release,pkg_serial,pkg_epoch,pkg_disttag,pkg_filename, pkg_sourcerpm,pkg_packager,pkg_packager_email)
+PRIMARY KEY (pkg_name,pkg_arch) SETTINGS index_granularity = 2048;
+
+CREATE TABLE Files (
+	pkg_hash			UInt64,
+	file_name 		String,
+	file_hashname		UInt64 MATERIALIZED murmurHash3_64(file_name) CODEC(NONE),
+	file_hashdirname 		UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)))),
+	file_linkto 		String,
+	file_md5 		FixedString(32),
+	file_size 		UInt32,
+	file_mode 		UInt16,
+	file_rdev 		UInt16,
+	file_mtime 		DateTime,
+	file_flag 		UInt16,
+	file_user 	LowCardinality(String),
+	file_group 	LowCardinality(String),
+	file_verifyflag 	UInt32,
+	file_device 		UInt32,
+	file_lang 		LowCardinality(String),
+	file_class 		String
+) 
+ENGINE = MergeTree
+ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
 
 CREATE TABLE Package (
     pkghash 				UInt64 CODEC(NONE), 
