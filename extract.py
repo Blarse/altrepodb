@@ -241,6 +241,12 @@ def init_cache(conn):
     return {i[0] for i in result}
 
 
+def check_assigment_name(conn, name):
+    sql = 'SELECT COUNT(*) FROM AssigmentName WHERE assigment_name=%(aname)s'
+    r = conn.execute(sql, {'aname': name})
+    return r[0][0] > 0
+
+
 def load(args):
     conn = get_client(args)
     # if not check_latest_version(conn):
@@ -249,6 +255,8 @@ def load(args):
     # log.debug('check database version complete')
     iso = check_iso(args.path)
     if iso:
+        if check_assigment_name(conn, args.assigment):
+            raise NameError('This assigment name is already loaded!')
         packages = LockedIterator(iso_find_packages(iso))
         if args.date is None:
             r = os.stat(args.path)

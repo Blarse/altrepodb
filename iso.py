@@ -7,11 +7,12 @@ import tempfile
 import hashlib
 import logging
 import utils
+import extract
 from io import BytesIO
 from uuid import uuid4
 from collections import defaultdict
 from PySquashfsImage import SquashFsImage
-from extract import insert_assigment, insert_assigment_name
+# from extract import insert_assigment, insert_assigment_name
 from functools import reduce
 
 
@@ -43,7 +44,7 @@ def process_iso(conn, iso, args, constraint_name):
 
         aname_id = str(uuid4())
         aname = args.assigment + sqfs
-        insert_assigment_name(
+        extract.insert_assigment_name(
             conn,
             assigment_name=aname,
             uuid=aname_id,
@@ -58,7 +59,7 @@ def process_iso(conn, iso, args, constraint_name):
         assigments.add(orphan_pkghash)
         write_orphan_files(conn, orphan_files, path_md5)
         log.info('iso saved: {}, orphan files'.format(len(orphan_files)))
-        insert_assigment(conn, aname_id, assigments)
+        extract.insert_assigment(conn, aname_id, assigments)
         log.info('iso saved: {}, assigments'.format(len(assigments)))
         tmp_file.close()
 

@@ -9,8 +9,9 @@ import psycopg2
 import rpm
 import configparser
 import clickhouse_driver as chd
+import extract
 from collections import defaultdict
-from extract import get_header, insert_package, init_cache, check_package
+# from extract import get_header, insert_package, init_cache, check_package
 from utils import get_logger, cvt, mmhash
 from manager import check_latest_version
 
@@ -34,7 +35,7 @@ class Task:
     def __init__(self, conn, girar):
         self.girar = girar
         self.conn = conn
-        self.cache = init_cache(self.conn)
+        self.cache = extract.init_cache(self.conn)
         self._prepare_fields()
 
     def _prepare_fields(self):
@@ -132,8 +133,8 @@ class Task:
         for *_, pkg, n in src_list:
             hdr = self.girar.get_header(pkg)
             sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
-            if not check_package(self.cache, hdr):
-                insert_package(self.conn, hdr, filename=os.path.basename(pkg))
+            if not extract.check_package(self.cache, hdr):
+                extract.insert_package(self.conn, hdr, filename=os.path.basename(pkg))
                 log.info('add src package: {0}'.format(sha1))
             src_pkgs[n] = sha1
         return src_pkgs
@@ -144,8 +145,8 @@ class Task:
         for *_, arch, _, pkg, n in bin_list:
             hdr = self.girar.get_header(pkg)
             sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
-            if not check_package(self.cache, hdr):
-                insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
+            if not extract.check_package(self.cache, hdr):
+                extract.insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
                 log.info('add bin package: {0}'.format(sha1))
             bin_pkgs[n][arch].append(sha1)
         return bin_pkgs
@@ -184,7 +185,7 @@ class Girar:
         return self._get_content(self.url, status=True)
 
     def get_header(self, path):
-        return get_header(self.ts, os.path.join(self.url, path))
+        return extract.get_header(self.ts, os.path.join(self.url, path))
 
 
 def get_args():
