@@ -65,6 +65,62 @@ CREATE TABLE File (
 ENGINE = MergeTree
 ORDER BY (pkghash, filename, fileclass, filemd5) PRIMARY KEY pkghash;
 
+CREATE TABLE UniqPkgs (
+    pkg_hash 				UInt64 CODEC(NONE), 
+    pkg_cs 				FixedString(40) CODEC(NONE), 
+    pkg_filemd5 				FixedString(32) CODEC(NONE), 
+    pkg_packager 			LowCardinality(String), 
+    pkg_packager_email 		LowCardinality(String), 
+    pkg_name 				String, 
+    pkg_arch 				LowCardinality(String), 
+    pkg_version 			String, 
+    pkg_release 			String, 
+    pkg_epoch 				UInt32, 
+    pkg_serial 			UInt32, 
+    pkg_buildtime 			UInt32, 
+    pkg_buildhost 			LowCardinality(String), 
+    pkg_size 				UInt64, 
+    pkg_filesize 				UInt64, 
+    pkg_archivesize 		UInt64, 
+    pkg_rpmversion 			LowCardinality(String), 
+    pkg_cookie 				String, 
+    pkg_src 		UInt8, 
+    pkg_disttag 			String, 
+    pkg_sourcerpm 			String, 
+    pkg_filename 			String, 
+    pkg_src_cs 		FixedString(40), 
+    pkg_summary 			String, 
+    pkg_description 		String, 
+    pkg_changelog 			String, 
+    pkg_distribution 		LowCardinality(String), 
+    pkg_vendor 				LowCardinality(String), 
+    pkg_license 			LowCardinality(String), 
+    pkg_group 				String, 
+    pkg_url 				LowCardinality(String), 
+    pkg_os 					LowCardinality(String), 
+    pkg_prein 				String, 
+    pkg_postin 				String, 
+    pkg_preun 				String, 
+    pkg_postun 				String, 
+    pkg_preinprog 			Array(String),
+    pkg_postinprog 			Array(String),
+    pkg_preunprog 			Array(String),
+    pkg_postunprog 			Array (String),
+    pkg_buildarchs 			Array (LowCardinality(String)),
+    pkg_verifyscript 		String, 
+    pkg_verifyscriptprog 	Array(String),
+    pkg_prefixes 			Array(LowCardinality(String)),
+    pkg_instprefixes 		Array(String),
+    pkg_optflags 			LowCardinality(String), 
+    pkg_disturl 			String, 
+    pkg_payloadformat 		LowCardinality(String), 
+    pkg_payloadcompressor 	LowCardinality(String), 
+    pkg_payloadflags 		LowCardinality(String), 
+    pkg_platform 			LowCardinality(String)
+)
+ENGINE = MergeTree
+ORDER BY (name,arch,version,release,serial_,epoch,disttag,filename, sourcerpm,packager,packager_email)
+PRIMARY KEY (name,arch) SETTINGS index_granularity = 2048;
 
 CREATE TABLE Package (
     pkghash 				UInt64 CODEC(NONE), 
