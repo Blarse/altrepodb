@@ -21,23 +21,23 @@ log = logging.getLogger('extract')
 def process_iso(conn, iso, args, constraint_name):
     make_temporary_table(conn)
     for sqfs in ['/altinst', '/live', '/rescue']:
-        tmp_file = tempfile.NamedTemporaryFile()
+        buf = BytesIO()
         try:
-            iso.get_file_from_iso_fp(tmp_file, rr_path=sqfs)
+            iso.get_file_from_iso_fp(buf, rr_path=sqfs)
         except pycdlib.pycdlibexception.PyCdlibInvalidInput as e:
             log.info('not found {0} SquashFS'.format(sqfs))
             continue
-        tmp_file.seek(0)
+        buf.seek(0)
         m = hashlib.sha1()
-        m.update(tmp_file.read())
+        m.update(buf.read())
         squash_sha1 = m.hexdigest()
         log.info('iso processing sqfs: {}, sha1: {}'.format(sqfs, squash_sha1))
-        path_md5 = process_squashfs(tmp_file.name, squash_sha1) # {(filename, filemd5): {'data': ...}}
-        # store (filename, filemd5) from squashfs to temporary table PathMd5Temp
+        path_md5 = process_squashfs(buf, squash_sha1) # {(hashname, filemd5): {'data': ...}}
+        # store (hashname, filemd5) from squashfs to temporary table PathMd5Temp
         path_md5_ttt(conn, path_md5)
         # store (pkghash, name, buildtime) to temporary table PkgTemp for packages whose file are in PathMd5Temp
         get_package(conn, constraint_name)
-        # store (pkghash, filename, filemd5) to temporary tabke FileTemp for packages from PkgTemp table
+        # store (pkghash, hashname, filemd5) to temporary tabke FileTemp for packages from PkgTemp table
         get_file(conn)
         assigments = make_assigments(conn)
         aname_id = str(uuid4())
@@ -55,7 +55,6 @@ def process_iso(conn, iso, args, constraint_name):
         write_orphan_files(conn, path_md5)
         extract.insert_assigment(conn, aname_id, assigments)
         log.info('iso saved: {}, assigments'.format(len(assigments)))
-        tmp_file.close()
 
 
 def make_orphan_package(conn, name, sha1):
@@ -69,8 +68,8 @@ def make_orphan_package(conn, name, sha1):
 
 def write_orphan_files(conn, path_md5):
     orphan_files = conn.execute(
-        'SELECT filename, filemd5 FROM PathMd5Temp WHERE (filename, filemd5)'
-        ' NOT IN (SELECT filename, filemd5 FROM FileTemp)'
+        'SELECT hashname, filemd5 FROM PathMd5Temp WHERE (hashname, filemd5)'
+        ' NOT IN (SELECT hashname, filemd5 FROM FileTemp)'
     )
     log.info('found {} orphan files'.format(len(orphan_files)))
     conn.execute(
@@ -85,17 +84,20 @@ def make_assigments(conn):
     sql = (
         'SELECT argMax(pkghash, buildtime) FROM '
         '(SELECT pkghash, COUNT(*) / any(xf.c) kf FROM FileTemp '
-        'LEFT JOIN (SELECT pkghash, COUNT(filename) as c FROM FileTemp '
-        'GROUP BY pkghash) AS xf USING pkghash WHERE (filename, filemd5) '
-        'IN (SELECT filename, filemd5 FROM PathMd5Temp) GROUP BY pkghash) '
+        'LEFT JOIN (SELECT pkghash, COUNT(hashname) as c FROM FileTemp '
+        'GROUP BY pkghash) AS xf USING pkghash WHERE (hashname, filemd5) '
+        'IN (SELECT hashname, filemd5 FROM PathMd5Temp) GROUP BY pkghash) '
         'LEFT JOIN PkgTemp USING pkghash WHERE kf=1 GROUP BY name'
     )
     result = conn.execute(sql)
     return {i[0] for i in result}
 
 
-def process_squashfs(filename, squash_sha1):
-    image = SquashFsImage(filename)
+def process_squashfs(buf, squash_sha1):
+    image = SquashFsImage()
+    buf.seek(0)
+    image.image_file = buf
+    image.initialize(buf)
     path_md5 = defaultdict(dict)
     for f in image.root.findAll():
         if f.isFolder():
@@ -116,6 +118,7 @@ def process_squashfs(filename, squash_sha1):
                 h_ = m.hexdigest()
         data = {}
         data['filename'] = f.getPath()
+        data['hashname'] = utils.mmhash(f.getPath())
         data['filelinkto'] = l_
         data['filemd5'] = h_
         data['pkghash'] = utils.mmhash(squash_sha1)
@@ -126,7 +129,7 @@ def process_squashfs(filename, squash_sha1):
         data['filegroupname'] = str(f.inode.gid)
         data['fileverifyflag'] = f.inode.xattr
         data['fileclass'] = c_
-        path_md5[(f.getPath(), h_)].update(data)
+        path_md5[(utils.mmhash(f.getPath()), h_)].update(data)
     image.close()
     return path_md5
 
@@ -138,11 +141,11 @@ def make_temporary_table(conn):
     )
     conn.execute(
         'CREATE TEMPORARY TABLE IF NOT EXISTS PathMd5Temp '
-        '(filename String, filemd5 FixedString(32))'
+        '(hashname UInt64, filemd5 FixedString(32))'
     )
     conn.execute(
         'CREATE TEMPORARY TABLE IF NOT EXISTS FileTemp '
-        '(pkghash UInt64, filename String, filemd5 FixedString(32))'
+        '(pkghash UInt64, hashname UInt64, filemd5 FixedString(32))'
     )
 
 
@@ -151,8 +154,8 @@ def path_md5_ttt(conn, path_md5):
     """
     conn.execute('TRUNCATE TABLE IF EXISTS PathMd5Temp')
     conn.execute(
-        'INSERT INTO PathMd5Temp (filename, filemd5) VALUES',
-        [{'filename': filename, 'filemd5': filemd5} for filename, filemd5 in path_md5.keys()]
+        'INSERT INTO PathMd5Temp (hashname, filemd5) VALUES',
+        [{'hashname': hashname, 'filemd5': filemd5} for hashname, filemd5 in path_md5.keys()]
     )
 
 
@@ -164,7 +167,7 @@ def get_package(conn, constraint_name):
         "(SELECT uuid FROM AssigmentName WHERE assigment_name IN %(constraint_name)s)) "
         "AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
         "AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer "
-        "WHERE (filename, filemd5) IN (SELECT filename, filemd5 FROM PathMd5Temp))"
+        "WHERE (hashname, filemd5) IN (SELECT hashname, filemd5 FROM PathMd5Temp))"
     )
     conn.execute(sql, {'srcp': 0, 'constraint_name': constraint_name})
 
@@ -172,7 +175,7 @@ def get_package(conn, constraint_name):
 def get_file(conn):
     conn.execute('TRUNCATE TABLE IF EXISTS FileTemp')
     sql = (
-        "INSERT INTO FileTemp SELECT pkghash, filename, filemd5 FROM "
+        "INSERT INTO FileTemp SELECT pkghash, hashname, filemd5 FROM "
         "File_buffer WHERE fileclass != 'directory' AND pkghash IN "
         "(SELECT pkghash FROM PkgTemp)"
     )
