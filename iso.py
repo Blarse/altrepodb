@@ -7,11 +7,11 @@ import tempfile
 import hashlib
 import logging
 import utils
+import extract
 from io import BytesIO
 from uuid import uuid4
 from collections import defaultdict
 from PySquashfsImage import SquashFsImage
-from extract import insert_assigment, insert_assigment_name
 from functools import reduce
 
 
@@ -19,90 +19,85 @@ log = logging.getLogger('extract')
 
 
 def process_iso(conn, iso, args, constraint_name):
+    make_temporary_table(conn)
     for sqfs in ['/altinst', '/live', '/rescue']:
-        tmp_file = tempfile.NamedTemporaryFile()
+        buf = BytesIO()
         try:
-            iso.get_file_from_iso_fp(tmp_file, rr_path=sqfs)
+            iso.get_file_from_iso_fp(buf, rr_path=sqfs)
         except pycdlib.pycdlibexception.PyCdlibInvalidInput as e:
             log.info('not found {0} SquashFS'.format(sqfs))
             continue
-        tmp_file.seek(0)
+        buf.seek(0)
         m = hashlib.sha1()
-        m.update(tmp_file.read())
+        m.update(buf.read())
         squash_sha1 = m.hexdigest()
         log.info('iso processing sqfs: {}, sha1: {}'.format(sqfs, squash_sha1))
-
-        path_md5 = process_squashfs(tmp_file.name, squash_sha1) # {(filename, filemd5): {'data': ...}}
-        log.info('iso read {} files'.format(len(path_md5)))
-
-        packages = get_package(conn, path_md5, constraint_name) # [(pkghash, name, buildtime), ...]
-        log.info('iso found {} packages'.format(len(packages)))
-
-        files = get_file(conn, packages) # {pkghash: {(filename, filemd5), ...}}
-        assigments = make_assigments(path_md5, packages, files)
-
+        path_md5 = process_squashfs(buf, squash_sha1) # {(hashname, filemd5): {'data': ...}}
+        # store (hashname, filemd5) from squashfs to temporary table PathMd5Temp
+        path_md5_ttt(conn, path_md5)
+        # store (pkghash, name, buildtime) to temporary table PkgTemp for packages whose file are in PathMd5Temp
+        get_package(conn, constraint_name)
+        # store (pkghash, hashname, filemd5) to temporary tabke FileTemp for packages from PkgTemp table
+        get_file(conn)
+        assigments = make_assigments(conn)
         aname_id = str(uuid4())
-        aname = args.assigment + sqfs
-        insert_assigment_name(
+        extract.insert_assigment_name(
             conn,
-            assigment_name=aname,
+            assigment_name=args.assigment + sqfs,
             uuid=aname_id,
             tag=args.tag,
             assigment_date=args.date,
             complete=1
         )
-
-        orphan_files = get_orphan_files(files, path_md5)
         name = '{0}-not-found-files-{1}'.format(sqfs.replace('/', ''), args.assigment)
         orphan_pkghash = make_orphan_package(conn, name, squash_sha1)
         assigments.add(orphan_pkghash)
-        write_orphan_files(conn, orphan_files, path_md5)
-        log.info('iso saved: {}, orphan files'.format(len(orphan_files)))
-        insert_assigment(conn, aname_id, assigments)
+        write_orphan_files(conn, path_md5)
+        extract.insert_assigment(conn, aname_id, assigments)
         log.info('iso saved: {}, assigments'.format(len(assigments)))
-        tmp_file.close()
-
-
-def get_orphan_files(files, path_md5):
-    f_all = reduce(lambda a, b: a | b, files.values())
-    return path_md5.keys() - f_all
 
 
 def make_orphan_package(conn, name, sha1):
     pkghash = utils.mmhash(sha1)
-    conn.execute('INSERT INTO Package_buffer (pkghash, name) VALUES', [{'pkghash': pkghash, 'name': name}])
+    conn.execute(
+        'INSERT INTO Package_buffer (pkghash, name) VALUES',
+        [{'pkghash': pkghash, 'name': name}]
+    )
     return pkghash
 
 
-def write_orphan_files(conn, files, path_md5):
-    sql = 'INSERT INTO File_buffer (filename, filelinkto, filemd5, pkghash, filesize, filemode, filemtime, fileusername, filegroupname, fileverifyflag, fileclass) VALUES'
-    data = [v for k, v in path_md5.items() if k in files]
-    conn.execute(sql, data)
+def write_orphan_files(conn, path_md5):
+    orphan_files = conn.execute(
+        'SELECT hashname, filemd5 FROM PathMd5Temp WHERE (hashname, filemd5)'
+        ' NOT IN (SELECT hashname, filemd5 FROM FileTemp)'
+    )
+    log.info('found {} orphan files'.format(len(orphan_files)))
+    conn.execute(
+        'INSERT INTO File_buffer (filename, filelinkto, filemd5, pkghash, '
+        'filesize, filemode, filemtime, fileusername, filegroupname, '
+        'fileverifyflag, fileclass) VALUES', 
+        [path_md5[k] for k in orphan_files]
+    )
 
 
-def get_package_score(package_files, squash_files):
-    if package_files:
-        return len(package_files & squash_files) / len(package_files)
-    return 0
+def make_assigments(conn):
+    sql = (
+        'SELECT argMax(pkghash, buildtime) FROM '
+        '(SELECT pkghash, COUNT(*) / any(xf.c) kf FROM FileTemp '
+        'LEFT JOIN (SELECT pkghash, COUNT(hashname) as c FROM FileTemp '
+        'GROUP BY pkghash) AS xf USING pkghash WHERE (hashname, filemd5) '
+        'IN (SELECT hashname, filemd5 FROM PathMd5Temp) GROUP BY pkghash) '
+        'LEFT JOIN PkgTemp USING pkghash WHERE kf=1 GROUP BY name'
+    )
+    result = conn.execute(sql)
+    return {i[0] for i in result}
 
 
-def make_assigments(path_md5, packages, files):
-    dups = {}
-    for package, name, buildtime in packages:
-        pkg_score = get_package_score(files[package], path_md5.keys())
-        if pkg_score == 1.0:
-            p = dups.get(name)
-            if p is None:
-                dups[name] = (buildtime, package)
-            else:
-                if buildtime > p[0]:
-                    dups[name] = (buildtime, package)
-    assigments = set([i[1] for i in dups.values()])
-    return assigments
-
-
-def process_squashfs(filename, squash_sha1):
-    image = SquashFsImage(filename)
+def process_squashfs(buf, squash_sha1):
+    image = SquashFsImage()
+    buf.seek(0)
+    image.image_file = buf
+    image.initialize(buf)
     path_md5 = defaultdict(dict)
     for f in image.root.findAll():
         if f.isFolder():
@@ -123,6 +118,7 @@ def process_squashfs(filename, squash_sha1):
                 h_ = m.hexdigest()
         data = {}
         data['filename'] = f.getPath()
+        data['hashname'] = utils.mmhash(f.getPath())
         data['filelinkto'] = l_
         data['filemd5'] = h_
         data['pkghash'] = utils.mmhash(squash_sha1)
@@ -133,33 +129,54 @@ def process_squashfs(filename, squash_sha1):
         data['filegroupname'] = str(f.inode.gid)
         data['fileverifyflag'] = f.inode.xattr
         data['fileclass'] = c_
-        path_md5[(f.getPath(), h_)].update(data)
+        path_md5[(utils.mmhash(f.getPath()), h_)].update(data)
     image.close()
     return path_md5
 
 
-def get_package(conn, path_md5, constraint_name):
+def make_temporary_table(conn):
+    conn.execute(
+        'CREATE TEMPORARY TABLE IF NOT EXISTS PkgTemp '
+        '(pkghash UInt64, name String, buildtime UInt32)'
+    )
+    conn.execute(
+        'CREATE TEMPORARY TABLE IF NOT EXISTS PathMd5Temp '
+        '(hashname UInt64, filemd5 FixedString(32))'
+    )
+    conn.execute(
+        'CREATE TEMPORARY TABLE IF NOT EXISTS FileTemp '
+        '(pkghash UInt64, hashname UInt64, filemd5 FixedString(32))'
+    )
+
+
+def path_md5_ttt(conn, path_md5):
+    """Put path md5 to temporary table
+    """
+    conn.execute('TRUNCATE TABLE IF EXISTS PathMd5Temp')
+    conn.execute(
+        'INSERT INTO PathMd5Temp (hashname, filemd5) VALUES',
+        [{'hashname': hashname, 'filemd5': filemd5} for hashname, filemd5 in path_md5.keys()]
+    )
+
+
+def get_package(conn, constraint_name):
+    conn.execute('TRUNCATE TABLE IF EXISTS PkgTemp')
     sql = (
-        "SELECT pkghash, name, buildtime FROM Package_buffer WHERE "
+        "INSERT INTO PkgTemp SELECT pkghash, name, buildtime FROM Package_buffer WHERE "
         "pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid IN "
         "(SELECT uuid FROM AssigmentName WHERE assigment_name IN %(constraint_name)s)) "
         "AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
         "AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer "
-        "WHERE (filename, filemd5) IN %(path_md5)s)"
+        "WHERE (hashname, filemd5) IN (SELECT hashname, filemd5 FROM PathMd5Temp))"
     )
-    result = set()
-    for chunk in utils.chunks(path_md5.keys(), 1000):
-        result.update(conn.execute(sql, {'path_md5': tuple(chunk), 'srcp': 0, 'constraint_name': constraint_name}))
-    return result
+    conn.execute(sql, {'srcp': 0, 'constraint_name': constraint_name})
 
 
-def get_file(conn, packages):
-    sql = "SELECT pkghash, filename, filemd5 FROM File_buffer WHERE fileclass != 'directory' AND pkghash IN %(pkghashes)s"
-    result = []
-    packages_hash = [i[0] for i in packages]
-    for chunk in utils.chunks(packages_hash, 1000):
-        result.extend(conn.execute(sql, {'pkghashes': tuple(chunk)}))
-    files = defaultdict(set)
-    for k, *v in result:
-        files[k].add(tuple(v))
-    return files
+def get_file(conn):
+    conn.execute('TRUNCATE TABLE IF EXISTS FileTemp')
+    sql = (
+        "INSERT INTO FileTemp SELECT pkghash, hashname, filemd5 FROM "
+        "File_buffer WHERE fileclass != 'directory' AND pkghash IN "
+        "(SELECT pkghash FROM PkgTemp)"
+    )
+    conn.execute(sql)
