@@ -1,11 +1,12 @@
-import re
 import datetime
 import logging
+import re
 import threading
-import mmh3
-from logging import handlers
 from functools import wraps
+from logging import handlers
 from time import time
+
+import mmh3
 
 
 def mmhash(val):
@@ -30,10 +31,11 @@ def get_logger(name, tag=None, date=None):
         date = datetime.date.today()
     file_handler = handlers.RotatingFileHandler(
         filename='{0}-{1}-{2}.log'.format(name, tag, date.strftime('%Y-%m-%d')),
-        maxBytes=2**26,
+        maxBytes=2 ** 26,
         backupCount=10
     )
-    fmt = logging.Formatter('%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s')
+    fmt = logging.Formatter(
+        '%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s')
     file_handler.setFormatter(fmt)
     file_handler.setLevel(logging.DEBUG)
 
@@ -50,6 +52,7 @@ class Display:
     MSG = 'Processed {0} packages in {1:.2f} sec. {2:.3f} sec. per package on average.'
 
     """Show information about progress."""
+
     def __init__(self, log, step=1000):
         self.lock = threading.Lock()
         self.log = log
@@ -78,7 +81,8 @@ class Display:
             self._update()
 
     def conclusion(self):
-        self.log.info(self.MSG.format(self.counter, self.timesum, self.timesum / self.counter))
+        self.log.info(self.MSG.format(self.counter, self.timesum,
+                                      self.timesum / self.counter))
 
 
 class Timing:
@@ -89,15 +93,18 @@ class Timing:
         def timer(f):
             """Measuring execution time."""
             log = logging.getLogger(logger_name)
+
             @wraps(f)
             def wrap(*args, **kw):
                 ts = time()
                 result = f(*args, **kw)
                 te = time()
                 if cls.timing:
-                    log.debug('F:{0} T:{1:.5f}'.format(f.__name__, te-ts))
+                    log.debug('F:{0} T:{1:.5f}'.format(f.__name__, te - ts))
                 return result
+
             return wrap
+
         return timer
 
 
@@ -139,11 +146,13 @@ def changelog_to_text(dates, names, texts):
         raise ValueError
     text = ""
     for d, n, t in zip(dates, names, texts):
-        text += "* {0} {1}\n{2}\n\n".format(changelog_date_format(d), cvt(n), cvt(t))
+        text += "* {0} {1}\n{2}\n\n".format(changelog_date_format(d), cvt(n),
+                                            cvt(t))
     return text
 
 
 packager_pattern = re.compile('([\w. ]+?) (\(.+?\) )?<(.+?)>')
+
 
 def packager_parse(packager):
     """Parse packager.
@@ -197,14 +206,14 @@ class Cache:
             self.__data[k] = v
 
 
-def chunks(data, size): 
-    it = iter(data) 
-    while True: 
-        acc = [] 
-        try: 
-            for _ in range(size): 
-                acc.append(next(it)) 
-        except StopIteration: 
-            break 
-        finally: 
-            yield acc 
+def chunks(data, size):
+    it = iter(data)
+    while True:
+        acc = []
+        try:
+            for _ in range(size):
+                acc.append(next(it))
+        except StopIteration:
+            break
+        finally:
+            yield acc
