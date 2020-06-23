@@ -67,9 +67,9 @@ class Acl:
         get murmurhash from database for latest existing ACLs
         :return: False if parsed with errors else True
         '''
-        sql = "SELECT acl_branch," \
-              "murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list))) " \
-              "FROM last_acl"
+        sql = """SELECT acl_branch, 
+           murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list)))
+            FROM last_acl"""
         try:
             result = self.conn.execute(sql)
         except Exception as error:
