@@ -67,28 +67,35 @@ def make_orphan_package(conn, name, sha1):
 
 
 def write_orphan_files(conn, path_md5):
-    orphan_files = conn.execute(
-        'SELECT hashname, filemd5 FROM PathMd5Temp WHERE (hashname, filemd5)'
-        ' NOT IN (SELECT hashname, filemd5 FROM FileTemp)'
-    )
+    orphan_files = conn.execute("""SELECT hashname, filemd5
+FROM PathMd5Temp
+WHERE (hashname, filemd5)
+          NOT IN (SELECT hashname, filemd5 FROM FileTemp)"""
+                                )
     log.info('found {} orphan files'.format(len(orphan_files)))
-    conn.execute(
-        'INSERT INTO File_buffer (filename, filelinkto, filemd5, pkghash, '
-        'filesize, filemode, filemtime, fileusername, filegroupname, '
-        'fileverifyflag, fileclass) VALUES', 
-        [path_md5[k] for k in orphan_files]
-    )
+    conn.execute("""INSERT INTO File_buffer (filename, filelinkto, filemd5, pkghash,
+                         filesize, filemode, filemtime, fileusername,
+                         filegroupname,
+                         fileverifyflag, fileclass)
+VALUES""",
+                 [path_md5[k] for k in orphan_files]
+                 )
 
 
 def make_assigments(conn):
-    sql = (
-        'SELECT argMax(pkghash, buildtime) FROM '
-        '(SELECT pkghash, COUNT(*) / any(xf.c) kf FROM FileTemp '
-        'LEFT JOIN (SELECT pkghash, COUNT(hashname) as c FROM FileTemp '
-        'GROUP BY pkghash) AS xf USING pkghash WHERE (hashname, filemd5) '
-        'IN (SELECT hashname, filemd5 FROM PathMd5Temp) GROUP BY pkghash) '
-        'LEFT JOIN PkgTemp USING pkghash WHERE kf=1 GROUP BY name'
-    )
+    sql = """SELECT argMax(pkghash, buildtime)
+FROM (SELECT pkghash, COUNT(*) / any(xf.c) kf
+      FROM FileTemp
+               LEFT JOIN (SELECT pkghash, COUNT(hashname) as c
+                          FROM FileTemp
+                          GROUP BY pkghash) AS xf USING pkghash
+      WHERE (hashname, filemd5)
+                IN (SELECT hashname, filemd5 FROM PathMd5Temp)
+      GROUP BY pkghash)
+         LEFT JOIN PkgTemp USING pkghash
+WHERE kf = 1
+GROUP BY name"""
+
     result = conn.execute(sql)
     return {i[0] for i in result}
 
@@ -139,14 +146,19 @@ def make_temporary_table(conn):
         'CREATE TEMPORARY TABLE IF NOT EXISTS PkgTemp '
         '(pkghash UInt64, name String, buildtime UInt32)'
     )
-    conn.execute(
-        'CREATE TEMPORARY TABLE IF NOT EXISTS PathMd5Temp '
-        '(hashname UInt64, filemd5 FixedString(32))'
-    )
-    conn.execute(
-        'CREATE TEMPORARY TABLE IF NOT EXISTS FileTemp '
-        '(pkghash UInt64, hashname UInt64, filemd5 FixedString(32))'
-    )
+    conn.execute("""CREATE TEMPORARY TABLE IF NOT EXISTS PathMd5Temp
+(
+    hashname UInt64,
+    filemd5  FixedString(32)
+)"""
+                 )
+    conn.execute("""CREATE TEMPORARY TABLE IF NOT EXISTS FileTemp
+(
+    pkghash  UInt64,
+    hashname UInt64,
+    filemd5  FixedString(32)
+)"""
+                 )
 
 
 def path_md5_ttt(conn, path_md5):
@@ -161,22 +173,28 @@ def path_md5_ttt(conn, path_md5):
 
 def get_package(conn, constraint_name):
     conn.execute('TRUNCATE TABLE IF EXISTS PkgTemp')
-    sql = (
-        "INSERT INTO PkgTemp SELECT pkghash, name, buildtime FROM Package_buffer WHERE "
-        "pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid IN "
-        "(SELECT uuid FROM AssigmentName WHERE assigment_name IN %(constraint_name)s)) "
-        "AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s "
-        "AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer "
-        "WHERE (hashname, filemd5) IN (SELECT hashname, filemd5 FROM PathMd5Temp))"
-    )
+    sql = """INSERT INTO PkgTemp
+SELECT pkghash, name, buildtime
+FROM Package_buffer
+WHERE pkghash IN (SELECT pkghash
+                  FROM Assigment_buffer
+                  WHERE uuid IN
+                        (SELECT uuid
+                         FROM AssigmentName
+                         WHERE assigment_name IN %(constraint_name)s)) 
+        AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s 
+        AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer 
+        WHERE (hashname, filemd5) IN (SELECT hashname, filemd5 FROM PathMd5Temp))"""
+
     conn.execute(sql, {'srcp': 0, 'constraint_name': constraint_name})
 
 
 def get_file(conn):
     conn.execute('TRUNCATE TABLE IF EXISTS FileTemp')
-    sql = (
-        "INSERT INTO FileTemp SELECT pkghash, hashname, filemd5 FROM "
-        "File_buffer WHERE fileclass != 'directory' AND pkghash IN "
-        "(SELECT pkghash FROM PkgTemp)"
-    )
+    sql = """INSERT INTO FileTemp
+SELECT pkghash, hashname, filemd5
+FROM File_buffer
+WHERE fileclass != 'directory'
+  AND pkghash IN
+      (SELECT pkghash FROM PkgTemp)"""
     conn.execute(sql)
