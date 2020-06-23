@@ -2,8 +2,9 @@ import argparse
 import configparser
 import os
 import re
-import clickhouse_driver as chd
 import subprocess
+
+import clickhouse_driver as chd
 
 SQL_DIR = './sql'
 filename_pattern = re.compile('\d{4}_[a-z0-9\-]+\.sql')
@@ -45,8 +46,10 @@ def get_actual_version(conn):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-U', '--update', action='store_true', help='Update database schema to actual state')
-    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
+    parser.add_argument('-U', '--update', action='store_true',
+                        help='Update database schema to actual state')
+    parser.add_argument('-c', '--config', type=str,
+                        help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
     parser.add_argument('-p', '--port', type=str, help='Database password')
