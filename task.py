@@ -1,20 +1,18 @@
-import urllib.request
-import urllib.error
-import sys
-import datetime
+import argparse
+import configparser
 import logging
 import os.path
-import argparse
-import psycopg2
-import rpm
-import configparser
-import clickhouse_driver as chd
-import extract
+import sys
+import urllib.error
+import urllib.request
 from collections import defaultdict
+
+import clickhouse_driver as chd
+import rpm
+
+import extract
 # from extract import get_header, insert_package, init_cache, check_package
 from utils import get_logger, cvt, mmhash
-from manager import check_latest_version
-
 
 NAME = 'task'
 
@@ -99,7 +97,11 @@ class Task:
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
 
     def _check_task(self):
-        sql = 'SELECT COUNT(*) FROM Tasks WHERE task_id=%(task_id)s AND try=%(try)s AND iteration=%(iteration)s'
+        sql = """SELECT COUNT(*)
+FROM Tasks
+WHERE task_id = %(task_id)s
+  AND try = %(try)s
+  AND iteration = %(iteration)s"""
         already = self.conn.execute(sql, {'task_id': self.fields['task_id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
         return already[0][0] > 0
 
@@ -123,7 +125,10 @@ class Task:
                 task_['chroot_base'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_base')]
                 task_['chroot_BR'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_BR')]
                 tasks.append(task_)
-        sql = 'INSERT INTO Tasks (task_id, subtask, sourcepkg_hash, try, iteration, status, is_test, branch, pkgs, userid, dir, tag_name, tag_id, tag_author, srpm, type, hash, task_arch, chroot_base, chroot_BR) VALUES'
+        sql = """INSERT INTO Tasks (task_id, subtask, sourcepkg_hash, try, iteration, status,
+                   is_test, branch, pkgs, userid, dir, tag_name, tag_id,
+                   tag_author, srpm, type, hash, task_arch, chroot_base,
+                   chroot_BR) VALUES"""
         self.conn.execute(sql, tasks)
         log.info('save task={0} try={1} iter={2}'.format(self.fields['task_id'], self.fields['try'], self.fields['iteration']))
 
