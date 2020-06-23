@@ -1,9 +1,10 @@
-CREATE TABLE AssigmentName (
-	uuid 				UUID,
-	assigment_name 		String,
-	assigment_date 		DateTime,
-	tag 				String,
-	complete 			UInt8
+CREATE TABLE AssigmentName
+(
+    uuid           UUID,
+    assigment_name String,
+    assigment_date DateTime,
+    tag            String,
+    complete       UInt8
 )
 ENGINE = MergeTree
 ORDER BY (assigment_date, assigment_name) PRIMARY KEY assigment_date;
@@ -384,7 +385,7 @@ RIGHT JOIN
         max(assigment_date) AS date
     FROM AssigmentName
     GROUP BY assigment_name
-) USING (uuid)
+) AS PkgSet USING (uuid)
 PREWHERE uuid IN 
 (
     SELECT uuid
@@ -402,9 +403,28 @@ PREWHERE uuid IN
 CREATE OR REPLACE VIEW last_packages AS SELECT pkg.*, assigment_name, assigment_date, pkghash 
     FROM last_assigments ALL INNER JOIN (SELECT * FROM Package_buffer) AS pkg USING (pkghash);
 
-CREATE OR REPLACE VIEW last_depends AS SELECT Depends_buffer.*, pkgname, pkgversion, assigment_name, assigment_date, sourcepackage, arch, filename, sourcerpm
-     FROM Depends_buffer ALL INNER JOIN (SELECT pkghash, version AS pkgversion, assigment_name AS assigment_name, assigment_date, name AS pkgname,
-     sourcepackage, arch, filename, sourcerpm FROM last_packages) USING (pkghash);
+CREATE
+OR REPLACE VIEW last_depends AS
+SELECT Depends_buffer.*,
+       pkgname,
+       pkgversion,
+       assigment_name,
+       assigment_date,
+       sourcepackage,
+       arch,
+       filename,
+       sourcerpm
+FROM Depends_buffer ALL
+         INNER JOIN (SELECT pkghash,
+                            version        AS pkgversion,
+                            assigment_name AS assigment_name,
+                            assigment_date,
+                            name           AS pkgname,
+                            sourcepackage,
+                            arch,
+                            filename,
+                            sourcerpm
+                     FROM last_packages) AS PkgSet USING (pkghash);
 
 -- VIEW to JOIN binary and source package
 
@@ -438,7 +458,7 @@ RIGHT JOIN
         assigment_name,
         assigment_date AS date
     FROM AssigmentName
-) USING (uuid)
+) AS PkgSet USING (uuid)
 PREWHERE pkghash IN
 (
     SELECT pkghash
@@ -557,7 +577,7 @@ RIGHT JOIN
         assigment_name,
         assigment_date AS date
     FROM AssigmentName
-) USING (uuid);
+) AS PkgSet USING (uuid);
 
 -- all packages from all assigments
 CREATE VIEW all_packages AS
