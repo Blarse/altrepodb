@@ -1,6 +1,6 @@
 import rpm
 
-from utils import changelog_to_text, cvt, cvt_ts, strip_end, symbolic, packager_parse, mmhash
+from utils import changelog_to_text, cvt, cvt_ts, packager_parse, mmhash
 
 
 def detect_arch(hdr):
@@ -12,7 +12,6 @@ def detect_arch(hdr):
 
 
 def get_package_map(hdr):
-
     packager = cvt(hdr[rpm.RPMTAG_PACKAGER])
     name_email = packager_parse(packager)
     if name_email:
@@ -96,6 +95,7 @@ def get_file_map(hdr):
         'fileclass': cvt(hdr[rpm.RPMTAG_FILECLASS]),
     }
     return map_files
+
 
 def get_require_map(hdr):
     map_require = {
