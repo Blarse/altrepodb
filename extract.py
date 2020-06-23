@@ -310,12 +310,18 @@ def load(args):
 
 
 def detect_assigment_name(conn, uuid):
-    sql = (
-        'SELECT assigment_name FROM AssigmentName INNER JOIN '
-        '(SELECT COUNT(pkghash) as countPkg, uuid FROM Assigment_buffer WHERE '
-        'pkghash IN (SELECT pkghash FROM Assigment_buffer WHERE uuid=%(uuid)s) '
-        'GROUP BY uuid) USING uuid ORDER BY countPkg DESC LIMIT 10'
-    )
+    sql = """SELECT assigment_name
+FROM AssigmentName
+         INNER JOIN
+     (SELECT COUNT(pkghash) as countPkg, uuid
+      FROM Assigment_buffer
+      WHERE pkghash IN
+            (SELECT pkghash FROM Assigment_buffer WHERE uuid = %(uuid)s)
+      GROUP BY uuid) AS cpkg USING uuid
+ORDER BY countPkg DESC
+LIMIT 10
+"""
+
     result = conn.execute(sql, {'uuid': uuid})
     return tuple({i[0] for i in result})
 
