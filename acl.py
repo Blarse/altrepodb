@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-'
 
-import urllib.request
-import urllib.error
-import htmllistparse
-from bs4 import BeautifulSoup
-import sys
-import time
-import datetime
-import logging
 import argparse
 import configparser
-import clickhouse_driver as chd
-from utils import get_logger, cvt, mmhash
-from collections import namedtuple
+import datetime
+import logging
 import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from collections import namedtuple
+
+import clickhouse_driver as chd
+from bs4 import BeautifulSoup
+
+import htmllistparse
+from utils import get_logger, cvt, mmhash
 
 NAME = 'acl'
 
@@ -37,6 +39,7 @@ class Acl:
         self.conn = conn
         self.loaddata = []
         self.dbhash = {}
+
     def _get_branch_from_filename(self, filename):
         '''
             Parse branch name from ACL filename.
