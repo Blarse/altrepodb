@@ -1,36 +1,39 @@
-import rpm
-import os
-import lzma
-import bz2
-import gzip
-import time
 import argparse
-import logging
-import sys
+import bz2
 import configparser
-import clickhouse_driver as chd
-import htmllistparse
-from http.client import IncompleteRead
-from bs4 import BeautifulSoup
-from urllib import request, parse
+import gzip
+import logging
+import lzma
+import os
+import sys
+import time
 from datetime import datetime
-from utils import get_logger, mmhash, cvt
+from http.client import IncompleteRead
 from shutil import copyfileobj
-from io import BytesIO
+from urllib import request, parse
 from uuid import uuid4
+
+import clickhouse_driver as chd
+import rpm
+from bs4 import BeautifulSoup
+
+import htmllistparse
+from utils import get_logger, mmhash, cvt
 
 NAME = 'pkglist'
 ARCHS = ['aarch64', 'i586', 'noarch', 'ppc64le', 'x86_64', 'x86_64-i586']
-SQL_APR_INSERT = (
-    'INSERT INTO AptPkgRelease (apr_uuid, apr_tag, apr_hashrelease, apr_origin, '
-    'apr_label, apr_suite, apr_codename, apr_arch, apr_archive, apr_date, '
-    'apr_description, apr_notautomatic, apr_version, apr_component) VALUES'
-)
-SQL_APS_INSERT = (
-    'INSERT INTO AptPkgSet (apr_uuid, aps_uuid, aps_name, aps_version, '
-    'aps_release, aps_epoch, aps_serial, aps_buildtime, aps_disttag, aps_arch, '
-    'aps_sourcerpm, aps_md5, aps_filesize, aps_filename) VALUES'
-)
+SQL_APR_INSERT = """INSERT INTO AptPkgRelease (apr_uuid, apr_tag, apr_hashrelease, apr_origin,
+                           apr_label, apr_suite, apr_codename, apr_arch,
+                           apr_archive, apr_date,
+                           apr_description, apr_notautomatic, apr_version,
+                           apr_component)
+VALUES"""
+
+SQL_APS_INSERT = """
+    INSERT INTO AptPkgSet (apr_uuid, aps_uuid, aps_name, aps_version, 
+    aps_release, aps_epoch, aps_serial, aps_buildtime, aps_disttag, aps_arch, 
+    aps_sourcerpm, aps_md5, aps_filesize, aps_filename) VALUES"""
+
 SQL_CHECK_RELEASE = (
     'SELECT COUNT(*) FROM AptPkgRelease WHERE apr_hashrelease=%(hsh)s'
 )
