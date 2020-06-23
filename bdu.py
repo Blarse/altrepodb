@@ -155,18 +155,23 @@ def cleanup(conn):
 
 
 def write2db(conn, xml):
-    sql = (
-        'INSERT INTO FstecBduList (bdu_identifier, bdu_name, '
-        'bdu_description, bdu_identify_date, bdu_severity, bdu_solution, '
-        'bdu_vul_status, bdu_exploit_status, bdu_fix_status, bdu_sources, '
-        'bdu_other, bdu_vulnerable_software.vendor, '
-        'bdu_vulnerable_software.type, bdu_vulnerable_software.name, '
-        'bdu_vulnerable_software.version, bdu_environment.vendor, '
-        'bdu_environment.version, bdu_environment.name, '
-        'bdu_environment.platform, bdu_cwe.identifier, bdu_cvss.vector, '
-        'bdu_cvss.score, bdu_identifiers.identifier, '
-        'bdu_identifiers.type, bdu_identifiers.link) VALUES'
-    )
+    sql = """INSERT INTO FstecBduList (bdu_identifier, bdu_name,
+                          bdu_description, bdu_identify_date, bdu_severity,
+                          bdu_solution,
+                          bdu_vul_status, bdu_exploit_status, bdu_fix_status,
+                          bdu_sources,
+                          bdu_other, bdu_vulnerable_software.vendor,
+                          bdu_vulnerable_software.type,
+                          bdu_vulnerable_software.name,
+                          bdu_vulnerable_software.version,
+                          bdu_environment.vendor,
+                          bdu_environment.version, bdu_environment.name,
+                          bdu_environment.platform, bdu_cwe.identifier,
+                          bdu_cvss.vector,
+                          bdu_cvss.score, bdu_identifiers.identifier,
+                          bdu_identifiers.type, bdu_identifiers.link)
+VALUES"""
+
 
     data = []
     log.info('parsing xml')
