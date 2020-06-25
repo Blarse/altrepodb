@@ -91,7 +91,7 @@ FROM (SELECT pkghash, COUNT(*) / any(xf.c) kf
                           GROUP BY pkghash) AS xf USING pkghash
       WHERE (hashname, filemd5)
                 IN (SELECT hashname, filemd5 FROM PathMd5Temp)
-      GROUP BY pkghash)
+      GROUP BY pkghash) AS kf
          LEFT JOIN PkgTemp USING pkghash
 WHERE kf = 1
 GROUP BY name"""
