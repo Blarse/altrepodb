@@ -479,7 +479,8 @@ FROM Package_buffer
 WHERE sourcepackage = 0;
 
 -- view to JOIN all pkgset's for source packages
-CREATE VIEW all_assigments_sources AS
+CREATE
+OR REPLACE VIEW all_assigments_sources AS
 SELECT pkghash,
        assigment_name,
        date AS assigment_date
@@ -596,7 +597,8 @@ FROM Cve
          LEFT JOIN last_packages USING (pkghash);
 
 -- all pkgset's with date, name and pkghash
-CREATE VIEW all_assigments
+CREATE
+OR REPLACE VIEW all_assigments
 AS
 SELECT pkghash,
        assigment_name,
@@ -611,7 +613,8 @@ FROM Assigment_buffer
          ) AS PkgSet USING (uuid);
 
 -- all packages from all assigments
-CREATE VIEW all_packages AS
+CREATE
+OR REPLACE VIEW all_packages AS
 SELECT pkg.*,
        assigment_name,
        assigment_date,
