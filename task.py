@@ -122,6 +122,9 @@ WHERE task_id = %(task_id)s
                 task_ = task.copy()
                 task_['task_arch'] = arch
                 task_['pkgs'] = [mmhash(p) for p in bin_pkgs[subtask][arch]]
+                # skip packages, that are not build for arch
+                if len(task_['pkgs']) == 0:
+                    continue
                 task_['chroot_base'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_base')]
                 task_['chroot_BR'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_BR')]
                 tasks.append(task_)
