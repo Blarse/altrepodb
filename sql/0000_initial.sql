@@ -417,7 +417,7 @@ FROM Assigment_buffer
          FROM AssigmentName
          GROUP BY assigment_name
          ) AS PkgSet USING (uuid)
-    PREWHERE uuid IN
+    WHERE uuid IN
              (
                  SELECT uuid
                  FROM (
