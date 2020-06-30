@@ -86,12 +86,14 @@ class Task:
             return []
 
     def _get_chroot_list(self, subtask, arch, chroot):
+        method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
         try:
-            method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
-            return [i.split('\t')[-1].strip() for i in self.girar.get(method).split('\n') if len(i) > 0]
+            content = self.girar.get(method)
+            if content is not None:
+                return [i.split('\t')[-1].strip() for i in content.split('\n') if len(i) > 0]
         except Exception as error:
             log.error(error)
-            return []
+        return []
 
     def _get_archs_list(self):
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
