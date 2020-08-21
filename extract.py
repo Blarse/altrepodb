@@ -23,6 +23,7 @@ from manager import check_latest_version
 
 NAME = 'extract'
 
+os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
 

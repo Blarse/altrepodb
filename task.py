@@ -1,6 +1,7 @@
 import argparse
 import configparser
 import logging
+import os
 import os.path
 import sys
 import urllib.error
@@ -15,6 +16,8 @@ import extract
 from utils import get_logger, cvt, mmhash
 
 NAME = 'task'
+
+os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
 

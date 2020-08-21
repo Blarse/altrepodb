@@ -1,6 +1,10 @@
+import os
 import rpm
 
 from utils import changelog_to_text, cvt, cvt_ts, packager_parse, mmhash
+
+
+os.environ['LANG'] = 'C'
 
 
 def detect_arch(hdr):

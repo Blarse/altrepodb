@@ -15,6 +15,8 @@ from PySquashfsImage import SquashFsImage
 from functools import reduce
 
 
+os.environ['LANG'] = 'C'
+
 log = logging.getLogger('extract')
 
 

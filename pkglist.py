@@ -20,6 +20,8 @@ from bs4 import BeautifulSoup
 import htmllistparse
 from utils import get_logger, mmhash, cvt
 
+os.environ['LANG'] = 'C'
+
 NAME = 'pkglist'
 ARCHS = ['aarch64', 'i586', 'noarch', 'ppc64le', 'x86_64', 'x86_64-i586']
 SQL_APR_INSERT = """INSERT INTO AptPkgRelease (apr_uuid, apr_tag, apr_hashrelease, apr_origin,
