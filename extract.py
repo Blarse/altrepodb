@@ -189,12 +189,14 @@ def get_client(args):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, cache, packages, aname, display, *args, **kwargs):
+    def __init__(self, connection, cache, packages, aname, display, _args, *args, **kwargs):
         self.connection = connection
         self.packages = packages
         self.aname = aname
         self.display = display
         self.cache = cache
+        self.repair = _args.repair
+        self.dry_repair = _args.dry_repair
         super().__init__(*args, **kwargs)
 
     def run(self):
@@ -211,6 +213,8 @@ class Worker(threading.Thread):
                 if pkghash is None:
                     pkghash = insert_package(self.connection, header, filename=os.path.basename(package))
                     self.cache.add(pkghash)
+                elif self.repair or self.dry_repair:
+                    repair_package(self.connection, header, self.dry_repair)
                 if pkghash is None:
                     raise RuntimeError('no id for {0}'.format(package))
                 self.aname.add(pkghash)
@@ -248,6 +252,18 @@ def check_assigment_name(conn, name):
     return r[0][0] > 0
 
 
+def repair_package(conn, hdr, dry):
+    map_package = mapper.get_package_map(hdr)
+    sql = 'SELECT summary, description FROM Package WHERE pkghash=%(pkghash)s'
+    result = conn.execute(sql, map_package)
+    if result[0][0] != map_package['summary'] or result[0][1] != map_package['description']:
+        if not dry:
+            conn.execute(
+                ('ALTER TABLE Package UPDATE summary=%(summary)s,'
+                ' description=%(description)s WHERE pkghash=%(pkghash)s'), map_package)
+        log.debug('package: {0} {1} corrupted'.format(map_package['name'], map_package['pkghash']))
+
+
 def load(args):
     conn = get_client(args)
     # if not check_latest_version(conn):
@@ -275,7 +291,7 @@ def load(args):
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = Worker(conn, cache, packages, aname, display)
+        worker = Worker(conn, cache, packages, aname, display, args)
         worker.start()
         workers.append(worker)
 
@@ -345,6 +361,8 @@ def get_args():
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
     parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
+    parser.add_argument('-R', '--repair', action='store_true', help='Update existing fields in database from rpm package')
+    parser.add_argument('-r', '--dry-repair', action='store_true', help='Show corrupted package')
     return parser.parse_args()
 
 
