@@ -155,7 +155,7 @@ WHERE task_id = %(task_id)s
     def _get_bin(self, src):
         bin_list = self._get_pkg_list('plan/add-bin')
         bin_pkgs = defaultdict(lambda: defaultdict(list))
-        for *_, arch, _, pkg, n in bin_list:
+        for _, _, arch, _, pkg, n, *_ in bin_list:
             hdr = self.girar.get_header(pkg)
             sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
             if not extract.check_package(self.cache, hdr):
