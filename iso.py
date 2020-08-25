@@ -62,8 +62,8 @@ def process_iso(conn, iso, args, constraint_name):
 def make_orphan_package(conn, name, sha1):
     pkghash = utils.mmhash(sha1)
     conn.execute(
-        'INSERT INTO Package_buffer (pkghash, name) VALUES',
-        [{'pkghash': pkghash, 'name': name}]
+        'INSERT INTO Package_buffer (pkghash, pkgcs, name) VALUES',
+        [{'pkghash': pkghash, 'pkgcs': sha1, 'name': name}]
     )
     return pkghash
 
