@@ -189,14 +189,13 @@ def get_client(args):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, cache, packages, aname, display, _args, *args, **kwargs):
+    def __init__(self, connection, cache, packages, aname, display, repair, *args, **kwargs):
         self.connection = connection
         self.packages = packages
         self.aname = aname
         self.display = display
         self.cache = cache
-        self.repair = _args.repair
-        self.dry_repair = _args.dry_repair
+        self.repair = repair
         super().__init__(*args, **kwargs)
 
     def run(self):
@@ -210,11 +209,14 @@ class Worker(threading.Thread):
                     package = package.iname
                 log.debug('process: {0}'.format(package))
                 pkghash = check_package(self.cache, header)
+                kw = {'filename': os.path.basename(package)}
+                if self.repair is not None:
+                    if pkghash is not None:
+                        repair_package(self.connection, header, self.repair, **kw)
+                    continue
                 if pkghash is None:
-                    pkghash = insert_package(self.connection, header, filename=os.path.basename(package))
+                    pkghash = insert_package(self.connection, header, **kw)
                     self.cache.add(pkghash)
-                elif self.repair or self.dry_repair:
-                    repair_package(self.connection, header, self.dry_repair)
                 if pkghash is None:
                     raise RuntimeError('no id for {0}'.format(package))
                 self.aname.add(pkghash)
@@ -252,16 +254,39 @@ def check_assigment_name(conn, name):
     return r[0][0] > 0
 
 
-def repair_package(conn, hdr, dry):
+# def full_check():
+#     import random
+#     return random.random() > 0.5
+
+
+def repair_package(conn, hdr, repair, **kwargs):
     map_package = mapper.get_package_map(hdr)
-    sql = 'SELECT summary, description FROM Package WHERE pkghash=%(pkghash)s'
+    fields = list(map_package.keys())
+    sql = 'SELECT {0} FROM Package_buffer WHERE pkghash=%(pkghash)s'.format(','.join(fields))
     result = conn.execute(sql, map_package)
-    if result[0][0] != map_package['summary'] or result[0][1] != map_package['description']:
-        if not dry:
-            conn.execute(
-                ('ALTER TABLE Package UPDATE summary=%(summary)s,'
-                ' description=%(description)s WHERE pkghash=%(pkghash)s'), map_package)
-        log.debug('package: {0} {1} corrupted'.format(map_package['name'], map_package['pkghash']))
+    pkg = {k: v for k, v in zip(fields, result[0])}
+    if map_package != pkg:
+        log.debug('package: {name} {pkghash} corrupted'.format(**map_package))
+        if repair == 'repair':
+            map_package.update(**kwargs)
+            remove_package(conn, map_package)
+            sql_insert = 'INSERT INTO Package_buffer ({0}) VALUES'.format(
+                ', '.join(map_package.keys())
+            )
+            conn.execute(sql_insert, [map_package])
+    # if repair in ['full-check', 'full-repair']:
+        # if full_check():
+        # log.debug('test')
+    if repair == 'full-repair':
+        remove_package(conn, map_package, full=True)
+        insert_package(conn, hdr, **kwargs)
+
+
+def remove_package(conn, map_package, full=False):
+    conn.execute('ALTER TABLE Package DELETE WHERE pkghash=%(pkghash)s', map_package)
+    if full:
+        conn.execute('ALTER TABLE File DELETE WHERE pkghash=%(pkghash)s', map_package)
+        conn.execute('ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s', map_package)
 
 
 def load(args):
@@ -284,14 +309,14 @@ def load(args):
     workers = []
     connections = [conn]
     display = None
-    if args.verbose:
+    if args.verbose and args.repair is None:
         display = Display(log)
     cache = init_cache(conn)
     aname = set()
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = Worker(conn, cache, packages, aname, display, args)
+        worker = Worker(conn, cache, packages, aname, display, args.repair)
         worker.start()
         workers.append(worker)
 
@@ -299,15 +324,16 @@ def load(args):
         w.join()
 
     aname_id = str(uuid4())
-    insert_assigment_name(
-        conn,
-        assigment_name=args.assigment,
-        uuid=aname_id,
-        tag=args.tag,
-        assigment_date=args.date,
-        complete=1
-    )
-    insert_assigment(conn, aname_id, aname)
+    if args.repair is None:
+        insert_assigment_name(
+            conn,
+            assigment_name=args.assigment,
+            uuid=aname_id,
+            tag=args.tag,
+            assigment_date=args.date,
+            complete=1
+        )
+        insert_assigment(conn, aname_id, aname)
 
     if iso:
         if args.constraint is not None:
@@ -361,8 +387,8 @@ def get_args():
     parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
     parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
-    parser.add_argument('-R', '--repair', action='store_true', help='Update existing fields in database from rpm package')
-    parser.add_argument('-r', '--dry-repair', action='store_true', help='Show corrupted package')
+    parser.add_argument('-R', '--repair', type=str, choices=['check', 'full-check', 'repair', 'full-repair'], 
+                        help='check or restore database from rpm package')
     return parser.parse_args()
 
 
