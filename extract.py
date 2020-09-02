@@ -77,11 +77,15 @@ def insert_package(conn, hdr, **kwargs):
     return pkghash
 
 
+def unpack_map(tagmap):
+    return [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
+
+
 @Timing.timeit(NAME)
 def insert_file(conn, pkghash, hdr):
     map_file = mapper.get_file_map(hdr)
     map_file['pkghash'] = itertools.cycle([pkghash])
-    data = [dict(zip(map_file, v)) for v in zip(*map_file.values())]
+    data = unpack_map(map_file)
     conn.execute(
         'INSERT INTO File_buffer ({0}) VALUES'.format(', '.join(map_file.keys())), 
         data
@@ -94,7 +98,7 @@ def insert_list(conn, tagmap, pkghash, dptype):
     """Insert list as batch."""
     tagmap['pkghash'] = itertools.cycle([pkghash])
     tagmap['dptype'] = itertools.cycle([dptype])
-    data = [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
+    data = unpack_map(tagmap)
     conn.execute(
         'INSERT INTO Depends_buffer ({0}) VALUES'.format(', '.join(tagmap.keys())),
         data
@@ -254,39 +258,68 @@ def check_assigment_name(conn, name):
     return r[0][0] > 0
 
 
-# def full_check():
-#     import random
-#     return random.random() > 0.5
+def full_check(conn, hdr, map_package):
+    # check files
+    # rpm control sum
+    map_file = mapper.get_file_map(hdr)
+    fields = list(map_file.keys())  # save order
+    data = unpack_map(map_file)
+    csf_rpm = set([mmhash('.'.join([str(d[i]) for i in fields])) for d in data])  # calc hashsum for each row
+    # db control sum
+    res = conn.execute('SELECT {0} FROM File_buffer WHERE pkghash=%(pkghash)s'.format(', '.join(fields)), map_package)
+    csf_db = set([mmhash('.'.join([str(i) for i in r])) for r in res])  # calc hashsum for each row
+    ck_files = csf_rpm == csf_db
+    if not ck_files:
+        log.debug('package: {name} {pkgcs} files corrupted'.format(**map_package))
+    # check depends
+    fields = ['dpname', 'dpversion', 'flag']
+    map_require = mapper.get_require_map(hdr)
+    map_conflict = mapper.get_conflict_map(hdr)
+    map_obsolete = mapper.get_obsolete_map(hdr)
+    map_provide = mapper.get_provide_map(hdr)
+    dep_data = unpack_map(map_require) + unpack_map(map_conflict) + unpack_map(map_obsolete) + unpack_map(map_provide)
+    csd_rpm = set([mmhash('.'.join([str(d[i]) for i in fields])) for d in dep_data])
+    res = conn.execute('SELECT {0} FROM Depends_buffer WHERE pkghash=%(pkghash)s'.format(', '.join(fields)), map_package)
+    csd_db = set([mmhash('.'.join([str(i) for i in r])) for r in res])
+    ck_depends = csd_rpm == csd_db
+    if not ck_depends:
+        log.debug('package: {name} {pkgcs} depends corrupted'.format(**map_package))
+    return not (ck_files and ck_depends)
 
 
 def repair_package(conn, hdr, repair, **kwargs):
     map_package = mapper.get_package_map(hdr)
+    need_repair = False
+    need_full_repair = False
     fields = list(map_package.keys())
-    sql = 'SELECT {0} FROM Package_buffer WHERE pkghash=%(pkghash)s'.format(','.join(fields))
-    result = conn.execute(sql, map_package)
+    result = conn.execute(
+        'SELECT {0} FROM Package_buffer WHERE pkghash=%(pkghash)s'.format(','.join(fields)),
+        map_package
+    )
     pkg = {k: v for k, v in zip(fields, result[0])}
     if map_package != pkg:
-        log.debug('package: {name} {pkghash} corrupted'.format(**map_package))
-        if repair == 'repair':
-            map_package.update(**kwargs)
-            remove_package(conn, map_package)
-            sql_insert = 'INSERT INTO Package_buffer ({0}) VALUES'.format(
-                ', '.join(map_package.keys())
-            )
-            conn.execute(sql_insert, [map_package])
-    # if repair in ['full-check', 'full-repair']:
-        # if full_check():
-        # log.debug('test')
-    if repair == 'full-repair':
+        need_repair = True
+        log.debug('package: {name} {pkgcs} corrupted'.format(**map_package))
+    if repair == 'repair' and need_repair:
+        map_package.update(**kwargs)
+        remove_package(conn, map_package)
+        sql_insert = 'INSERT INTO Package_buffer ({0}) VALUES'.format(
+            ', '.join(map_package.keys())
+        )
+        conn.execute(sql_insert, [map_package])
+        return
+    if repair in ['full-check', 'full-repair']:
+        need_full_repair = full_check(conn, hdr, map_package)
+    if repair == 'full-repair' and (need_repair or need_full_repair):
         remove_package(conn, map_package, full=True)
         insert_package(conn, hdr, **kwargs)
 
 
-def remove_package(conn, map_package, full=False):
-    conn.execute('ALTER TABLE Package DELETE WHERE pkghash=%(pkghash)s', map_package)
+def remove_package(conn, mp, full=False):
+    conn.execute('ALTER TABLE Package DELETE WHERE pkghash=%(pkghash)s', mp)
     if full:
-        conn.execute('ALTER TABLE File DELETE WHERE pkghash=%(pkghash)s', map_package)
-        conn.execute('ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s', map_package)
+        conn.execute('ALTER TABLE File DELETE WHERE pkghash=%(pkghash)s', mp)
+        conn.execute('ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s', mp)
 
 
 def load(args):
