@@ -19,7 +19,7 @@ CREATE TABLE Tasks
     task_state     LowCardinality(String),
     task_testonly  UInt8,
     task_repo      LowCardinality(String),
-    task_ownew     LowCardinality(String),
+    task_owner     LowCardinality(String),
     task_shared    UInt8
 ) ENGINE = MergeTree ORDER BY (task_id, task_try, task_repo, task_state);
 
