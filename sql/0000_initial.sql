@@ -1,11 +1,11 @@
-CREATE TABLE AssigmentName
+CREATE TABLE AssignmentName
 (
     uuid           UUID,
-    assigment_name String,
-    assigment_date DateTime,
+    assignment_name String,
+    assignment_date DateTime,
     tag            String,
     complete       UInt8
-) ENGINE = MergeTree ORDER BY (assigment_date, assigment_name) PRIMARY KEY assigment_date;
+) ENGINE = MergeTree ORDER BY (assignment_date, assignment_name) PRIMARY KEY assignment_date;
 
 
 CREATE TABLE Tasks
@@ -63,10 +63,10 @@ CREATE TABLE TasksPlan
 
 ) ENGINE = MergeTree ORDER BY (task_id, task_subtask_id, taskacl_changed);
 
-CREATE TABLE Assigment
+CREATE TABLE Assignment
 (
-    uuid    UUID,
-    pkghash UInt64 CODEC (NONE)
+    uuid    UUID CODEC(ZSTD(1)),
+    pkghash UInt64 CODEC(Gorilla,ZSTD(1))
 ) ENGINE = MergeTree ORDER BY (uuid, pkghash) PRIMARY KEY (uuid);
 
 
@@ -352,7 +352,7 @@ CREATE TABLE CveChecked
     ENGINE = MergeTree PRIMARY KEY (cveid, pkgname) ORDER BY (cveid, pkgname, checkdate) SETTINGS index_granularity = 8192;
 
 
-CREATE TABLE Assigment_buffer AS Assigment ENGINE = Buffer(currentDatabase(), Assigment, 16, 10, 200, 10000, 1000000,
+CREATE TABLE Assignment_buffer AS Assignment ENGINE = Buffer(currentDatabase(), Assignment, 16, 10, 200, 10000, 1000000,
                                                     10000000, 1000000000);
 
 
@@ -370,22 +370,22 @@ CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depend
 -- return pkghash, name and date for recent pkgset's
 
 CREATE
-OR REPLACE VIEW last_assigments AS
-SELECT pkghash, assigment_name, date AS assigment_date
-FROM Assigment_buffer
-         RIGHT JOIN ( SELECT argMax(uuid, assigment_date) AS uuid, assigment_name, max(assigment_date) AS date
-                      FROM AssigmentName
-                      GROUP BY assigment_name ) AS PkgSet USING (uuid)
+OR REPLACE VIEW last_assignments AS
+SELECT pkghash, assignment_name, date AS assignment_date
+FROM Assignment_buffer
+         RIGHT JOIN ( SELECT argMax(uuid, assignment_date) AS uuid, assignment_name, max(assignment_date) AS date
+                      FROM AssignmentName
+                      GROUP BY assignment_name ) AS PkgSet USING (uuid)
 WHERE uuid IN (SELECT uuid
-               FROM (SELECT argMax(uuid, assigment_date) AS uuid, assigment_name, max(assigment_date) AS date
-                     FROM AssigmentName
-                     GROUP BY assigment_name
+               FROM (SELECT argMax(uuid, assignment_date) AS uuid, assignment_name, max(assignment_date) AS date
+                     FROM AssignmentName
+                     GROUP BY assignment_name
                         ));
 
 CREATE
 OR REPLACE VIEW last_packages AS
-SELECT pkg.*, assigment_name, assigment_date, pkghash
-FROM last_assigments ALL
+SELECT pkg.*, assignment_name, assignment_date, pkghash
+FROM last_assignments ALL
          INNER JOIN (SELECT * FROM Package_buffer) AS pkg USING (pkghash);
 
 CREATE
@@ -393,8 +393,8 @@ OR REPLACE VIEW last_depends AS
 SELECT Depends_buffer.*,
        pkgname,
        pkgversion,
-       assigment_name,
-       assigment_date,
+       assignment_name,
+       assignment_date,
        sourcepackage,
        arch,
        filename,
@@ -402,8 +402,8 @@ SELECT Depends_buffer.*,
 FROM Depends_buffer ALL
          INNER JOIN (SELECT pkghash,
                             version        AS pkgversion,
-                            assigment_name AS assigment_name,
-                            assigment_date,
+                            assignment_name AS assignment_name,
+                            assignment_date,
                             name           AS pkgname,
                             sourcepackage,
                             arch,
@@ -424,17 +424,17 @@ WHERE sourcepackage = 0;
 
 -- view to JOIN all pkgset's for source packages
 CREATE
-OR REPLACE VIEW all_assigments_sources AS
-SELECT pkghash, assigment_name, date AS assigment_date
-FROM Assigment_buffer
-         RIGHT JOIN ( SELECT uuid, assigment_name, assigment_date AS date FROM AssigmentName ) AS PkgSet
+OR REPLACE VIEW all_assignments_sources AS
+SELECT pkghash, assignment_name, date AS assignment_date
+FROM Assignment_buffer
+         RIGHT JOIN ( SELECT uuid, assignment_name, assignment_date AS date FROM AssignmentName ) AS PkgSet
                     USING (uuid) PREWHERE pkghash IN (SELECT pkghash FROM Package WHERE sourcepackage = 1);
 
 -- view to get joined list packages with sourcepackage
 CREATE
 OR REPLACE VIEW last_packages_with_source AS
-SELECT pkg.*, assigment_name, assigment_date, pkghash
-FROM last_assigments ALL
+SELECT pkg.*, assignment_name, assignment_date, pkghash
+FROM last_assignments ALL
          INNER JOIN ( SELECT * FROM all_packages_with_source ) AS pkg USING (pkghash);
 
 -- view to get last list from ACL
@@ -465,8 +465,8 @@ GROUP BY pkghash;
 -- VIEW to get all pkghash with a unique array of pkgset names
 
 CREATE VIEW all_source_pkghash_with_uniq_branch_name (`pkghash` UInt64, `pkgsetarray` Array(String)) AS
-SELECT pkghash, groupUniqArray(assigment_name) AS pkgsetarray
-FROM all_assigments_sources
+SELECT pkghash, groupUniqArray(assignment_name) AS pkgsetarray
+FROM all_assignments_sources
 GROUP BY pkghash;
 
 -- view to get expanded list ACLs from database with groups
@@ -497,17 +497,17 @@ FROM Cve
 
 -- all pkgset's with date, name and pkghash
 CREATE
-OR REPLACE VIEW all_assigments
+OR REPLACE VIEW all_assignments
 AS
-SELECT pkghash, assigment_name, date AS assigment_date
-FROM Assigment_buffer
-         RIGHT JOIN ( SELECT uuid, assigment_name, assigment_date AS date FROM AssigmentName ) AS PkgSet USING (uuid);
+SELECT pkghash, assignment_name, date AS assignment_date
+FROM Assignment_buffer
+         RIGHT JOIN ( SELECT uuid, assignment_name, assignment_date AS date FROM AssignmentName ) AS PkgSet USING (uuid);
 
 -- all packages from all assigments
 CREATE
 OR REPLACE VIEW all_packages AS
-SELECT pkg.*, assigment_name, assigment_date, pkghash
-FROM all_assigments ALL
+SELECT pkg.*, assignment_name, assignment_date, pkghash
+FROM all_assignments ALL
          INNER JOIN ( SELECT * FROM Package_buffer ) AS pkg USING (pkghash);
 
 -- view for cve-check-tool with source, array of binary packages and changelogs.
