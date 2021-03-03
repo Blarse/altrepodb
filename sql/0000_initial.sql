@@ -61,7 +61,7 @@ CREATE TABLE TasksPlan
     taskplan_EVR     String,
 
 
-) ENGINE = MergeTree ORDER BY (task_id, task_subtask_id, taskacl_changed);
+) ENGINE = MergeTree ORDER BY (task_id);
 
 CREATE TABLE Assignment
 (
