@@ -41,22 +41,22 @@ def process_iso(conn, iso, args, constraint_name):
         get_package(conn, constraint_name)
         # store (pkghash, hashname, filemd5) to temporary tabke FileTemp for packages from PkgTemp table
         get_file(conn)
-        assigments = make_assigments(conn)
+        assignments = make_assignments(conn)
         aname_id = str(uuid4())
-        extract.insert_assigment_name(
+        extract.insert_assignment_name(
             conn,
-            assigment_name=args.assigment + sqfs,
+            assignment_name=args.assignment + sqfs,
             uuid=aname_id,
             tag=args.tag,
-            assigment_date=args.date,
+            assignment_date=args.date,
             complete=1
         )
-        name = '{0}-not-found-files-{1}'.format(sqfs.replace('/', ''), args.assigment)
+        name = '{0}-not-found-files-{1}'.format(sqfs.replace('/', ''), args.assignment)
         orphan_pkghash = make_orphan_package(conn, name, squash_sha1)
-        assigments.add(orphan_pkghash)
+        assignments.add(orphan_pkghash)
         write_orphan_files(conn, path_md5)
-        extract.insert_assigment(conn, aname_id, assigments)
-        log.info('iso saved: {}, assigments'.format(len(assigments)))
+        extract.insert_assignment(conn, aname_id, assignments)
+        log.info('iso saved: {}, assignments'.format(len(assignments)))
 
 
 def make_orphan_package(conn, name, sha1):
@@ -84,7 +84,7 @@ VALUES""",
                  )
 
 
-def make_assigments(conn):
+def make_assignments(conn):
     sql = """SELECT argMax(pkghash, buildtime)
 FROM (SELECT pkghash, COUNT(*) / any(xf.c) kf
       FROM FileTemp
@@ -179,11 +179,11 @@ def get_package(conn, constraint_name):
 SELECT pkghash, name, buildtime
 FROM Package_buffer
 WHERE pkghash IN (SELECT pkghash
-                  FROM Assigment_buffer
+                  FROM Assignment_buffer
                   WHERE uuid IN
                         (SELECT uuid
-                         FROM AssigmentName
-                         WHERE assigment_name IN %(constraint_name)s)) 
+                         FROM AssignmentName
+                         WHERE assignment_name IN %(constraint_name)s)) 
         AND notLike(name, '%%not-found%%') AND sourcepackage=%(srcp)s 
         AND pkghash IN (SELECT DISTINCT(pkghash) FROM File_buffer 
         WHERE (hashname, filemd5) IN (SELECT hashname, filemd5 FROM PathMd5Temp))"""

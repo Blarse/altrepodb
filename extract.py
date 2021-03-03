@@ -107,31 +107,31 @@ def insert_list(conn, tagmap, pkghash, dptype):
 
 
 @Timing.timeit(NAME)
-def insert_assigment_name(conn, assigment_name=None, uuid=None, tag=None, assigment_date=None, complete=0):
-    if assigment_date is None:
-        assigment_date = datetime.datetime.now()
-    sql = 'INSERT INTO AssigmentName (uuid, assigment_name, assigment_date, tag, complete) VALUES'
+def insert_assignment_name(conn, assignment_name=None, uuid=None, tag=None, assignment_date=None, complete=0):
+    if assignment_date is None:
+        assignment_date = datetime.datetime.now()
+    sql = 'INSERT INTO AssignmentName (uuid, assignment_name, assignment_date, tag, complete) VALUES'
     if uuid is None:
         uuid = str(uuid4())
     data = {
         'uuid': uuid,
-        'assigment_name': assigment_name,
-        'assigment_date': assigment_date,
+        'assignment_name': assignment_name,
+        'assignment_date': assignment_date,
         'tag': tag, 
         'complete': complete
     }
     conn.execute(sql, [data])
-    log.debug('insert assigment name uuid: {0}'.format(uuid))
+    log.debug('insert assignment name uuid: {0}'.format(uuid))
     # return data
 
 
 @Timing.timeit(NAME)
-def insert_assigment(conn, uuid, pkghash):
+def insert_assignment(conn, uuid, pkghash):
     conn.execute(
-        'INSERT INTO Assigment_buffer (uuid, pkghash) VALUES',
+        'INSERT INTO Assignment_buffer (uuid, pkghash) VALUES',
         [dict(uuid=uuid, pkghash=p) for p in pkghash]
     )
-    log.debug('insert assigment uuid: {0}, pkghash: {1}'.format(uuid, len(pkghash)))
+    log.debug('insert assignment uuid: {0}, pkghash: {1}'.format(uuid, len(pkghash)))
 
 
 def find_packages(args):
@@ -252,8 +252,8 @@ def init_cache(conn):
     return {i[0] for i in result}
 
 
-def check_assigment_name(conn, name):
-    sql = 'SELECT COUNT(*) FROM AssigmentName WHERE assigment_name=%(aname)s'
+def check_assignment_name(conn, name):
+    sql = 'SELECT COUNT(*) FROM AssignmentName WHERE assignment_name=%(aname)s'
     r = conn.execute(sql, {'aname': name})
     return r[0][0] > 0
 
@@ -330,8 +330,8 @@ def load(args):
     # log.debug('check database version complete')
     iso = check_iso(args.path)
     if iso:
-        if check_assigment_name(conn, args.assigment):
-            raise NameError('This assigment name is already loaded!')
+        if check_assignment_name(conn, args.assignment):
+            raise NameError('This assignment name is already loaded!')
         packages = LockedIterator(iso_find_packages(iso))
         if args.date is None:
             r = os.stat(args.path)
@@ -358,21 +358,21 @@ def load(args):
 
     aname_id = str(uuid4())
     if args.repair is None:
-        insert_assigment_name(
+        insert_assignment_name(
             conn,
-            assigment_name=args.assigment,
+            assignment_name=args.assignment,
             uuid=aname_id,
             tag=args.tag,
-            assigment_date=args.date,
+            assignment_date=args.date,
             complete=1
         )
-        insert_assigment(conn, aname_id, aname)
+        insert_assignment(conn, aname_id, aname)
 
     if iso:
         if args.constraint is not None:
             constraint_name = args.constraint,
         else:
-            constraint_name = detect_assigment_name(conn, aname_id)
+            constraint_name = detect_assignment_name(conn, aname_id)
         if constraint_name:
             isopkg.process_iso(conn, iso, args, constraint_name)
         iso.close()
@@ -385,14 +385,14 @@ def load(args):
         display.conclusion()
 
 
-def detect_assigment_name(conn, uuid):
-    sql = """SELECT assigment_name
-FROM AssigmentName
+def detect_assignment_name(conn, uuid):
+    sql = """SELECT assignment_name
+FROM AssignmentName
          INNER JOIN
      (SELECT COUNT(pkghash) as countPkg, uuid
-      FROM Assigment_buffer
+      FROM Assignment_buffer
       WHERE pkghash IN
-            (SELECT pkghash FROM Assigment_buffer WHERE uuid = %(uuid)s)
+            (SELECT pkghash FROM Assignment_buffer WHERE uuid = %(uuid)s)
       GROUP BY uuid) AS cpkg USING uuid
 ORDER BY countPkg DESC
 LIMIT 10
@@ -404,9 +404,9 @@ LIMIT 10
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('assigment', type=str, help='Assigment name')
+    parser.add_argument('assignment', type=str, help='Assignment name')
     parser.add_argument('path', type=str, help='Path to packages')
-    parser.add_argument('-t', '--tag', type=str, help='Assigment tag', default='')
+    parser.add_argument('-t', '--tag', type=str, help='Assignment tag', default='')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument('-d', '--dbname', type=str, help='Database name')
     parser.add_argument('-s', '--host', type=str, help='Database host')
@@ -417,7 +417,7 @@ def get_args():
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
-    parser.add_argument('-A', '--date', type=valid_date, help='Set assigment datetime release. format YYYY-MM-DD')
+    parser.add_argument('-A', '--date', type=valid_date, help='Set assignment datetime release. format YYYY-MM-DD')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
     parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
     parser.add_argument('-R', '--repair', type=str, choices=['check', 'full-check', 'repair', 'full-repair'], 
@@ -453,7 +453,7 @@ def set_config(args):
 def main():
     args = get_args()
     args = set_config(args)
-    logger = get_logger(NAME, args.assigment, args.date)
+    logger = get_logger(NAME, args.assignment, args.date)
     if args.debug:
         logger.setLevel(logging.DEBUG)
     if args.timing:

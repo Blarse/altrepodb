@@ -503,7 +503,7 @@ SELECT pkghash, assignment_name, date AS assignment_date
 FROM Assignment_buffer
          RIGHT JOIN ( SELECT uuid, assignment_name, assignment_date AS date FROM AssignmentName ) AS PkgSet USING (uuid);
 
--- all packages from all assigments
+-- all packages from all assignments
 CREATE
 OR REPLACE VIEW all_packages AS
 SELECT pkg.*, assignment_name, assignment_date, pkghash
