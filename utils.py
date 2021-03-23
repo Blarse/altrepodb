@@ -7,6 +7,7 @@ from logging import handlers
 from time import time
 
 import mmh3
+from hashlib import sha256, md5
 
 
 def mmhash(val):
@@ -217,3 +218,73 @@ def chunks(data, size):
             break
         finally:
             yield acc
+
+
+@Timing.timeit()
+def sha256_from_file(fname, capitalized=False):
+    """Calculates SHA256 hash from file
+
+    Args:
+        fname (path-like object or string): path to file
+        capitalized (bool, optional): capitalize SHA256 hash string. Defaults to False.
+
+    Returns:
+        string: file's SHA256 hash
+    """
+    with open(fname, 'rb') as f:
+        data = f.read()
+    if capitalized:
+        return sha256(data).hexdigest().upper()
+    else:
+        return sha256(data).hexdigest()
+
+
+@Timing.timeit()
+def md5_from_file(fname, capitalized=False):
+    """Calculates MD5 hash from file
+
+    Args:
+        fname (path-like object or string): path to file
+        capitalized (bool, optional): capitalize MD5 hash string. Defaults to False.
+
+    Returns:
+        string: file's MD5 hash
+    """
+    with open(fname, 'rb') as f:
+        data = f.read()
+    if capitalized:
+        return md5(data).hexdigest().upper()
+    else:
+        return md5(data).hexdigest()
+
+
+def join_dicts_with_as_string(d1, d2, key):
+    """Join dictionary with dictionary, list, tuple or any object
+    that can be represented as string.
+    Stringify all elements of joined object if it is not dictionary.
+    Do not preserve value in original dictionary if given 'key' exists.
+    If joined object is not dictionary or key is None returns original dictionary.
+
+    Args:
+        d1 (dict): dictionary to join with
+        d2 (any): dictionary or any object that has string representation
+        key (any, optional): key for joined object
+
+    Returns:
+        dict: joined dictionary
+    """
+    res = d1
+    if not isinstance(d1, dict):
+        return d1
+    if isinstance(d2, dict):
+        res.update(d2)
+        # return res
+    elif isinstance(d2, list) or isinstance(d2,tuple):
+        if key is None:
+            return d1
+        res.update[key] = ', '.join([str(v) for v in d2])
+    else:
+        if key is None:
+            return d1
+        res.update[key] = str(d2)
+    return res

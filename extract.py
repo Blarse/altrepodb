@@ -17,8 +17,12 @@ import iso as isopkg
 
 from uuid import uuid4
 from io import BufferedRandom, BytesIO
-from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache, mmhash
+from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache, mmhash, md5_from_file, sha256_from_file, unxz, join_dicts_with_as_string
 from manager import check_latest_version
+from collections import defaultdict
+from pathlib import Path
+import shutil
+import lzma
 
 
 NAME = 'extract'
@@ -26,6 +30,8 @@ NAME = 'extract'
 os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
+
+ARCHS = ('src', 'aarch64', 'armh', 'i586', 'ppc64le', 'x86_64', 'x86_64-i586', 'noarch', 'mipsel', 'e2k', 'e2kv4')
 
 
 @Timing.timeit(NAME)
@@ -123,6 +129,27 @@ def insert_assignment_name(conn, assignment_name=None, uuid=None, tag=None, assi
     conn.execute(sql, [data])
     log.debug('insert assignment name uuid: {0}'.format(uuid))
     # return data
+
+
+@Timing.timeit(NAME)
+def insert_pkgset_name(conn, name=None, uuid=None, puuid=None, tag=None, date=None, complete=0, kv_args=None):
+    if date is None:
+        date = datetime.datetime.now()
+    sql = 'INSERT INTO PackageSetName (pkgset_uuid, pkgset_puuid,  pkgset_name, pkgset_date, pkgset_tag, pkgs_complete, pkgset_kv) VALUES'
+    # if uuid is None:
+    #     uuid = str(uuid4())
+    data = {
+        'pkgset_uuid': uuid,
+        'pkgset_puuid': puuid,
+        'pkgset_name': name,
+        'pkgset_date': date,
+        'pkgset_tag': tag, 
+        'pkgset_complete': complete,
+        'pkgset_kv.k': [k for k in kv_args.keys()],
+        'pkgset_kv.v': [v for v in kv_args.values()],
+    }
+    conn.execute(sql, [data])
+    log.debug('insert assignment name uuid: {0}'.format(uuid))
 
 
 @Timing.timeit(NAME)
@@ -322,6 +349,214 @@ def remove_package(conn, mp, full=False):
         conn.execute('ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s', mp)
 
 
+def unxz(fname, mode='b'):
+    """Reads '.xz' compressed file contents
+
+    Args:
+        fname (path-like or string): path to comressed file
+        mode (str, optional): file read mode: binary or text. Defaults to 'b'.
+
+    Returns:
+        (bytes or text): contents of comressed '.xz' file
+    """
+    if mode == 'b':
+        with lzma.open(fname, 'rb') as f:
+            res = f.read()
+        return res
+    else:
+        with lzma.open(fname, 'rt') as f:
+            res = f.read()
+        return res
+
+
+def read_release_components(f):
+    """Read components from 'release' file in reposiory tree
+
+    Args:
+        f (path-like object): path to 'release' file
+
+    Returns:
+        list(string): list of components
+    """
+    with f.open(mode='r') as fd:
+        for line in fd.readlines():
+            ls = line.split(':')
+            if ls[0] == 'Components':
+                return [x.strip() for x in ls[1].split()]
+
+
+def read_headers_from_xz_pkglist(fname):
+    """Read headers from apt hash file
+
+    Args:
+        fname (path-like object): path to 'pkglist.xz' file
+
+    Returns:
+        list(rpm header): list of RPM headers objects
+    """
+    # uncompress and read headers from list
+    r, w = os.pipe()
+    r, w = os.fdopen(r, 'rb', 0), os.fdopen(w, 'wb', 0)
+    pid = os.fork()
+    if pid:  # Parser
+        w.close()
+        log.debug(f"Parsing headers from {fname}")
+        hdrs = rpm.readHeaderListFromFD(r)
+        return hdrs
+    else:  # Decompressor
+        r.close()
+        fdno = lzma.open(f, 'rb')
+        log.debug(f"[DEBUG] Decompressing {fname}")
+        shutil.copyfileobj(fdno, w)
+        os._exit(0)
+
+
+def read_repo_structure(repo_name, repo_path):
+    """Reads repository structure for given path and store
+
+    Args:
+        repo_name (string): name of processed repository
+        repo_path (string): path to repository root
+
+    Returns:
+        dict: repository structure and file's hashes
+    """
+    repo = {
+        'repo': {
+            'name': repo_name,
+            'uuid': str(uuid4()),
+            'puuid': '00000000-0000-0000-0000-000000000000',
+            'path': str(Path(repo_path)),
+            'kwargs': defaultdict(lambda: None, key=None)
+        },
+        'src': {
+            'name': 'src.rpm',
+            'uuid': str(uuid4()),
+            'puuid': None,
+            'path': []
+        },
+        'arch': {
+            'archs': [],
+            'kwargs': defaultdict(lambda: None, key=None)
+        },
+        'comp': {
+            'comps': [],
+            'kwargs': defaultdict(lambda: None, key=None)
+        },
+        'src_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None)),
+        'pkg_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None))
+    }
+
+    repo['src']['puuid'] = repo['repo']['uuid']
+    repo['arch']['kwargs']['all_archs'] = set()
+    repo['comp']['kwargs']['all_comps'] = set()
+
+    root = Path(repo['repo']['path'])
+
+    for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and (_.name in ARCHS))]:
+        repo['arch']['archs'].append({'name': arch_dir.name,
+                                      'uuid': str(uuid4()),
+                                      'puuid': repo['repo']['uuid'],
+                                      'path': str(arch_dir)})
+        repo['arch']['kwargs']['all_archs'].add(arch_dir.name)
+        # append '%ARCH%/SRPM.classic' path to 'src'
+        repo['src']['path'].append(str(arch_dir.joinpath('SRPMS.classic')))
+        # check '%ARCH%/base' directory for components
+        base_subdir = arch_dir.joinpath('base')
+        if base_subdir.is_dir():
+            # store components and paths to it
+            for comp_name in read_release_components(base_subdir.joinpath('release')):
+                repo['comp']['comps'].append({'name': comp_name,
+                                              'uuid': str(uuid4()),
+                                              'puuid': repo['arch']['archs'][-1]['uuid'],
+                                              'path': str(arch_dir.joinpath('RPMS.' + comp_name))})
+                repo['comp']['kwargs']['all_comps'].add(comp_name)
+            # load MD5 from '%ARCH%/base/[pkg|src]list.%COMP%.xz'
+            pkglist_names = ['srclist.classic']
+            pkglist_names += [('pkglist.' + _) for _ in repo['comp']['kwargs']['all_comps']]
+            for pkglist_name in pkglist_names:
+                f = base_subdir.joinpath(pkglist_name + '.xz')
+                if f.is_file():
+                        hdrs = read_headers_from_xz_pkglist(f)
+                        for hdr in hdrs:
+                            pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+                            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+                            if pkglist_name.startswith('srclist'):
+                                repo['src_hashes'][pkg_name]['md5'] = pkg_md5
+                            else:
+                                repo['pkg_hashes'][pkg_name]['md5'] = pkg_md5
+
+    # check if '%root%/files/list' exists and load all data from it
+    p = root.joinpath('files/list')
+    if p.is_dir():
+        # load task info
+        f = Path.joinpath(p, 'task.info')
+        if f.is_file():
+            contents = (_ for _ in f.read_text().split('\n') if len(_))
+            for c in contents:
+                k, v = c.split()
+                repo['repo']['kwargs'][k] = v
+
+        # load all SHA256 hashes
+        for arch in ARCHS:
+            f = p.joinpath(arch + '.hash.xz')
+            if f.is_file():
+                contents = (_ for _ in unxz(f, 't').split('\n') if len(_))
+                if arch == 'src':
+                    # load to src_hashes
+                    for c in contents:
+                        pkg_name = c.split()[1]
+                        pkg_sha256 = bytes.fromhex(c.split()[0])
+                        # calculate and store missing MD5 hashes for 'src.rpm'
+                        # XXX: workaroung for missing/unhandled src.gostcrypto.xz 
+                        if pkg_name not in repo['src_hashes']:
+                            log.debug(f"{pkg_name}'s MD5 not found. Calculating it from file")
+                            # calculate missing MD5 from file here
+                            f = root.joinpath('files', 'SRPMS', pkg_name)
+                            if f.is_file():
+                                pkg_md5 = bytes.fromhex(md5_from_file(f))
+                                repo['src_hashes'][pkg_name]['md5'] = pkg_md5
+                            else:
+                                log.warning(f"[ERROR] Cant find file to calculate MD5 for {pkg_name} from {root.joinpath('files, ''SRPMS')}")
+                        repo['src_hashes'][pkg_name]['sha256'] = pkg_sha256
+                else:
+                    # load to pkg_hashes
+                    for c in contents:
+                        pkg_name = c.split()[1]
+                        pkg_sha256 = bytes.fromhex(c.split()[0])
+                        repo['pkg_hashes'][pkg_name]['sha256'] = pkg_sha256
+    else:
+        # TODO: no './files/list' found - need calculate all SHA256 from files
+        pass
+    
+    log.debug(f"Found {len(repo['src']['path'])} source directories")
+    log.debug(f"Found {len(repo['comp']['comps'])} components for {len(repo['arch']['archs'])} architectures")
+    log.debug(f"Found {len(repo['src_hashes'])} hasesh for 'src.rpm' files")
+    log.debug(f"Found {len(repo['pkg_hashes'])} hasesh for 'rpm' files")
+
+    return repo
+
+
+def worker_pool(cache, packages, pkgset, display, args):
+    workers = []
+    connections = []
+    display = None
+
+    for i in range(args.workers):
+        conn = get_client(args)
+        connections.append(conn)
+        worker = Worker(conn, cache, packages, pkgset, display, args.repair)
+        worker.start()
+        workers.append(worker)
+
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.disconnect()
+
+
 def load(args):
     conn = get_client(args)
     # if not check_latest_version(conn):
@@ -338,7 +573,111 @@ def load(args):
             args.date = datetime.datetime.fromtimestamp(r.st_mtime)
         iso_get_info(iso, args)
     else:
-        packages = LockedIterator(find_packages(args))
+        connections = [conn]
+        display = None
+        if args.verbose and args.repair is None:
+            display = Display(log)
+        cache = init_cache(conn)
+        pkgset = set()
+        # read repo structures
+        repo = read_repo_structure(args.assignment, args.path)
+        # store repository structure
+        if args.repair is None:
+            # level 0 : repository
+            tmp_d = {'depth': '0'}
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs'], None)
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['arch']['kwargs']['all_archs'], 'archs')
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['comp']['kwargs']['all_comps'], 'comps')
+            insert_pkgset_name(
+                conn,
+                name=repo['repo']['name'],
+                uuid=repo['repo']['uuid'],
+                puuid=repo['repo']['puuid'],
+                tag=args.tag,
+                date=args.date,
+                complete=1,
+                kv_args=tmp_d
+            )
+            # level 1 : src
+            # load source RPMs first
+            # generate 'src.rpm' packages list
+            packages_list = []
+            for src_dir in repo['src']['path']:
+                for rpm_name in repo['src_hashes'].keys():
+                    rpm_file = Path.joinpath(src_dir, rpm_name)
+                    if rpm_file.is_file():
+                        if rpm_file not in packages_list:
+                            packages_list.append()
+            # TODO: PLAY AROUND WITH CACHES HERE!!!
+            pass
+            # load 'src.rpm' packages
+            packages = LockedIterator((pkg for pkg in packages_list))
+            worker_pool(cache, packages, pkgset, display, args)
+            # XXX: store PackageSet records for loaded packages
+            insert_assignment(conn, repo['src']['uuid'], pkgset)
+            # store PackageSetName record for 'src'
+            tmp_d = {'depth': '1'}
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['src']['path'], 'SRPMS')
+            insert_pkgset_name(
+                conn,
+                name=repo['src']['name'],
+                uuid=repo['src']['uuid'],
+                puuid=repo['src']['puuid'],
+                tag=args.tag,
+                date=args.date,
+                complete=1,
+                kv_args=tmp_d
+            )
+            
+            # level 2: architectures
+            for arch in repo['arch']['archs']:
+                tmp_d = {'depth': '1'}
+                tmp_d = join_dicts_with_as_string(tmp_d, {'path': arch['path']}, None)
+                insert_pkgset_name(
+                    conn,
+                    name=arch['name'],
+                    uuid=arch['uuid'],
+                    puuid=arch['puuid'],
+                    tag=args.tag,
+                    date=args.date,
+                    complete=1,
+                    kv_args=tmp_d
+                )
+            # level 3: components
+            for comp in repo['comp']['comps']:
+                # load RPMs first
+                pkgset = set()
+                # generate 'rpm' packages list
+                packages_list = []
+                rpm_dir = comp['path']
+                for rpm_name in repo['rpm_hashes'].keys():
+                    rpm_file = Path.joinpath(rpm_dir, rpm_name)
+                    if rpm_file.is_file():
+                        if rpm_file not in packages_list:
+                            packages_list.append()
+                # TODO: PLAY AROUND WITH CACHES HERE!!!
+                pass
+                # load 'src.rpm' packages
+                packages = LockedIterator((pkg for pkg in packages_list))
+                worker_pool(cache, packages, pkgset, display, args)
+                # XXX: store PackageSet records for loaded packages
+                insert_assignment(conn, comp['uuid'], pkgset)
+                # store PackageSetName record
+                tmp_d = {'depth': '2'}
+                tmp_d = join_dicts_with_as_string(tmp_d, {'path': comp['path']}, None)
+                insert_pkgset_name(
+                    conn,
+                    name=comp['name'],
+                    uuid=comp['uuid'],
+                    puuid=comp['puuid'],
+                    tag=args.tag,
+                    date=args.date,
+                    complete=1,
+                    kv_args=tmp_d
+                )
+        
+
+    # packages = LockedIterator(find_packages(args))
     workers = []
     connections = [conn]
     display = None
