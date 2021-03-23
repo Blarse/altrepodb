@@ -23,6 +23,13 @@ CREATE TABLE PackageHashes
     pkgh_sha256     FixedString(32)
 ) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh
 
+CREATE TABLE PackageHashes_buffer AS PackageHashes ENGINE = Buffer(currentDatabase(), PackageHashes, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+
+CREATE 
+OR REPLACE VIEW PackageHashes_view AS
+SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh_sha1, lower(hex(pkgh_sha256)) as pkgh_sha256
+FROM  PackageHashes_buffer
+
 CREATE TABLE Tasks
 (
     task_id         UInt32,
