@@ -1,31 +1,41 @@
 CREATE TABLE PackageSetName
 (
     pkgset_uuid     UUID,
+    pkgset_puuid    UUID,
     pkgset_name     String,
     pkgset_date     DateTime,
     pkgset_tag      String,
-    pkgset_complete UInt8
+    pkgset_complete UInt8,
+    pkgset_kv       Nested(k String, v String)
 ) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name) PRIMARY KEY pkgset_date;
 
 CREATE TABLE PackageSet
 (
-    pkgset_uuid    UUID CODEC(ZSTD(1)),
-    pkg_hash UInt64 CODEC(Gorilla,ZSTD(1))
+    pkgset_uuid     UUID CODEC(ZSTD(1)),
+    pkg_hash        UInt64 CODEC(Gorilla,ZSTD(1))
 ) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
+
+CREATE TABLE PackageHashes
+(
+    pkgh_mmh        UInt64,
+    pkgh_md5        FixedString(16),
+    pkgh_sha1       FixedString(20),
+    pkgh_sha256     FixedString(32)
+) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh
 
 CREATE TABLE Tasks
 (
-    task_id        UInt32,
-    task_message   String,
-    task_changed   DateTime,
-    task_prev      UInt32,
-    task_try       UInt16,
-    task_iteration UInt8,
-    task_state     LowCardinality(String),
-    task_testonly  UInt8,
-    task_repo      LowCardinality(String),
-    task_owner     LowCardinality(String),
-    task_shared    UInt8
+    task_id         UInt32,
+    task_message    String,
+    task_changed    DateTime,
+    task_prev       UInt32,
+    task_try        UInt16,
+    task_iteration  UInt8,
+    task_state      LowCardinality(String),
+    task_testonly   UInt8,
+    task_repo       LowCardinality(String),
+    task_owner      LowCardinality(String),
+    task_shared     UInt8
 ) ENGINE = MergeTree ORDER BY (task_id, task_try, task_repo, task_state);
 
 CREATE TABLE TasksSubtasks
@@ -87,7 +97,7 @@ CREATE TABLE Files
     file_device     UInt32,
     file_lang       LowCardinality(String),
     file_class      String
-) ENGINE = MergeTree ORDER BY (pkg_hash, filename, file_class, file_md5) PRIMARY KEY pkg_hash;
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, filename, file_class, file_md5) PRIMARY KEY pkg_hash;
 
 CREATE TABLE Packages
 (
@@ -144,9 +154,9 @@ CREATE TABLE Packages
     pkg_payloadcompressor LowCardinality(String),
     pkg_payloadflags      LowCardinality(String),
     pkg_platform          LowCardinality(String)
-) ENGINE = MergeTree ORDER BY (pkg_name, pkg_arch, pkg_version, pkg_release, pkg_serial_, pkg_epoch, pkg_disttag,
-                               pkg_filename, pkg_sourcerpm, pkg_packager,
-                               pkg_packager_email) PRIMARY KEY (pkg_name, pkg_arch) SETTINGS index_granularity = 8192;
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_name, pkg_arch, pkg_version, pkg_release, pkg_serial_, pkg_epoch, pkg_disttag,
+                                        pkg_filename, pkg_sourcerpm, pkg_packager,
+                                        pkg_packager_email) PRIMARY KEY (pkg_name, pkg_arch) SETTINGS index_granularity = 8192;
 
 
 CREATE TABLE Depends
