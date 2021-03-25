@@ -7,7 +7,7 @@ CREATE TABLE PackageSetName
     pkgset_tag      String,
     pkgset_complete UInt8,
     pkgset_kv       Nested(k String, v String)
-) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name) PRIMARY KEY pkgset_date;
+) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name, pkgset_uuid) PRIMARY KEY pkgset_date;
 
 CREATE TABLE PackageSet
 (
@@ -15,7 +15,10 @@ CREATE TABLE PackageSet
     pkg_hash        UInt64 CODEC(Gorilla,ZSTD(1))
 ) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
 
-CREATE TABLE PackageHashes
+CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+
+
+CREATE TABLE PackageHash
 (
     pkgh_mmh        UInt64,
     pkgh_md5        FixedString(16),
@@ -23,12 +26,12 @@ CREATE TABLE PackageHashes
     pkgh_sha256     FixedString(32)
 ) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh
 
-CREATE TABLE PackageHashes_buffer AS PackageHashes ENGINE = Buffer(currentDatabase(), PackageHashes, 16, 10, 200, 10000, 1000000, 10000000, 1000000000);
+CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase(), PackageHash, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
 
 CREATE 
-OR REPLACE VIEW PackageHashes_view AS
+OR REPLACE VIEW PackageHash_view AS
 SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh_sha1, lower(hex(pkgh_sha256)) as pkgh_sha256
-FROM  PackageHashes_buffer
+FROM  PackageHash_buffer
 
 CREATE TABLE Tasks
 (
@@ -286,10 +289,6 @@ CREATE TABLE AptPkgSet
     aps_filesize  UInt64,
     aps_filename  String
 ) ENGINE = MergeTree ORDER BY (apr_uuid, aps_md5, aps_sourcerpm, aps_filename) PRIMARY KEY (apr_uuid, aps_md5);
-
-
-CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 200, 10000, 1000000,
-                                                    10000000, 1000000000);
 
 
 CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
