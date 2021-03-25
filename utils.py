@@ -5,6 +5,7 @@ import threading
 from functools import wraps
 from logging import handlers
 from time import time
+import argparse
 
 import mmh3
 from hashlib import sha256, md5
@@ -83,7 +84,7 @@ class Display:
 
     def conclusion(self):
         self.log.info(self.MSG.format(self.counter, self.timesum,
-                                      self.timesum / self.counter))
+                                      self.timesum / (self.counter if self.counter else 1)))
 
 
 class Timing:
@@ -220,7 +221,6 @@ def chunks(data, size):
             yield acc
 
 
-@Timing.timeit()
 def sha256_from_file(fname, capitalized=False):
     """Calculates SHA256 hash from file
 
@@ -239,7 +239,6 @@ def sha256_from_file(fname, capitalized=False):
         return sha256(data).hexdigest()
 
 
-@Timing.timeit()
 def md5_from_file(fname, capitalized=False):
     """Calculates MD5 hash from file
 
@@ -263,7 +262,7 @@ def join_dicts_with_as_string(d1, d2, key):
     that can be represented as string.
     Stringify all elements of joined object if it is not dictionary.
     Do not preserve value in original dictionary if given 'key' exists.
-    If joined object is not dictionary or key is None returns original dictionary.
+    If joined object is not dictionary and key is None returns original dictionary.
 
     Args:
         d1 (dict): dictionary to join with
@@ -282,9 +281,9 @@ def join_dicts_with_as_string(d1, d2, key):
     elif isinstance(d2, list) or isinstance(d2,tuple):
         if key is None:
             return d1
-        res.update[key] = ', '.join([str(v) for v in d2])
+        res.update({key: ', '.join([str(v) for v in d2])})
     else:
         if key is None:
             return d1
-        res.update[key] = str(d2)
+        res.update({key: str(d2)})
     return res

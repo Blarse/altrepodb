@@ -55,7 +55,7 @@ def process_iso(conn, iso, args, constraint_name):
         orphan_pkghash = make_orphan_package(conn, name, squash_sha1)
         assignments.add(orphan_pkghash)
         write_orphan_files(conn, path_md5)
-        extract.insert_assignment(conn, aname_id, assignments)
+        extract.insert_pkgset(conn, aname_id, assignments)
         log.info('iso saved: {}, assignments'.format(len(assignments)))
 
 
