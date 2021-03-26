@@ -336,3 +336,15 @@ def join_dicts_with_as_string(d1, d2, key):
             return d1
         res.update({key: str(d2)})
     return res
+
+
+class FunctionalNotImplemented(Exception):
+    """Exception raised for not implemented functional
+
+    Attributes:
+        function - not implemented function description
+    """
+
+    def __init__(self, function, message="Functional not implemented"):
+        self.function = function
+        self.message = message

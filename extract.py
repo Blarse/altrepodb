@@ -18,7 +18,8 @@ import iso as isopkg
 
 from uuid import uuid4
 from io import BufferedRandom, BytesIO
-from utils import cvt, packager_parse, get_logger, LockedIterator, Timing, Display, valid_date, Cache, mmhash, md5_from_file, sha256_from_file, join_dicts_with_as_string
+from utils import cvt, get_logger, LockedIterator, Timing, Display, valid_date, \
+    mmhash, md5_from_file, sha256_from_file, join_dicts_with_as_string, FunctionalNotImplemented
 from manager import check_latest_version
 from collections import defaultdict
 from pathlib import Path
@@ -31,8 +32,6 @@ NAME = 'extract'
 os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
-
-ARCHS = ('src', 'aarch64', 'armh', 'i586', 'ppc64le', 'x86_64', 'x86_64-i586', 'noarch', 'mipsel', 'e2k', 'e2kv4')
 
 
 @Timing.timeit(NAME)
@@ -406,14 +405,6 @@ def init_hash_temp_table(conn, hashes):
             sha256  FixedString(32)
         )"""
     )
-    # result = conn.execute(
-    #     """CREATE TABLE IF NOT EXISTS PkgHashTmp
-    #     (
-    #         name    String,
-    #         md5     FixedString(16),
-    #         sha256  FixedString(32)
-    #     ) ENGINE = Memory"""
-    # )
     for k, v in hashes.items():
         payload.append(
             {
@@ -618,6 +609,7 @@ def read_repo_structure(repo_name, repo_path):
     Returns:
         dict: repository structure and file's hashes
     """
+    ARCHS = ('src', 'aarch64', 'armh', 'i586', 'ppc64le', 'x86_64', 'x86_64-i586', 'noarch', 'mipsel', 'e2k', 'e2kv4')
     repo = {
         'repo': {
             'name': repo_name,
@@ -650,39 +642,45 @@ def read_repo_structure(repo_name, repo_path):
 
     root = Path(repo['repo']['path'])
 
-    for arch_dir in root.iterdir():
-        if arch_dir.is_dir() and arch_dir.name in ARCHS:
-            repo['arch']['archs'].append({'name': arch_dir.name,
-                                          'uuid': str(uuid4()),
-                                          'puuid': repo['repo']['uuid'],
-                                          'path': arch_dir.name})
-            repo['arch']['kwargs']['all_archs'].add(arch_dir.name)
-            # append '%ARCH%/SRPM.classic' path to 'src'
-            repo['src']['path'].append('/'.join(arch_dir.joinpath('SRPMS.classic').parts[-2:]))
-            # check '%ARCH%/base' directory for components
-            base_subdir = arch_dir.joinpath('base')
-            if base_subdir.is_dir():
-                # store components and paths to it
-                for comp_name in read_release_components(base_subdir.joinpath('release')):
-                    repo['comp']['comps'].append({'name': comp_name,
-                                                  'uuid': str(uuid4()),
-                                                  'puuid': repo['arch']['archs'][-1]['uuid'],
-                                                  'path': '/'.join(arch_dir.joinpath('RPMS.' + comp_name).parts[-2:])})
-                    repo['comp']['kwargs']['all_comps'].add(comp_name)
-                # load MD5 from '%ARCH%/base/[pkg|src]list.%COMP%.xz'
-                pkglist_names = ['srclist.classic']
-                pkglist_names += [('pkglist.' + _) for _ in repo['comp']['kwargs']['all_comps']]
-                for pkglist_name in pkglist_names:
-                    f = base_subdir.joinpath(pkglist_name + '.xz')
-                    if f.is_file():
-                            hdrs = read_headers_from_xz_pkglist(f)
-                            for hdr in hdrs:
-                                pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-                                pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-                                if pkglist_name.startswith('srclist'):
-                                    repo['src_hashes'][pkg_name]['md5'] = pkg_md5
-                                else:
-                                    repo['pkg_hashes'][pkg_name]['md5'] = pkg_md5
+    if not Path.joinpath(root, 'files/list').is_dir() or \
+            not [_ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)]:
+        # TODO: add support for ISO-like repositories
+        msg = f"The path '{str(root)}' is not regular repo structure root"
+        raise FunctionalNotImplemented(msg)
+
+    for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)]:
+        # if arch_dir.is_dir() and arch_dir.name in ARCHS:
+        repo['arch']['archs'].append({'name': arch_dir.name,
+                                      'uuid': str(uuid4()),
+                                      'puuid': repo['repo']['uuid'],
+                                      'path': arch_dir.name})
+        repo['arch']['kwargs']['all_archs'].add(arch_dir.name)
+        # append '%ARCH%/SRPM.classic' path to 'src'
+        repo['src']['path'].append('/'.join(arch_dir.joinpath('SRPMS.classic').parts[-2:]))
+        # check '%ARCH%/base' directory for components
+        base_subdir = arch_dir.joinpath('base')
+        if base_subdir.is_dir():
+            # store components and paths to it
+            for comp_name in read_release_components(base_subdir.joinpath('release')):
+                repo['comp']['comps'].append({'name': comp_name,
+                                              'uuid': str(uuid4()),
+                                              'puuid': repo['arch']['archs'][-1]['uuid'],
+                                              'path': '/'.join(arch_dir.joinpath('RPMS.' + comp_name).parts[-2:])})
+                repo['comp']['kwargs']['all_comps'].add(comp_name)
+            # load MD5 from '%ARCH%/base/[pkg|src]list.%COMP%.xz'
+            pkglist_names = ['srclist.classic']
+            pkglist_names += [('pkglist.' + _) for _ in repo['comp']['kwargs']['all_comps']]
+            for pkglist_name in pkglist_names:
+                f = base_subdir.joinpath(pkglist_name + '.xz')
+                if f.is_file():
+                        hdrs = read_headers_from_xz_pkglist(f)
+                        for hdr in hdrs:
+                            pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+                            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+                            if pkglist_name.startswith('srclist'):
+                                repo['src_hashes'][pkg_name]['md5'] = pkg_md5
+                            else:
+                                repo['pkg_hashes'][pkg_name]['md5'] = pkg_md5
 
     # check if '%root%/files/list' exists and load all data from it
     p = root.joinpath('files/list')
@@ -723,9 +721,6 @@ def read_repo_structure(repo_name, repo_path):
                         pkg_name = c.split()[1]
                         pkg_sha256 = bytes.fromhex(c.split()[0])
                         repo['pkg_hashes'][pkg_name]['sha256'] = pkg_sha256
-    else:
-        # TODO: no './files/list' found - need calculate all SHA256 from files
-        pass
     
     log.debug(f"Found {len(repo['src']['path'])} source directories")
     log.debug(f"Found {len(repo['comp']['comps'])} components for {len(repo['arch']['archs'])} architectures")
