@@ -95,7 +95,7 @@ CREATE TABLE Files
     file_hashname   UInt64 MATERIALIZED murmurHash3_64(file_name),
     file_hashdir    UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)))),
     file_linkto     String,
-    file_md5        FixedString(32),
+    file_md5        FixedString(16),
     file_size       UInt32,
     file_mode       UInt16,
     file_rdev       UInt16,
@@ -106,13 +106,18 @@ CREATE TABLE Files
     file_verifyflag UInt32,
     file_device     UInt32,
     file_lang       LowCardinality(String),
-    file_class      String
-) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, filename, file_class, file_md5) PRIMARY KEY pkg_hash;
+    file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
+
+
+CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
+                                          100000000);
+
 
 CREATE TABLE Packages
 (
     pkg_hash              UInt64,
-    pkg_cs                FixedString(40),
+    pkg_cs                FixedString(20),
     pkg_packager          LowCardinality(String),
     pkg_packager_email    LowCardinality(String),
     pkg_name              String,
@@ -130,12 +135,12 @@ CREATE TABLE Packages
     pkg_sourcepackage     UInt8,
     pkg_disttag           String,
     pkg_sourcerpm         String,
+    pkg_srcrpm_hash       UInt64,
     pkg_filename          String,
-    pkg_sha1srcheader     FixedString(40),
     pkg_complete          UInt8,
     pkg_summary           String,
     pkg_description       String,
-    pkg_changelog         String,
+    pkg_changelog         Nested(date DateTime, name String, evr String, hash UInt64),
     pkg_distribution      LowCardinality(String),
     pkg_vendor            LowCardinality(String),
     pkg_gif               String,
@@ -169,6 +174,20 @@ CREATE TABLE Packages
                                         pkg_packager_email) PRIMARY KEY (pkg_name, pkg_arch) SETTINGS index_granularity = 8192;
 
 
+CREATE TABLE Packages_buffer AS Packages ENGINE = Buffer(currentDatabase(), Packages, 16, 10, 200, 10000, 1000000,
+                                                10000000, 100000000);
+
+
+CREATE TABLE Changelog
+(
+    chlog_hash  UInt64,
+    chlog_text  String
+) ENGINE = ReplacingMergeTree ORDER BY (chlog_hash, chlog_text) PRIMARY KEY chlog_hash
+
+
+CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+
+
 CREATE TABLE Depends
 (
     pkg_hash   UInt64,
@@ -178,6 +197,9 @@ CREATE TABLE Depends
     dp_type    Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 ) ENGINE = MergeTree ORDER BY (pkg_hash, dp_type, dp_name, dp_version, dp_flag) PRIMARY KEY pkg_hash;
 
+
+CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000,
+                                                10000000, 100000000);
 
 CREATE TABLE Config
 (
@@ -290,17 +312,6 @@ CREATE TABLE AptPkgSet
     aps_filename  String
 ) ENGINE = MergeTree ORDER BY (apr_uuid, aps_md5, aps_sourcerpm, aps_filename) PRIMARY KEY (apr_uuid, aps_md5);
 
-
-CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
-                                          1000000000);
-
-
-CREATE TABLE Packages_buffer AS Packages ENGINE = Buffer(currentDatabase(), Packages, 16, 10, 200, 10000, 1000000,
-                                                10000000, 1000000000);
-
-
-CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000,
-                                                10000000, 1000000000);
 
 -- return pkghash, name and date for recent pkgset's
 
