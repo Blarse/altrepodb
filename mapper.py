@@ -1,7 +1,7 @@
 import os
 import rpm
 
-from utils import changelog_to_text, cvt, cvt_ts, packager_parse, mmhash
+from utils import changelog_to_dict, cvt, cvt_ts, packager_parse, mmhash, convert_file_class
 
 
 os.environ['LANG'] = 'C'
@@ -45,7 +45,7 @@ def get_package_map(hdr):
         'pkg_sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
         'pkg_summary': cvt(hdr[rpm.RPMTAG_SUMMARY]),
         'pkg_description': cvt(hdr[rpm.RPMTAG_DESCRIPTION]),
-        'pkg_changelog': changelog_to_text(
+        'pkg_changelog': changelog_to_dict(
             hdr[rpm.RPMTAG_CHANGELOGTIME],
             hdr[rpm.RPMTAG_CHANGELOGNAME],
             hdr[rpm.RPMTAG_CHANGELOGTEXT]),
@@ -83,55 +83,58 @@ def get_package_map(hdr):
 
 def get_file_map(hdr):
     map_files = {
-        'filename': cvt(hdr[rpm.RPMTAG_FILENAMES]),
-        'filelinkto': cvt(hdr[rpm.RPMTAG_FILELINKTOS]),
-        'filemd5': cvt(hdr[rpm.RPMTAG_FILEMD5S]),
-        'filesize': cvt(hdr[rpm.RPMTAG_FILESIZES]),
-        'filemode': cvt(hdr[rpm.RPMTAG_FILEMODES]),
-        'filerdev': cvt(hdr[rpm.RPMTAG_FILERDEVS]),
-        'filemtime': cvt_ts(hdr[rpm.RPMTAG_FILEMTIMES]),
-        'fileflag': cvt(hdr[rpm.RPMTAG_FILEFLAGS]),
-        'fileusername': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
-        'filegroupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
-        'fileverifyflag': cvt(hdr[rpm.RPMTAG_FILEVERIFYFLAGS]),
-        'filedevice': cvt(hdr[rpm.RPMTAG_FILEDEVICES]),
-        'filelang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
-        'fileclass': cvt(hdr[rpm.RPMTAG_FILECLASS]),
+        'file_name': cvt(hdr[rpm.RPMTAG_FILENAMES]),
+        'file_linkto': cvt(hdr[rpm.RPMTAG_FILELINKTOS]),
+        'file_md5':  cvt(hdr[rpm.RPMTAG_FILEMD5S]),
+        'file_size': cvt(hdr[rpm.RPMTAG_FILESIZES]),
+        'file_mode': cvt(hdr[rpm.RPMTAG_FILEMODES]),
+        'file_rdev': cvt(hdr[rpm.RPMTAG_FILERDEVS]),
+        'file_mtime': cvt_ts(hdr[rpm.RPMTAG_FILEMTIMES]),
+        'file_flag': cvt(hdr[rpm.RPMTAG_FILEFLAGS]),
+        'file_username': cvt(hdr[rpm.RPMTAG_FILEUSERNAME]),
+        'file_groupname': cvt(hdr[rpm.RPMTAG_FILEGROUPNAME]),
+        'file_verifyflag': cvt(hdr[rpm.RPMTAG_FILEVERIFYFLAGS]),
+        'file_device': cvt(hdr[rpm.RPMTAG_FILEDEVICES]),
+        'file_lang': cvt(hdr[rpm.RPMTAG_FILELANGS]),
+        'file_class': cvt(hdr[rpm.RPMTAG_FILECLASS])
     }
+    # convert MD5 to bytes and 'file_class' to CH Enum set
+    map_files['file_md5'] = [bytes.fromhex(v) for v in map_files['file_md5']]
+    map_files['file_class'] = [convert_file_class(v) for v in map_files['file_class']]
     return map_files
 
 
 def get_require_map(hdr):
     map_require = {
-        'dpname': cvt(hdr[rpm.RPMTAG_REQUIRENAME]),
-        'dpversion': cvt(hdr[rpm.RPMTAG_REQUIREVERSION]),
-        'flag': hdr[rpm.RPMTAG_REQUIREFLAGS],
+        'dp_name': cvt(hdr[rpm.RPMTAG_REQUIRENAME]),
+        'dp_version': cvt(hdr[rpm.RPMTAG_REQUIREVERSION]),
+        'dp_flag': hdr[rpm.RPMTAG_REQUIREFLAGS],
     }
     return map_require
 
 
 def get_conflict_map(hdr):
     map_conflict = {
-        'dpname': cvt(hdr[rpm.RPMTAG_CONFLICTNAME]),
-        'dpversion': cvt(hdr[rpm.RPMTAG_CONFLICTVERSION]),
-        'flag': hdr[rpm.RPMTAG_CONFLICTFLAGS],
+        'dp_name': cvt(hdr[rpm.RPMTAG_CONFLICTNAME]),
+        'dp_version': cvt(hdr[rpm.RPMTAG_CONFLICTVERSION]),
+        'dp_flag': hdr[rpm.RPMTAG_CONFLICTFLAGS],
     }
     return map_conflict
 
 
 def get_obsolete_map(hdr):
     map_obsolete = {
-        'dpname': cvt(hdr[rpm.RPMTAG_OBSOLETENAME]),
-        'dpversion': cvt(hdr[rpm.RPMTAG_OBSOLETEVERSION]),
-        'flag': hdr[rpm.RPMTAG_OBSOLETEFLAGS],
+        'dp_name': cvt(hdr[rpm.RPMTAG_OBSOLETENAME]),
+        'dp_version': cvt(hdr[rpm.RPMTAG_OBSOLETEVERSION]),
+        'dp_flag': hdr[rpm.RPMTAG_OBSOLETEFLAGS],
     }
     return map_obsolete
 
 
 def get_provide_map(hdr):
     map_provide = {
-        'dpname': cvt(hdr[rpm.RPMTAG_PROVIDENAME]),
-        'dpversion': cvt(hdr[rpm.RPMTAG_PROVIDEVERSION]),
-        'flag': hdr[rpm.RPMTAG_PROVIDEFLAGS],
+        'dp_name': cvt(hdr[rpm.RPMTAG_PROVIDENAME]),
+        'dp_version': cvt(hdr[rpm.RPMTAG_PROVIDEVERSION]),
+        'dp_flag': hdr[rpm.RPMTAG_PROVIDEFLAGS],
     }
     return map_provide

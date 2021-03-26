@@ -153,6 +153,45 @@ def changelog_to_text(dates, names, texts):
     return text
 
 
+def changelog_to_dict(dates, names, texts):
+    """Compile changelog records to dict of elements"""
+    if not len(dates) == len(names) == len(texts):
+        raise ValueError
+    chlog = {}
+    for d, n, t in zip(dates, names, texts):
+        tmp = cvt(n)
+        # tmp = tmp.split('>')
+        if len(tmp.split('>')) == 2:
+            name = tmp.split('>')[0] + '>'
+            evr = tmp.split('>')[1].strip()
+        else:
+            # TODO: try to parse changelog name record to get release info if available
+            name = tmp
+            evr = ''
+        chlog[mmhash(cvt(t))] = (int(d), name, evr, cvt(t))
+    return chlog
+
+
+def convert_file_class(fc: str):
+    """COnverst file class value from RPM header to CH Enum"""
+    lut = {
+        'directory': 'directory',
+        'symbolic link to': 'symlink',
+        'socket': 'socket',
+        'character special': 'char',
+        'block special': 'block',
+        'fifo (named pipe)': 'fifo',
+        'file': 'file',
+    }
+    if fc == '':
+        return lut['file']
+    else:
+        for k, v in lut.items():
+            if fc.startswith(k):
+                return v
+    return ''
+
+
 packager_pattern = re.compile('([\w. ]+?) (\(.+?\) )?<(.+?)>')
 
 
@@ -278,7 +317,7 @@ def join_dicts_with_as_string(d1, d2, key):
     if isinstance(d2, dict):
         res.update(d2)
         # return res
-    elif isinstance(d2, list) or isinstance(d2,tuple):
+    elif isinstance(d2, list) or isinstance(d2, tuple):
         if key is None:
             return d1
         res.update({key: ', '.join([str(v) for v in d2])})

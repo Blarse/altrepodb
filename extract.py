@@ -48,6 +48,7 @@ def check_package(cache, hdr):
         return pkghash
     return None
 
+
 def get_partial_pkg_map(hdr, key_list):
     map_package = mapper.get_package_map(hdr)
     res = {}
@@ -66,7 +67,26 @@ def insert_package(conn, hdr, **kwargs):
     map_package = mapper.get_package_map(hdr)
     map_package.update(**kwargs)
 
-    sql_insert = 'INSERT INTO Package_buffer ({0}) VALUES'.format(
+    # TODO: PLAYING AROUND WITH CHANGELOGS
+    chlog = map_package['pkg_changelog']
+    del map_package['pkg_changelog']
+    map_package['pkg_changelog.date'] = []
+    map_package['pkg_changelog.name'] = []
+    map_package['pkg_changelog.evr'] = []
+    map_package['pkg_changelog.hash'] = []
+    payload = []
+    for k, v in chlog.items():
+        map_package['pkg_changelog.date'].append(v[0])
+        map_package['pkg_changelog.name'].append(v[1])
+        map_package['pkg_changelog.evr'].append(v[2])
+        map_package['pkg_changelog.hash'].append(k)
+        payload.append({
+            'chlog_hash': k,
+            'chlog_text': v[3]
+        })
+    conn.execute("""INSERT INTO Changelog_buffer (*) VALUES""", payload)
+
+    sql_insert = 'INSERT INTO Packages_buffer ({0}) VALUES'.format(
         ', '.join(map_package.keys())
     )
 
@@ -86,7 +106,7 @@ def insert_package(conn, hdr, **kwargs):
     map_provide = mapper.get_provide_map(hdr)
     insert_list(conn, map_provide, pkghash, 'provide')
 
-    conn.execute(sql_insert, [map_package])
+    conn.execute(sql_insert, [map_package], settings={'types_check': True})
 
     return pkghash
 
@@ -98,10 +118,10 @@ def unpack_map(tagmap):
 @Timing.timeit(NAME)
 def insert_file(conn, pkghash, hdr):
     map_file = mapper.get_file_map(hdr)
-    map_file['pkghash'] = itertools.cycle([pkghash])
+    map_file['pkg_hash'] = itertools.cycle([pkghash])
     data = unpack_map(map_file)
     conn.execute(
-        'INSERT INTO File_buffer ({0}) VALUES'.format(', '.join(map_file.keys())), 
+        'INSERT INTO Files_buffer ({0}) VALUES'.format(', '.join(map_file.keys())),
         data
     )
     log.debug('insert file for pkghash: {0}'.format(pkghash))
@@ -110,8 +130,8 @@ def insert_file(conn, pkghash, hdr):
 @Timing.timeit('extract')
 def insert_list(conn, tagmap, pkghash, dptype):
     """Insert list as batch."""
-    tagmap['pkghash'] = itertools.cycle([pkghash])
-    tagmap['dptype'] = itertools.cycle([dptype])
+    tagmap['pkg_hash'] = itertools.cycle([pkghash])
+    tagmap['dp_type'] = itertools.cycle([dptype])
     data = unpack_map(tagmap)
     conn.execute(
         'INSERT INTO Depends_buffer ({0}) VALUES'.format(', '.join(tagmap.keys())),
@@ -278,9 +298,10 @@ class Worker(threading.Thread):
                 count += 1
                 header = get_header(ts, package)
                 map_package = get_partial_pkg_map(header, (
-                    'pkg_sourcepackage', 
-                    'pkg_sourcerpm', 
-                    'pkg_hash', 
+                    'pkg_sourcepackage',
+                    'pkg_sourcerpm',
+                    'pkg_hash',
+                    'pkg_arch',
                     'pkg_cs'
                     ))
                 kw = {'pkg_filename': Path(package).name}
@@ -298,6 +319,10 @@ class Worker(threading.Thread):
                     self.pkg_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
                     # set source rpm name and hash
                     kw['pkg_srcrpm_hash'] = self.src_repo_cache[map_package['pkg_sourcerpm']]['mmh']
+
+                # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
+                if map_package['pkg_arch'] == 'x86_64-i586' and kw['pkg_srcrpm_hash'] is None:
+                    kw['pkg_srcrpm_hash'] = 0
                 
                 if isinstance(package, BufferedRandom):
                     package.close()
@@ -310,11 +335,10 @@ class Worker(threading.Thread):
                         repair_package(self.connection, header, self.repair, **kw)
                     continue
                 if pkghash is None:
-                    pkghash = map_package['pkg_hash']
-                    # print(f"{count}: {map_package['pkg_hash']} {kw['pkg_filename']}")
-                    # pkghash = insert_package(self.connection, header, **kw)
+                    # pkghash = map_package['pkg_hash']
+                    pkghash = insert_package(self.connection, header, **kw)
                     self.cache.add(pkghash)
-                    # TODO: insert package hashes to PackageHashaes_buffer
+                    # insert package hashes to PackageHash_buffer
                     if self.is_src:
                         insert_pkg_hash_single(self.connection, self.src_repo_cache[kw['pkg_filename']])
                     else:
@@ -328,6 +352,27 @@ class Worker(threading.Thread):
                 if self.display is not None:
                     self.display.inc()
         log.debug('thread stop')
+
+
+def worker_pool(pkg_cache, src_repo_cache, pkg_repo_cache, packages_list, pkgset, display, is_src, args):
+    workers = []
+    connections = []
+
+    packages = LockedIterator((pkg for pkg in packages_list))
+
+    for i in range(args.workers):
+        conn = get_client(args)
+        connections.append(conn)
+        worker = Worker(conn, pkg_cache, src_repo_cache, pkg_repo_cache, packages, pkgset, display, args.repair, is_src)
+        worker.start()
+        workers.append(worker)
+
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.disconnect()
 
 
 def iso_get_info(iso, args):
@@ -346,7 +391,7 @@ def iso_get_info(iso, args):
 
 
 def init_cache(conn):
-    result = conn.execute('SELECT pkghash FROM Package_buffer')
+    result = conn.execute('SELECT pkg_hash FROM Packages_buffer')
     return {i[0] for i in result}
 
 
@@ -605,7 +650,6 @@ def read_repo_structure(repo_name, repo_path):
 
     root = Path(repo['repo']['path'])
 
-    # for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and (_.name in ARCHS))]:
     for arch_dir in root.iterdir():
         if arch_dir.is_dir() and arch_dir.name in ARCHS:
             repo['arch']['archs'].append({'name': arch_dir.name,
@@ -614,7 +658,6 @@ def read_repo_structure(repo_name, repo_path):
                                           'path': arch_dir.name})
             repo['arch']['kwargs']['all_archs'].add(arch_dir.name)
             # append '%ARCH%/SRPM.classic' path to 'src'
-            # repo['src']['path'].append(str(arch_dir.joinpath('SRPMS.classic')))
             repo['src']['path'].append('/'.join(arch_dir.joinpath('SRPMS.classic').parts[-2:]))
             # check '%ARCH%/base' directory for components
             base_subdir = arch_dir.joinpath('base')
@@ -663,7 +706,7 @@ def read_repo_structure(repo_name, repo_path):
                         pkg_name = c.split()[1]
                         pkg_sha256 = bytes.fromhex(c.split()[0])
                         # calculate and store missing MD5 hashes for 'src.rpm'
-                        # XXX: workaroung for missing/unhandled src.gostcrypto.xz 
+                        # TODO: workaroung for missing/unhandled src.gostcrypto.xz
                         if pkg_name not in repo['src_hashes']:
                             log.info(f"{pkg_name}'s MD5 not found. Calculating it from file")
                             # calculate missing MD5 from file here
@@ -692,25 +735,6 @@ def read_repo_structure(repo_name, repo_path):
     return repo
 
 
-def worker_pool(pkg_cache, src_repo_cache, pkg_repo_cache, packages, pkgset, display, is_src, args):
-    workers = []
-    connections = []
-
-    for i in range(args.workers):
-        conn = get_client(args)
-        connections.append(conn)
-        worker = Worker(conn, pkg_cache, src_repo_cache, pkg_repo_cache, packages, pkgset, display, args.repair, is_src)
-        worker.start()
-        workers.append(worker)
-
-    for w in workers:
-        w.join()
-
-    for c in connections:
-        if c is not None:
-            c.disconnect()
-
-
 def load(args):
     conn = get_client(args)
     # if not check_latest_version(conn):
@@ -735,18 +759,15 @@ def load(args):
         # read repo structures
         repo = read_repo_structure(args.assignment, args.path)
         # init hash cache
-        # cache = init_cache(conn)
-        cache = set()
+        cache = init_cache(conn)
         init_hash_temp_table(conn, repo['src_hashes'])
         init_hash_temp_table(conn, repo['pkg_hashes'])
-        # time to settle hash table in DB
-        time.sleep(2)
         update_hases_from_db(conn, repo['src_hashes'])
         update_hases_from_db(conn, repo['pkg_hashes'])
         # store repository structure
         if args.repair is None:
             # level 0 : repository
-            tmp_d = {'depth': '0'}
+            tmp_d = {'depth': '0', 'type': 'repo', 'size': str(len(repo['src_hashes']) + len(repo['pkg_hashes']))}
             tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs'], None)
             tmp_d = join_dicts_with_as_string(tmp_d, repo['arch']['kwargs']['all_archs'], 'archs')
             tmp_d = join_dicts_with_as_string(tmp_d, repo['comp']['kwargs']['all_comps'], 'comps')
@@ -767,6 +788,7 @@ def load(args):
             packages_list = []
             packages_md5 = get_packages_not_in_db_by_md5(conn)
             src_pkg_set = set()
+            pkgset_cached = set()
             ts = time.time()
             pkg_count = 0
             log.info("Start checking SRC packages")
@@ -793,6 +815,7 @@ def load(args):
                             # if rpm_file not in packages_list:
                             packages_list.append(str(rpm_file))
                         else:
+                            pkgset_cached.add(repo['src_hashes'][rpm_file.name]['mmh'])
                             pkg_count_3 += 1
                 log.info(f"Found {pkg_count_0} '.rpm' packages in '{'/'.join(src_dir.parts[-2:])}': "
                          f"{pkg_count_1} unique packages, {pkg_count_2} duplicated packages, "
@@ -801,13 +824,13 @@ def load(args):
                      f"{len(packages_list)} packages for load. "
                      f"Time elapsed {time.time() - ts}")
             # load 'src.rpm' packages
-            packages = LockedIterator((pkg for pkg in packages_list))
+            worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages_list, pkgset, display, True, args)
+            # build pkgset for PackageSet record
+            pkgset.update(pkgset_cached)
 
-            worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages, pkgset, display, True, args)
-            # store PackageSet records for loaded packages
             insert_pkgset(conn, repo['src']['uuid'], pkgset)
             # store PackageSetName record for 'src'
-            tmp_d = {'depth': '1'}
+            tmp_d = {'depth': '1', 'type': 'srpm', 'size': str(len(pkgset))}
             tmp_d = join_dicts_with_as_string(tmp_d, repo['src']['path'], 'SRPMS')
             tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
             insert_pkgset_name(
@@ -823,7 +846,7 @@ def load(args):
             
             # level 2: architectures
             for arch in repo['arch']['archs']:
-                tmp_d = {'depth': '1'}
+                tmp_d = {'depth': '1', 'type': 'arch', 'size': '0'}
                 tmp_d = join_dicts_with_as_string(tmp_d, arch['path'], 'path')
                 tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
                 insert_pkgset_name(
@@ -840,6 +863,7 @@ def load(args):
             for comp in repo['comp']['comps']:
                 # load RPMs first
                 pkgset = set()
+                pkgset_cached = set()
                 # generate 'rpm' packages list
                 packages_list = []
                 packages_md5 = get_packages_not_in_db_by_md5(conn)
@@ -852,17 +876,19 @@ def load(args):
                         pkg_count += 1
                         if repo['pkg_hashes'][rpm_file.name]['md5'] in packages_md5:
                             packages_list.append(str(rpm_file))
+                        else:
+                            pkgset_cached.add(repo['pkg_hashes'][rpm_file.name]['mmh'])
                 log.info(f"Checked {pkg_count} RPM packages. "
                          f"{len(packages_list)} packages for load. "
                          f"Time elapsed {time.time() - ts}")
+                # load '.rpm' packages
+                worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages_list, pkgset, display, False, args)
+                # build pkgset for PackageSet record
+                pkgset.update(pkgset_cached)
 
-                packages = LockedIterator((pkg for pkg in packages_list))
-
-                worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages, pkgset, display, False, args)
-                # store PackageSet records for loaded packages
                 insert_pkgset(conn, comp['uuid'], pkgset)
                 # store PackageSetName record
-                tmp_d = {'depth': '2'}
+                tmp_d = {'depth': '2', 'type': 'comp', 'size': str(len(pkgset))}
                 tmp_d = join_dicts_with_as_string(tmp_d, comp['path'], 'path')
                 tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
                 insert_pkgset_name(
