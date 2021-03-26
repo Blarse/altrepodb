@@ -183,7 +183,7 @@ def changelog_to_dict(dates, names, texts):
 
 
 def convert_file_class(fc: str):
-    """COnverst file class value from RPM header to CH Enum"""
+    """Converts file class value from RPM header to CH Enum"""
     lut = {
         'directory': 'directory',
         'symbolic link to': 'symlink',
