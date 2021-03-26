@@ -391,7 +391,7 @@ def iso_get_info(iso, args):
 
 
 def init_cache(conn):
-    result = conn.execute('SELECT pkg_hash FROM Packages_buffer')
+    result = conn.execute('SELECT pkgh_mmh FROM PackageHash_buffer')
     return {i[0] for i in result}
 
 
@@ -753,9 +753,9 @@ def load(args):
     else:
         connections = [conn]
         display = None
-        if args.verbose and args.repair is None:
-            display = Display(log)
         pkgset = set()
+        ts = time.time()
+        log.info(f"Start loading repository structure")
         # read repo structures
         repo = read_repo_structure(args.assignment, args.path)
         # init hash cache
@@ -764,6 +764,10 @@ def load(args):
         init_hash_temp_table(conn, repo['pkg_hashes'])
         update_hases_from_db(conn, repo['src_hashes'])
         update_hases_from_db(conn, repo['pkg_hashes'])
+        ts = time.time() - ts
+        log.info(f"Repository structure loaded, caches initialized in {ts:.3f} sec.")
+        if args.verbose and args.repair is None:
+            display = Display(log, ts)
         # store repository structure
         if args.repair is None:
             # level 0 : repository
@@ -822,7 +826,7 @@ def load(args):
                          f"{pkg_count_3} packages in cache")
             log.info(f"Checked {pkg_count} SRC packages. "
                      f"{len(packages_list)} packages for load. "
-                     f"Time elapsed {time.time() - ts}")
+                     f"Time elapsed {(time.time() - ts):.3f} sec.")
             # load 'src.rpm' packages
             worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages_list, pkgset, display, True, args)
             # build pkgset for PackageSet record
@@ -880,7 +884,7 @@ def load(args):
                             pkgset_cached.add(repo['pkg_hashes'][rpm_file.name]['mmh'])
                 log.info(f"Checked {pkg_count} RPM packages. "
                          f"{len(packages_list)} packages for load. "
-                         f"Time elapsed {time.time() - ts}")
+                         f"Time elapsed {(time.time() - ts):.3f} sec.")
                 # load '.rpm' packages
                 worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages_list, pkgset, display, False, args)
                 # build pkgset for PackageSet record

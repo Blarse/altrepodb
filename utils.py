@@ -51,17 +51,20 @@ def get_logger(name, tag=None, date=None):
 
 
 class Display:
-    MSG = 'Processed {0} packages in {1:.2f} sec. {2:.3f} sec. per package on average.'
+    MSG = 'Processed {0} packages in {1:.3f} sec. {2:.3f} sec. per package on average.'
 
     """Show information about progress."""
 
-    def __init__(self, log, step=1000):
+    def __init__(self, log, timer_init_delta=0, step=1000):
         self.lock = threading.Lock()
         self.log = log
         self.counter = 0
         self.timer = None
         self.step = step
         self.timesum = 0
+        self.timer_short = None
+        self.timesum_short = 0
+        self.timer_init_delta = timer_init_delta
 
     def _showmsg(self):
         t = time() - self.timer
@@ -70,6 +73,9 @@ class Display:
 
     def _update(self):
         self.counter += 1
+        t = time()
+        self.timesum_short += t - self.timer_short
+        self.timer_short = time()
         if self.counter % self.step == 0:
             self._showmsg()
             t = time()
@@ -80,9 +86,13 @@ class Display:
         with self.lock:
             if self.timer is None:
                 self.timer = time()
+                self.timer_short = time()
             self._update()
 
     def conclusion(self):
+        if self.timesum_short > self.timesum:
+            self.timesum = self.timesum_short
+        self.timesum += self.timer_init_delta
         self.log.info(self.MSG.format(self.counter, self.timesum,
                                       self.timesum / (self.counter if self.counter else 1)))
 
