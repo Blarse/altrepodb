@@ -159,15 +159,17 @@ def insert_assignment_name(conn, assignment_name=None, uuid=None, tag=None, assi
 
 
 @Timing.timeit(NAME)
-def insert_pkgset_name(conn, name, uuid, puuid, tag, date, complete, kv_args):
+def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complete, kv_args):
     if date is None:
-        date = datetime.datetime.now()
+        date = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     sql = 'INSERT INTO PackageSetName (*) VALUES'
     # if uuid is None:
     #     uuid = str(uuid4())
     data = {
         'pkgset_uuid': uuid,
         'pkgset_puuid': puuid,
+        'pkgset_ruuid': ruuid,
+        'pkgset_depth': depth,
         'pkgset_name': name,
         'pkgset_date': date,
         'pkgset_tag': tag, 
@@ -175,7 +177,7 @@ def insert_pkgset_name(conn, name, uuid, puuid, tag, date, complete, kv_args):
         'pkgset_kv.k': [k for k, v in kv_args.items() if v is not None],
         'pkgset_kv.v': [v for k, v in kv_args.items() if v is not None],
     }
-    conn.execute(sql, [data])
+    conn.execute(sql, [data], settings={'types_check': True})
     log.debug('insert assignment name uuid: {0}'.format(uuid))
 
 
@@ -599,6 +601,13 @@ def read_headers_from_xz_pkglist(fname):
         os._exit(0)
 
 
+def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
+    result = conn.execute(
+        f"SELECT COUNT(*) FROM PackageSetName WHERE pkgset_name='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
+    )
+    return result[0][0] != 0
+
+
 def read_repo_structure(repo_name, repo_path):
     """Reads repository structure for given path and store
 
@@ -619,7 +628,7 @@ def read_repo_structure(repo_name, repo_path):
             'kwargs': defaultdict(lambda: None, key=None)
         },
         'src': {
-            'name': 'src.rpm',
+            'name': 'srpm',
             'uuid': str(uuid4()),
             'puuid': None,
             'path': []
@@ -738,7 +747,7 @@ def load(args):
     # log.debug('check database version complete')
     iso = check_iso(args.path)
     if iso:
-        if check_assignment_name(conn, args.assignment):
+        if check_assignment_name(conn, args.pkgset):
             raise NameError('This assignment name is already loaded!')
         packages = LockedIterator(iso_find_packages(iso))
         if args.date is None:
@@ -750,9 +759,18 @@ def load(args):
         display = None
         pkgset = set()
         ts = time.time()
+        # set date if None
+        if args.date is None:
+            args.date = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # check if {%name%}-{%date%} already in DB
+        if check_repo_date_name_in_db(conn, args.pkgset, args.date.date()):
+            if not args.force:
+                log.error(f"Repository with name '{args.pkgset}' and"
+                          f"date '{args.date.date()}' already exists in database")
+                raise NameError('This package set is already loaded!')
         log.info(f"Start loading repository structure")
         # read repo structures
-        repo = read_repo_structure(args.assignment, args.path)
+        repo = read_repo_structure(args.pkgset, args.path)
         # init hash cache
         cache = init_cache(conn)
         init_hash_temp_table(conn, repo['src_hashes'])
@@ -775,6 +793,8 @@ def load(args):
                 name=repo['repo']['name'],
                 uuid=repo['repo']['uuid'],
                 puuid=repo['repo']['puuid'],
+                ruuid=repo['repo']['uuid'],
+                depth=0,
                 tag=args.tag,
                 date=args.date,
                 complete=1,
@@ -837,6 +857,8 @@ def load(args):
                 name=repo['src']['name'],
                 uuid=repo['src']['uuid'],
                 puuid=repo['src']['puuid'],
+                ruuid=repo['repo']['uuid'],
+                depth=1,
                 tag=args.tag,
                 date=args.date,
                 complete=1,
@@ -853,6 +875,8 @@ def load(args):
                     name=arch['name'],
                     uuid=arch['uuid'],
                     puuid=arch['puuid'],
+                    ruuid=repo['repo']['uuid'],
+                    depth=1,
                     tag=args.tag,
                     date=args.date,
                     complete=1,
@@ -895,6 +919,8 @@ def load(args):
                     name=comp['name'],
                     uuid=comp['uuid'],
                     puuid=comp['puuid'],
+                    ruuid=repo['repo']['uuid'],
+                    depth=2,
                     tag=args.tag,
                     date=args.date,
                     complete=1,
@@ -966,8 +992,9 @@ LIMIT 10
 
 
 def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('assignment', type=str, help='Assignment name')
+    parser = argparse.ArgumentParser(prog='extract',
+                                     description='Load repository structure from file system or ISO image to database')
+    parser.add_argument('pkgset', type=str, help='Repository name')
     parser.add_argument('path', type=str, help='Path to packages')
     parser.add_argument('-t', '--tag', type=str, help='Assignment tag', default='')
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
@@ -976,11 +1003,13 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database port')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
-    parser.add_argument('-w', '--workers', type=int, help='Workers count')
+    parser.add_argument('-w', '--workers', type=int, help='Workers count (default: 10)')
     parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument('-T', '--timing', action='store_true', help='Enable timing for functions')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode')
-    parser.add_argument('-A', '--date', type=valid_date, help='Set assignment datetime release. format YYYY-MM-DD')
+    parser.add_argument('-A', '--date', type=valid_date, help='Set repository datetime release. Format YYYY-MM-DD')
+    parser.add_argument('-F', '--force', action='store_true',
+                        help='Force to load repository with same name and date as existing one in database')
     parser.add_argument('-E', '--exclude', type=str, help='Exclude filename from search')
     parser.add_argument('-C', '--constraint', type=str, help='Use constraint for searching')
     parser.add_argument('-R', '--repair', type=str, choices=['check', 'full-check', 'repair', 'full-repair'], 
@@ -1016,7 +1045,7 @@ def set_config(args):
 def main():
     args = get_args()
     args = set_config(args)
-    logger = get_logger(NAME, args.assignment, args.date)
+    logger = get_logger(NAME, args.pkgset, args.date)
     if args.debug:
         logger.setLevel(logging.DEBUG)
     if args.timing:
