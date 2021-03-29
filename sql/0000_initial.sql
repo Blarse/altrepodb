@@ -2,12 +2,14 @@ CREATE TABLE PackageSetName
 (
     pkgset_uuid     UUID,
     pkgset_puuid    UUID,
+    pkgset_ruuid    UUID,
+    pkgset_depth    UInt8,
     pkgset_name     String,
     pkgset_date     DateTime,
     pkgset_tag      String,
     pkgset_complete UInt8,
     pkgset_kv       Nested(k String, v String)
-) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name, pkgset_uuid) PRIMARY KEY pkgset_date;
+) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name, pkgset_ruuid, pkgset_depth) PRIMARY KEY (pkgset_date, pkgset_name);
 
 CREATE TABLE PackageSet
 (
