@@ -13,7 +13,7 @@ CREATE TABLE PackageHash
     pkgh_md5        FixedString(16),
     pkgh_sha1       FixedString(20),
     pkgh_sha256     FixedString(32)
-) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh
+) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh;
 
 CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase(), PackageHash, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
 
@@ -22,7 +22,7 @@ CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase()
 CREATE
 OR REPLACE VIEW PackageHash_view AS
 SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh_sha1, lower(hex(pkgh_sha256)) as pkgh_sha256
-FROM  PackageHash_buffer
+FROM  PackageHash_buffer;
 
 
 /*Stores repository structure as tree linked by 'pkgset_uuid' and 'pkgset_puuid'.
@@ -84,7 +84,7 @@ CREATE TABLE PackageSet
 ) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
 
 CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
-                                          100000000);
+
 
 /*Stores information about packages gathered from RPM header
 Files for package are stored in separate Files table
@@ -178,7 +178,7 @@ CREATE TABLE Files
 ) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
 
 
-CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
+CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000, 100000000);
 
 
 /*Stores information about package dependencies for package.
@@ -206,7 +206,7 @@ CREATE TABLE Changelog
 (
     chlog_hash  UInt64,
     chlog_text  String
-) ENGINE = ReplacingMergeTree ORDER BY (chlog_hash, chlog_text) PRIMARY KEY chlog_hash
+) ENGINE = ReplacingMergeTree ORDER BY (chlog_hash, chlog_text) PRIMARY KEY chlog_hash;
 
 
 CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
