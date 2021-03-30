@@ -457,7 +457,8 @@ def update_hases_from_db(conn, repo_cache):
                 (SELECT pkgh_md5 FROM PackageHash_buffer)) AS t1 
         LEFT JOIN 
             (SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1 FROM PackageHash_buffer) AS t2
-        ON t1.md5 = t2.md5"""
+        ON t1.md5 = t2.md5""",
+        settings={'strings_as_bytes': True}
     )
     log.debug(f"Found {len(result)} packages are in PackageHash")
     if len(result):
@@ -718,7 +719,7 @@ def read_repo_structure(repo_name, repo_path):
                         pkg_name = c.split()[1]
                         pkg_sha256 = bytes.fromhex(c.split()[0])
                         # calculate and store missing MD5 hashes for 'src.rpm'
-                        # TODO: workaroung for missing/unhandled src.gostcrypto.xz
+                        # TODO: workaround for missing/unhandled src.gostcrypto.xz
                         if pkg_name not in repo['src_hashes']:
                             log.info(f"{pkg_name}'s MD5 not found. Calculating it from file")
                             # calculate missing MD5 from file here
