@@ -464,6 +464,11 @@ def update_hases_from_db(conn, repo_cache):
         for (k, *v) in result:
             if len(v) == 3:
                 if k in repo_cache.keys():
+                    # DEBUG
+                    if not isinstance(v[1], int) or not isinstance(v[2], bytes):
+                        log.critical(f"Value error for {v} in {result}")
+                        raise ValueError("Wrong values from PackageHash")
+                    # DEBUG
                     # repo_cache[k]['md5'] = v[0]
                     repo_cache[k]['mmh'] = v[1]
                     repo_cache[k]['sha1'] = v[2]
