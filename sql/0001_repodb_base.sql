@@ -145,8 +145,7 @@ CREATE TABLE Packages
     pkg_payloadcompressor LowCardinality(String),
     pkg_payloadflags      LowCardinality(String),
     pkg_platform          LowCardinality(String)
-) ENGINE = ReplacingMergeTree ORDER BY (pkg_name, pkg_arch, pkg_version, pkg_release, pkg_serial_, pkg_epoch, pkg_disttag,
-                                        pkg_filename, pkg_sourcerpm, pkg_packager,
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_name, pkg_arch, pkg_hash, pkg_srcrpm_hash, pkg_packager,
                                         pkg_packager_email) PRIMARY KEY (pkg_name, pkg_arch) SETTINGS index_granularity = 8192;
 
 
