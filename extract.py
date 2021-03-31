@@ -40,9 +40,19 @@ def check_package(cache, hdr):
 
     return id of package from database or None
     """
-    sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
+    sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
     pkghash = mmhash(sha1)
-    log.debug('check package for sha1: {0}'.format(sha1))
+    log.debug('check package for sha1: {0}'.format(sha1.hex()))
+    if pkghash in cache:
+        return pkghash
+    return None
+
+
+def check_package_in_cache(cache, pkghash):
+    """Check whether the hash is in the cache.
+
+    return hash or None
+    """
     if pkghash in cache:
         return pkghash
     return None
@@ -65,8 +75,7 @@ def insert_package(conn, hdr, **kwargs):
     """
     map_package = mapper.get_package_map(hdr)
     map_package.update(**kwargs)
-
-    # TODO: PLAYING AROUND WITH CHANGELOGS
+    # formatting changelog
     chlog = map_package['pkg_changelog']
     del map_package['pkg_changelog']
     map_package['pkg_changelog.date'] = []
@@ -170,7 +179,7 @@ def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complet
         'pkgset_puuid': puuid,
         'pkgset_ruuid': ruuid,
         'pkgset_depth': depth,
-        'pkgset_name': name,
+        'pkgset_nodename': name,
         'pkgset_date': date,
         'pkgset_tag': tag, 
         'pkgset_complete': complete,
@@ -185,7 +194,8 @@ def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complet
 def insert_pkgset(conn, uuid, pkghash):
     conn.execute(
         'INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES',
-        [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash]
+        [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
+        settings={'types_check': True}
     )
     log.debug('insert packageset uuid: {0}, pkg_hash: {1}'.format(uuid, len(pkghash)))
 
@@ -278,7 +288,8 @@ def get_client(args):
 
 
 class Worker(threading.Thread):
-    def __init__(self, connection, pkg_cache, src_repo_cache, pkg_repo_cache, packages, aname, display, repair, is_src=False, *args, **kwargs):
+    def __init__(self, connection, pkg_cache, src_repo_cache, pkg_repo_cache, packages, aname,
+                 display, repair, is_src=False, *args, **kwargs):
         self.connection = connection
         self.packages = packages
         self.aname = aname
@@ -288,15 +299,16 @@ class Worker(threading.Thread):
         self.cache = pkg_cache
         self.repair = repair
         self.is_src = is_src
+        self.lock = threading.Lock()
         super().__init__(*args, **kwargs)
 
     def run(self):
         ts = rpm.TransactionSet()
         log.debug('thread start')
-        count = 0
+        # count = 0
         for package in self.packages:
             try:
-                count += 1
+                # count += 1
                 header = get_header(ts, package)
                 map_package = get_partial_pkg_map(header, (
                     'pkg_sourcepackage',
@@ -306,20 +318,21 @@ class Worker(threading.Thread):
                     'pkg_cs'
                     ))
                 kw = {'pkg_filename': Path(package).name}
-                
-                if self.is_src:
-                    #  store pkg mmh and sha1
-                    self.src_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
-                    self.src_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
-                    # set source rpm name and hash to self
-                    kw['pkg_sourcerpm'] = kw['pkg_filename']
-                    kw['pkg_srcrpm_hash'] = map_package['pkg_hash']
-                else:
-                    #  store pkg mmh and sha1
-                    self.pkg_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
-                    self.pkg_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
-                    # set source rpm name and hash
-                    kw['pkg_srcrpm_hash'] = self.src_repo_cache[map_package['pkg_sourcerpm']]['mmh']
+                # TODO: Add thread safety lock here!!!
+                with self.lock:
+                    if self.is_src:
+                        #  store pkg mmh and sha1
+                        self.src_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
+                        self.src_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
+                        # set source rpm name and hash to self
+                        kw['pkg_sourcerpm'] = kw['pkg_filename']
+                        kw['pkg_srcrpm_hash'] = map_package['pkg_hash']
+                    else:
+                        #  store pkg mmh and sha1
+                        self.pkg_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
+                        self.pkg_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
+                        # set source rpm name and hash
+                        kw['pkg_srcrpm_hash'] = self.src_repo_cache[map_package['pkg_sourcerpm']]['mmh']
 
                 # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
                 if map_package['pkg_arch'] == 'x86_64-i586' and kw['pkg_srcrpm_hash'] is None:
@@ -329,7 +342,7 @@ class Worker(threading.Thread):
                     package.close()
                     package = package.iname
                 log.debug('process: {0}'.format(package))
-                pkghash = check_package(self.cache, header)
+                pkghash = check_package_in_cache(self.cache, map_package['pkg_hash'])
                 # kw = {'filename': Path(package).name}
                 if self.repair is not None:
                     if pkghash is not None:
@@ -464,15 +477,11 @@ def update_hases_from_db(conn, repo_cache):
     if len(result):
         for (k, *v) in result:
             if len(v) == 3:
-                if k in repo_cache.keys():
-                    # DEBUG
-                    if not isinstance(v[1], int) or not isinstance(v[2], bytes):
-                        log.critical(f"Value error for {v} in {result}")
-                        raise ValueError("Wrong values from PackageHash")
-                    # DEBUG
-                    # repo_cache[k]['md5'] = v[0]
-                    repo_cache[k]['mmh'] = v[1]
-                    repo_cache[k]['sha1'] = v[2]
+                kk = k.decode('utf-8')
+                if kk in repo_cache.keys():
+                    # repo_cache[kk]['md5'] = v[0]
+                    repo_cache[kk]['mmh'] = v[1]
+                    repo_cache[kk]['sha1'] = v[2]
 
 
 def check_assignment_name(conn, name):
@@ -609,7 +618,7 @@ def read_headers_from_xz_pkglist(fname):
 
 def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
     result = conn.execute(
-        f"SELECT COUNT(*) FROM PackageSetName WHERE pkgset_name='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
+        f"SELECT COUNT(*) FROM PackageSetName WHERE pkgset_nodename='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
     )
     return result[0][0] != 0
 
@@ -760,6 +769,8 @@ def load(args):
             r = os.stat(args.path)
             args.date = datetime.datetime.fromtimestamp(r.st_mtime)
         iso_get_info(iso, args)
+        #  TODO: set 'class' for ISO and SquashFS if foubd
+        # repo['repo']['kwargs']['class'] = 'iso'
     else:
         connections = [conn]
         display = None
@@ -777,6 +788,7 @@ def load(args):
         log.info(f"Start loading repository structure")
         # read repo structures
         repo = read_repo_structure(args.pkgset, args.path)
+        repo['repo']['kwargs']['class'] = 'repository'
         # init hash cache
         cache = init_cache(conn)
         init_hash_temp_table(conn, repo['src_hashes'])
@@ -856,6 +868,7 @@ def load(args):
             insert_pkgset(conn, repo['src']['uuid'], pkgset)
             # store PackageSetName record for 'src'
             tmp_d = {'depth': '1', 'type': 'srpm', 'size': str(len(pkgset))}
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs']['class'], 'class')
             tmp_d = join_dicts_with_as_string(tmp_d, repo['src']['path'], 'SRPMS')
             tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
             insert_pkgset_name(
@@ -874,6 +887,7 @@ def load(args):
             # level 2: architectures
             for arch in repo['arch']['archs']:
                 tmp_d = {'depth': '1', 'type': 'arch', 'size': '0'}
+                tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs']['class'], 'class')
                 tmp_d = join_dicts_with_as_string(tmp_d, arch['path'], 'path')
                 tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
                 insert_pkgset_name(
@@ -918,6 +932,7 @@ def load(args):
                 insert_pkgset(conn, comp['uuid'], pkgset)
                 # store PackageSetName record
                 tmp_d = {'depth': '2', 'type': 'comp', 'size': str(len(pkgset))}
+                tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs']['class'], 'class')
                 tmp_d = join_dicts_with_as_string(tmp_d, comp['path'], 'path')
                 tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['name'], 'repo')
                 insert_pkgset_name(
