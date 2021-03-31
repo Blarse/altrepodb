@@ -4,12 +4,12 @@ CREATE TABLE PackageSetName
     pkgset_puuid    UUID,
     pkgset_ruuid    UUID,
     pkgset_depth    UInt8,
-    pkgset_name     String,
+    pkgset_nodename String,
     pkgset_date     DateTime,
     pkgset_tag      String,
     pkgset_complete UInt8,
     pkgset_kv       Nested(k String, v String)
-) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_name, pkgset_ruuid, pkgset_depth) PRIMARY KEY (pkgset_date, pkgset_name);
+) ENGINE = MergeTree ORDER BY (pkgset_date, pkgset_nodename, pkgset_ruuid, pkgset_depth) PRIMARY KEY (pkgset_date, pkgset_nodename);
 
 CREATE TABLE PackageSet
 (
@@ -469,3 +469,36 @@ FROM Package
                                         USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
 WHERE sourcepackage = 1;
 
+
+CREATE
+OR REPLACE VIEW last_pkgsets AS
+SELECT *, pkgset_kv.v[indexOf(pkgset_kv.k,'class')] as pkgset_class
+FROM PackageSetName
+RIGHT JOIN
+(
+    SELECT
+        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
+        pkgset_nodename as pkgset_name
+    FROM PackageSetName
+    WHERE pkgset_depth = 0
+    GROUP BY pkgset_name
+) AS RootPkgs USING (pkgset_ruuid);
+
+/*
+*
+CREATE VIEW repodb_test.test_pkgset2 AS
+SELECT
+    * EXCEPT pkgset_name,
+    pkgset_name AS pkgset_treename
+FROM repodb_test.PackageSetName
+RIGHT JOIN
+(
+    SELECT
+        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
+        pkgset_name AS rootname
+    FROM repodb_test.PackageSetName
+    WHERE pkgset_depth = 0
+    GROUP BY pkgset_name
+) AS RootPkgs USING (pkgset_ruuid);
+*
+*/
