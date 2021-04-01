@@ -196,7 +196,7 @@ CREATE TABLE Depends
     dp_version String,
     dp_flag    UInt32,
     dp_type    Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
-) ENGINE = MergeTree ORDER BY (pkg_hash, dp_type, dp_name, dp_version, dp_flag) PRIMARY KEY pkg_hash;
+) ENGINE = MergeTree ORDER BY (dp_name, dp_version, dp_type) PRIMARY KEY dp_name;
 
 
 CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000,
