@@ -210,3 +210,22 @@ CREATE TABLE Changelog
 
 
 CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+
+
+/* Last package sets */
+
+CREATE
+OR REPLACE VIEW repodb_test.last_pkgsets AS
+SELECT
+    *,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] AS pkgset_class
+FROM repodb_test.PackageSetName
+RIGHT JOIN
+(
+    SELECT
+        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
+        pkgset_nodename AS pkgset_name
+    FROM repodb_test.PackageSetName
+    WHERE pkgset_depth = 0
+    GROUP BY pkgset_name
+) AS RootPkgs USING (pkgset_ruuid) ORDER BY pkgset_name, pkgset_depth;

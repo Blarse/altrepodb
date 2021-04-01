@@ -471,34 +471,17 @@ WHERE sourcepackage = 1;
 
 
 CREATE
-OR REPLACE VIEW last_pkgsets AS
-SELECT *, pkgset_kv.v[indexOf(pkgset_kv.k,'class')] as pkgset_class
-FROM PackageSetName
-RIGHT JOIN
-(
-    SELECT
-        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
-        pkgset_nodename as pkgset_name
-    FROM PackageSetName
-    WHERE pkgset_depth = 0
-    GROUP BY pkgset_name
-) AS RootPkgs USING (pkgset_ruuid);
-
-/*
-*
-CREATE VIEW repodb_test.test_pkgset2 AS
+OR REPLACE VIEW repodb_test.last_pkgsets AS
 SELECT
-    * EXCEPT pkgset_name,
-    pkgset_name AS pkgset_treename
+    *,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] AS pkgset_class
 FROM repodb_test.PackageSetName
 RIGHT JOIN
 (
     SELECT
         argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
-        pkgset_name AS rootname
+        pkgset_nodename AS pkgset_name
     FROM repodb_test.PackageSetName
     WHERE pkgset_depth = 0
     GROUP BY pkgset_name
-) AS RootPkgs USING (pkgset_ruuid);
-*
-*/
+) AS RootPkgs USING (pkgset_ruuid) ORDER BY pkgset_name, pkgset_depth;
