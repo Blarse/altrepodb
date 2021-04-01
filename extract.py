@@ -463,16 +463,6 @@ def get_packages_not_in_db_by_sha256(conn):
 
 @Timing.timeit('PkgHash_check_md5_not_in_db')
 def update_hases_from_db(conn, repo_cache):
-    # select all repo packages that already in DB by md5
-    # result = conn.execute(
-    #     """SELECT t1.name, t1.md5, t2.mmh, t2.sha1
-    #     FROM (SELECT name, md5 FROM PkgHashTmp WHERE md5 IN
-    #             (SELECT pkgh_md5 FROM PackageHash_buffer)) AS t1
-    #     LEFT JOIN
-    #         (SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1 FROM PackageHash_buffer) AS t2
-    #     ON t1.md5 = t2.md5""",
-    #     settings={'strings_as_bytes': True}
-    # )
     result = conn.execute(
         """SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
         FROM
@@ -863,8 +853,8 @@ def load(args):
                         else:
                             pkgh = repo['src_hashes'][rpm_file.name]['mmh']
                             if pkgh is None:
-                                print(f"WTF!? No hash for {rpm_file.name}")
-                                raise ValueError("Fucking hash is not in table")
+                                msg = f"No hash found in cache for {rpm_file.name}"
+                                raise ValueError(msg)
                             pkgset_cached.add(pkgh)
                             pkg_count_3 += 1
                 log.info(f"Found {pkg_count_0} '.rpm' packages in '{'/'.join(src_dir.parts[-2:])}': "
@@ -936,8 +926,8 @@ def load(args):
                         else:
                             pkgh = repo['pkg_hashes'][rpm_file.name]['mmh']
                             if pkgh is None:
-                                print(f"WTF!? No hash for {rpm_file.name}")
-                                raise ValueError("Fucking hash is not in table")
+                                msg = f"No hash found in cache for {rpm_file.name}"
+                                raise ValueError(msg)
                             pkgset_cached.add(pkgh)
                 log.info(f"Checked {pkg_count} RPM packages. "
                          f"{len(packages_list)} packages for load. "
