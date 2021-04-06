@@ -270,36 +270,42 @@ def chunks(data, size):
             yield acc
 
 
-def sha256_from_file(fname, capitalized=False):
+def sha256_from_file(fname, as_bytes=False, capitalized=False):
     """Calculates SHA256 hash from file
 
     Args:
         fname (path-like object or string): path to file
+        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
         capitalized (bool, optional): capitalize SHA256 hash string. Defaults to False.
 
     Returns:
-        string: file's SHA256 hash
+        string or bytes: file's SHA256 hash
     """
     with open(fname, 'rb') as f:
         data = f.read()
+    if as_bytes:
+        return sha256(data).digest()
     if capitalized:
         return sha256(data).hexdigest().upper()
     else:
         return sha256(data).hexdigest()
 
 
-def md5_from_file(fname, capitalized=False):
+def md5_from_file(fname, as_bytes=False, capitalized=False):
     """Calculates MD5 hash from file
 
     Args:
         fname (path-like object or string): path to file
+        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
         capitalized (bool, optional): capitalize MD5 hash string. Defaults to False.
 
     Returns:
-        string: file's MD5 hash
+        string or bytes: file's MD5 hash
     """
     with open(fname, 'rb') as f:
         data = f.read()
+    if as_bytes:
+        return md5(data).digest()
     if capitalized:
         return md5(data).hexdigest().upper()
     else:

@@ -202,6 +202,12 @@ def insert_pkgset(conn, uuid, pkghash):
 
 @Timing.timeit(NAME)
 def insert_pkg_hashes(conn, pkg_hashes):
+    """Inserts multiple packages hashes to DB
+
+    Args:
+        conn (connection): ClickHouse driver connection object
+        pkg_hashes (dict[dict]): dictionary of packages hashes
+    """
     payload = []
     for k, v in pkg_hashes:
         payload.append({
@@ -218,6 +224,12 @@ def insert_pkg_hashes(conn, pkg_hashes):
 
 @Timing.timeit(NAME)
 def insert_pkg_hash_single(conn, pkg_hash):
+    """Insert single package hashes to DB
+
+    Args:
+        conn (connection): ClickHouse driver connection object
+        pkg_hash (dict): dictionary of single package hashes
+    """
     settings = {'strings_as_bytes': True}
     conn.execute("INSERT INTO PackageHash_buffer (*) VALUES",
                  [{
@@ -733,7 +745,7 @@ def read_repo_structure(repo_name, repo_path):
                             # calculate missing MD5 from file here
                             f = root.joinpath('files', 'SRPMS', pkg_name)
                             if f.is_file():
-                                pkg_md5 = bytes.fromhex(md5_from_file(f))
+                                pkg_md5 = md5_from_file(f, as_bytes=True)
                                 repo['src_hashes'][pkg_name]['md5'] = pkg_md5
                             else:
                                 log.error(f"Cant find file to calculate MD5 for {pkg_name} from {root.joinpath('files, ''SRPMS')}")
@@ -853,6 +865,7 @@ def load(args):
                         else:
                             pkgh = repo['src_hashes'][rpm_file.name]['mmh']
                             if pkgh is None:
+                                # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
                             pkgset_cached.add(pkgh)
@@ -926,6 +939,7 @@ def load(args):
                         else:
                             pkgh = repo['pkg_hashes'][rpm_file.name]['mmh']
                             if pkgh is None:
+                                # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
                             pkgset_cached.add(pkgh)
