@@ -7,13 +7,14 @@ import sys
 import urllib.error
 import urllib.request
 from collections import defaultdict
+from pathlib import Path
 
 import clickhouse_driver as chd
 import rpm
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt, mmhash
+from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file
 
 NAME = 'task'
 
@@ -102,13 +103,13 @@ class Task:
         return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
 
     def _check_task(self):
-        sql = """SELECT COUNT(*)
-FROM Tasks
-WHERE task_id = %(task_id)s
-  AND try = %(try)s
-  AND iteration = %(iteration)s"""
+        sql = ("SELECT COUNT(*) "
+        "FROM Tasks WHERE task_id = %(task_id)s "
+        "AND try = %(try)s "
+        "AND iteration = %(iteration)s")
         already = self.conn.execute(sql, {'task_id': self.fields['task_id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
         return already[0][0] > 0
+        # return False
 
     def _save_task(self):
         if self._check_task():
@@ -144,11 +145,24 @@ WHERE task_id = %(task_id)s
         src_list = self._get_pkg_list('plan/add-src')
         src_pkgs = {}
         for *_, pkg, n in src_list:
+            kw = {}
             hdr = self.girar.get_header(pkg)
-            sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
-            if not extract.check_package(self.cache, hdr):
-                extract.insert_package(self.conn, hdr, filename=os.path.basename(pkg))
-                log.info('add src package: {0}'.format(sha1))
+            sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+            pkghash = mmhash(sha1)
+            kw['pkg_hash'] = pkghash
+            kw['pkg_srcrpm_hash'] = pkghash
+            kw['pkg_filename'] = Path(pkg).name
+            kw['pkg_sourcerpm'] = Path(pkg).name
+            # if not extract.check_package(self.cache, hdr):
+            if not extract.check_package_in_cache(self.cache, pkghash):
+                extract.insert_package(self.conn, hdr, **kw)
+                extract.insert_pkg_hash_single(self.conn,
+                    {'mmh': pkghash,
+                    'sha1': sha1,
+                    'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
+                    'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
+                )
+                log.info('add src package: {0}'.format(sha1.hex()))
             src_pkgs[n] = sha1
         return src_pkgs
 
@@ -156,11 +170,23 @@ WHERE task_id = %(task_id)s
         bin_list = self._get_pkg_list('plan/add-bin')
         bin_pkgs = defaultdict(lambda: defaultdict(list))
         for _, _, arch, _, pkg, n, *_ in bin_list:
+            kw = {}
             hdr = self.girar.get_header(pkg)
-            sha1 = cvt(hdr[rpm.RPMDBI_SHA1HEADER])
-            if not extract.check_package(self.cache, hdr):
-                extract.insert_package(self.conn, hdr, filename=os.path.basename(pkg), sha1srcheader=src[n])
-                log.info('add bin package: {0}'.format(sha1))
+            sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+            pkghash = mmhash(sha1)
+            kw['pkg_hash'] = pkghash
+            kw['pkg_srcrpm_hash'] = mmhash(src[n])
+            kw['pkg_filename'] = Path(pkg).name
+            # if not extract.check_package(self.cache, hdr):
+            if not extract.check_package_in_cache(self.cache, pkghash):
+                extract.insert_package(self.conn, hdr, **kw)
+                extract.insert_pkg_hash_single(self.conn,
+                    {'mmh': pkghash,
+                    'sha1': sha1,
+                    'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
+                    'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
+                )
+                log.info('add bin package: {0}'.format(sha1.hex()))
             bin_pkgs[n][arch].append(sha1)
         return bin_pkgs
 
@@ -201,6 +227,53 @@ class Girar:
         return extract.get_header(self.ts, os.path.join(self.url, path))
 
 
+class TaskFromFS:
+    def __init__(self, url):
+        self.url = Path(url)
+        self.ts = rpm.TransactionSet()
+
+    def _get_content(self, url, status=False):
+        r = None
+        try:
+            r = Path(url).read_bytes()
+        except IsADirectoryError:
+            # return directory files listing
+            if status:
+                return True
+            return [_ for _ in Path(url).iterdir() if _.is_file()]
+        except FileNotFoundError as e:
+            log.debug(f"{e} - {url}")
+            if status:
+                return False
+            return None
+        except Exception as e:
+            log.error(f"{e} - {url}")
+            return None
+        if r is not None:
+            if status:
+                return True
+            return r
+
+    def get(self, method, status=False):
+        p = Path.joinpath(self.url, method)
+        r = self._get_content(p, status)
+        return cvt(r)
+
+    def get_bytes(self, method, status=False):
+        p = Path.joinpath(self.url, method)
+        r = self._get_content(p, status)
+        return r
+
+    def check(self):
+        return self._get_content(self.url, status=True)
+
+    def get_header(self, path):
+        return extract.get_header(self.ts, str(Path.joinpath(self.url, path)))
+
+    def get_file_path(self, path):
+        return Path.joinpath(self.url, path)
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('url', type=str, help='git.altlinux task url')
@@ -232,7 +305,8 @@ def get_args():
 
 
 def load(args, conn):
-    girar = Girar(args.url)
+    # girar = Girar(args.url)
+    girar = TaskFromFS(args.url)
     if girar.check():
         task = Task(conn, girar)
         task.save()
