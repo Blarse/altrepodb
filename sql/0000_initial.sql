@@ -13,8 +13,8 @@ CREATE TABLE PackageSetName
 
 CREATE TABLE PackageSet
 (
-    pkgset_uuid     UUID CODEC(ZSTD(1)),
-    pkg_hash        UInt64 CODEC(Gorilla,ZSTD(1))
+    pkgset_uuid     UUID,
+    pkg_hash        UInt64
 ) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
 
 CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
@@ -35,60 +35,124 @@ OR REPLACE VIEW PackageHash_view AS
 SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh_sha1, lower(hex(pkgh_sha256)) as pkgh_sha256
 FROM  PackageHash_buffer;
 
+
+-- CREATE TABLE Tasks
+-- (
+--     task_id         UInt32,
+--     subtask         UInt32,
+--     sourcepkg_hash  UInt64,
+--     try             UInt16,
+--     iteration       UInt8,
+--     status          LowCardinality(String),
+--     is_test         UInt8,
+--     branch          LowCardinality(String),
+--     pkgs            Array(UInt64),
+--     userid          LowCardinality(String),
+--     dir             String,
+--     tag_name        String,
+--     tag_id          String,
+--     tag_author      LowCardinality(String),
+--     srpm            String,
+--     type            Enum8('srpm' = 0, 'gear' = 1),
+--     hash            String,
+--     task_arch       LowCardinality(String),
+--     chroot_base     Array(UInt64),
+--     chroot_BR       Array(UInt64)
+-- )
+-- ENGINE = MergeTree
+-- ORDER BY (task_id, subtask, userid, status, branch, task_arch);
+
+
 CREATE TABLE Tasks
 (
-    task_id         UInt32,
-    task_message    String,
-    task_changed    DateTime,
-    task_prev       UInt32,
-    task_try        UInt16,
-    task_iteration  UInt8,
-    task_state      LowCardinality(String),
-    task_testonly   UInt8,
-    task_repo       LowCardinality(String),
-    task_owner      LowCardinality(String),
-    task_shared     UInt8
-) ENGINE = MergeTree ORDER BY (task_id, task_try, task_repo, task_state);
+    task_id             UInt32,
+    subtask_id          UInt32, -- from listing gears/[1-7]*/userid
+    task_repo           LowCardinality(String), -- from /task/owner
+    task_owner          LowCardinality(String), -- from /task/repo
+    subtask_changed     DateTime, -- from /gears/%subtask-id%/sid mtime
+    subtask_deleted     UInt8, -- could find by /gears/%subtask_id%/{dir|srpm|package} directory contents
+    subtask_userid      LowCardinality(String), -- from /geras/%subtask_id%/userid
+    subtask_dir         String, -- from /geras/%subtask_id%/dir
+    subtask_package     String, -- from /geras/%subtask_id%/package
+    subtask_type        Enum8('srpm' = 0, 'gear' = 1, 'copy' = 2, 'delete' = 3, 'rebuild' = 4), -- from /geras/%subtask_id%/sid. WTF logic in girar-task-run check_copy_del()
+    -- subtask_rebuild_from    LowCardinality(String), -- from ???
+    subtask_sid         String, -- from /geras/%subtask_id%/sidsubtask_arch
+    subtask_tag_author  String, -- from /geras/%subtask_id%/tag_author
+    subtask_tag_id      String, -- from /geras/%subtask_id%/tag_ig
+    subtask_tag_name    String, -- from /geras/%subtask_id%/tag_name
+    subtask_srpm        String, -- from /geras/%subtask_id%/srpm
+    subtask_srpm_name   String, -- from /geras/%subtask_id%/nevr
+    subtask_srpm_evr    String, -- from /geras/%subtask_id%/nevr
+    ts                  DateTime MATERIALIZED now() -- DEBUG
+) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_repo, task_owner) PRIMARY KEY (task_id, subtask_id);
 
-CREATE TABLE TasksSubtasks
+
+CREATE TABLE TaskStates
 (
-    task_id              UInt32,
-    subtask_id           UInt32,
-    subtask_removed      UInt8,
-    subtask_changed      DateTime,
-    subtask_type         LowCardinality(String),
-    subtask_owner        LowCardinality(String),
-    subtask_srpm         String,
-    subtask_tag_name     String,
-    subtask_tag_id       String,
-    subtask_tag_author   LowCardinality(String),
-    subtask_pkgname      String,
-    subtask_copy_package String,
-    subtask_copy_repo    LowCardinality(String)
-) ENGINE = MergeTree ORDER BY (task_id, subtask_id, subtask_changed);
+    task_changed    DateTime, -- from /task/state mtime         
+    task_id         UInt32,
+    task_state      LowCardinality(String), -- from /task/state
+    task_runby      LowCardinality(String), -- from /task/run
+    task_depends    Array(UInt32), -- from /task/depends
+    task_try        UInt16, -- from /task/try
+    task_testonly   UInt8, -- from /task/test-only (is exists)
+    task_failearly  UInt8, -- from /task/fail-early (is exists)
+    task_shared     UInt8, -- from /info.json
+    task_message    String, -- from /task/message
+    task_version    String, -- from /task/version
+    task_prev       UInt32, -- from /build/repo/prev symlink target
+    ts              DateTime MATERIALIZED now() -- DEBUG
+) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_iteration) PRIMARY KEY (task_changed, task_id);
 
-CREATE TABLE TasksAcl
+
+CREATE TABLE TaskApprovals
 (
     task_id         UInt32,
     subtask_id      UInt32,
-    taskacl_removed UInt8,
-    taskacl_changed DateTime,
-    taskacl_type    Enum8('approved' = 1, 'disapproved' = 2),
-    taskacl_by      String,
-    taskacl_message String
-) ENGINE = MergeTree ORDER BY (task_id, subtask_id, taskacl_changed);
+    tapp_type       Enum8('approve' = 0, 'disapprove' = 1),
+    tapp_revoked    UInt8, -- compare with last state form DB
+    tapp_date       DateTime, -- from /acl/approved/%subtask_id%/%nickname%
+    tapp_name       LowCardinality(String), -- from /acl/approved/%subtask_id%/%nickname%
+    tapp_message    String, -- from /acl/approved/%subtask_id%/%nickname%
+    ts              DateTime MATERIALIZED now() -- DEBUG
+) ENGINE = MergeTree ORDER BY (tapp_date, task_id, subtask_id);
 
-CREATE TABLE TasksPlan
+
+CREATE TABLE TaskIterations
 (
-    task_id          UInt32,
-    taskplan_uuid    UUID,
-    taskplan_changed DateTime,
-    taskplan_action  Enum8('remove' = 1, 'add' = 2),
-    taskplan_name    String,
-    taskplan_EVR     String,
+    task_id             UInt32,
+    subtask_id          UInt32,
+    subtask_arch        LowCardinality(String),    
+    titer_ts            DateTime, -- from /build/%subtask_id%/%build_arch%/status mtime
+    titer_status        LowCardinality(String), -- from /build/%subtask_id%/%build_arch%/status, if empty then 'failed'
+    task_try            UInt16, -- from /task/try
+    task_iter           UInt8,  -- from /task/iter
+    titer_srcrpm_hash   UInt64,
+    titer_pkgs_hash     Array(UInt64),
+    titer_chroot_base   Array(UInt64),
+    titer_chroot_br     Array(UInt64)
+) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
 
 
-) ENGINE = MergeTree ORDER BY (task_id);
+CREATE TABLE TaskChroots
+(
+    tch_hash        UInt64 MATERIALIZED murmurHash3_64(chroot),
+    tch_chroot      Array(UInt64)
+) ENGINE = ReplacingMergeTree ORDER BY (tch_chroot);
+
+
+CREATE TABLE TaskLogs
+(
+    -- task_id             UInt32,
+    -- subtask_id          UInt32,
+    -- subtask_arch        LowCardinality(String),
+    -- task_try            UInt16,
+    -- task_iter           UInt8,
+    tlog_hash           UInt64, -- hash from string of (str(task_id) + str(subtask_id) + subtask_arch + str(task_try) + str(task_iter))
+    tlog_line           UInt32,
+    tlog_message        String
+) ENGINE = ReplacingMergeTree() ORDER BY (tlog_message, tlog_line, tlog_hash);
+
 
 CREATE TABLE Files
 (
