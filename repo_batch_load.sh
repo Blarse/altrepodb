@@ -42,7 +42,7 @@ else
       t_end=$(date  +%s)
       t_runtime=$((t_end-t_start))
       echo "Time elapsed" $t_runtime "seconds"
-      if grep -q -R -i "traceback" ./extract-$repo_name-$d.log*; then
+      if grep -q -R "Traceback" ./extract-$repo_name-$d.log*; then
         echo "Exception occured during repository load. Sorry"
         exit 1
       fi
