@@ -5,6 +5,8 @@ import threading
 from functools import wraps
 from logging import handlers
 from time import time
+from datetime import datetime
+from dateutil import tz
 import argparse
 
 import mmh3
@@ -354,3 +356,20 @@ class FunctionalNotImplemented(Exception):
     def __init__(self, function, message="Functional not implemented"):
         self.function = function
         self.message = message
+
+
+def cvt_ts_to_datetime(ts, use_local_tz=False):
+    """Converts timestamp to datetime object as UTC or local time
+
+    Args:
+        ts (int | float): Timestamp
+        use_local_tz (bool, optional): Use local time zone. Defaults to False.
+
+    Returns:
+        datetime: Converted timestamp as datetime object
+    """
+    utc = datetime.utcfromtimestamp(ts).replace(tzinfo=tz.tzutc())
+    if use_local_tz:
+        return utc.astimezone(tz.tzlocal())
+    else:
+        return utc

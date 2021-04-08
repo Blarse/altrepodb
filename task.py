@@ -8,13 +8,14 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
+from datetime import datetime
 
 import clickhouse_driver as chd
 import rpm
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file
+from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file, cvt_ts_to_datetime
 
 NAME = 'task'
 
@@ -263,6 +264,15 @@ class TaskFromFS:
         p = Path.joinpath(self.url, method)
         r = self._get_content(p, status)
         return r
+
+    def get_file_mtime(self, method):
+        p = Path.joinpath(self.url, method)
+        try:
+            mtime = p.stat().st_mtime
+        except FileNotFoundError:
+            return None
+        # return datetime.utcfromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        return cvt_ts_to_datetime(mtime, True)
 
     def check(self):
         return self._get_content(self.url, status=True)
