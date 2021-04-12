@@ -67,8 +67,8 @@ CREATE TABLE Tasks
 (
     task_id             UInt32,
     subtask_id          UInt32, -- from listing gears/[1-7]*/userid
-    task_repo           LowCardinality(String), -- from /task/owner
-    task_owner          LowCardinality(String), -- from /task/repo
+    task_repo           LowCardinality(String), -- from /task/repo
+    task_owner          LowCardinality(String), -- from /task/owner
     subtask_changed     DateTime, -- from /gears/%subtask-id%/sid mtime
     subtask_deleted     UInt8, -- could find by /gears/%subtask_id%/{dir|srpm|package} directory contents
     subtask_userid      LowCardinality(String), -- from /geras/%subtask_id%/userid
@@ -76,7 +76,7 @@ CREATE TABLE Tasks
     subtask_package     String, -- from /geras/%subtask_id%/package
     subtask_type        Enum8('srpm' = 0, 'gear' = 1, 'copy' = 2, 'delete' = 3, 'rebuild' = 4), -- from /geras/%subtask_id%/sid. WTF logic in girar-task-run check_copy_del()
     -- subtask_rebuild_from    LowCardinality(String), -- from ???
-    subtask_sid         String, -- from /geras/%subtask_id%/sidsubtask_arch
+    subtask_sid         String, -- from /geras/%subtask_id%/sid
     subtask_tag_author  String, -- from /geras/%subtask_id%/tag_author
     subtask_tag_id      String, -- from /geras/%subtask_id%/tag_ig
     subtask_tag_name    String, -- from /geras/%subtask_id%/tag_name
@@ -129,8 +129,8 @@ CREATE TABLE TaskIterations
     task_iter           UInt8,  -- from /task/iter
     titer_srcrpm_hash   UInt64,
     titer_pkgs_hash     Array(UInt64),
-    titer_chroot_base   Array(UInt64),
-    titer_chroot_br     Array(UInt64)
+    titer_chroot_base   Array(UInt64), -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_chroot_br     Array(UInt64)  -- change to UInt64 hash if 'TaskChroots' implemented
 ) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
 
 
@@ -378,26 +378,70 @@ CREATE TABLE AptPkgSet
 ) ENGINE = MergeTree ORDER BY (apr_uuid, aps_md5, aps_sourcerpm, aps_filename) PRIMARY KEY (apr_uuid, aps_md5);
 
 
--- return pkghash, name and date for recent pkgset's
+-- VIEW TABLES --
 
 CREATE
-OR REPLACE VIEW last_pkgsets AS
-SELECT pkg_hash, pkgset_name, date AS pkgset_date
-FROM PackageSet_buffer
-         RIGHT JOIN ( SELECT argMax(pkgset_uuid, pkgset_date) AS uuid, pkgset_name, max(pkgset_date) AS date
-                      FROM PackageSetName
-                      GROUP BY pkgset_name ) AS PkgSet USING (pkgset_uuid)
-WHERE pkgset_uuid IN (SELECT pkgset_uuid
-               FROM (SELECT argMax(pkgset_uuid, pkgset_date) AS uuid, pkgset_name, max(pkgset_date) AS date
-                     FROM PackageSetName
-                     GROUP BY pkgset_name
-                        ));
+OR REPLACE VIEW last_pkgset AS
+SELECT *
+FROM last_pkgnames
+INNER JOIN 
+(
+    SELECT *
+    FROM PackageSet_buffer
+    WHERE pkgset_uuid IN 
+    (
+        SELECT pkgset_uuid
+        FROM last_pkgnames
+    )
+) AS PkgSet USING (pkgset_uuid);
 
 CREATE
 OR REPLACE VIEW last_packages AS
-SELECT pkg.*, pkgset_name, pkgset_date, pkg_hash
-FROM last_pkgsets ALL
-         INNER JOIN (SELECT * FROM Packages_buffer) AS pkg USING (pkg_hash);
+SELECT *
+FROM last_pkgset
+INNER JOIN 
+(
+    SELECT *
+    FROM Packages_buffer
+    WHERE pkg_hash IN 
+    (
+        SELECT pkg_hash
+        FROM last_pkgset
+    )
+) AS Packages USING (pkg_hash);
+
+CREATE
+OR REPLACE VIEW last_pkgnames AS
+SELECT
+    last_pkgnames_without_pname.*,
+    PkgSetParent.pkgset_pname AS pkgset_pname
+FROM last_pkgnames_without_pname
+LEFT JOIN 
+(
+    SELECT
+        pkgset_uuid,
+        pkgset_nodename AS pkgset_pname
+    FROM PackageSetName
+) AS PkgSetParent ON PkgSetParent.pkgset_uuid = pkgset_puuid;
+
+CREATE
+OR REPLACE VIEW last_pkgnames_without_pname AS
+SELECT
+    *,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] AS pkgset_class
+FROM PackageSetName
+RIGHT JOIN 
+(
+    SELECT
+        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
+        pkgset_nodename AS pkgset_name
+    FROM PackageSetName
+    WHERE pkgset_depth = 0
+    GROUP BY pkgset_name
+) AS RootPkgs USING (pkgset_ruuid)
+ORDER BY
+    pkgset_name ASC,
+    pkgset_depth ASC;
 
 CREATE
 OR REPLACE VIEW last_depends AS
