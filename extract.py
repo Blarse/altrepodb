@@ -565,17 +565,17 @@ def remove_package(conn, mp, full=False):
         conn.execute('ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s', mp)
 
 
-def unxz(fname, mode='b'):
+def unxz(fname, mode_binary=False):
     """Reads '.xz' compressed file contents
 
     Args:
         fname (path-like or string): path to comressed file
-        mode (str, optional): file read mode: binary or text. Defaults to 'b'.
+        mode_binary (bool, optional): file read mode: binary or text. Defaults to False.
 
     Returns:
         (bytes or text): contents of comressed '.xz' file
     """
-    if mode == 'b':
+    if mode_binary:
         with lzma.open(fname, 'rb') as f:
             res = f.read()
         return res
@@ -732,7 +732,7 @@ def read_repo_structure(repo_name, repo_path):
         for arch in ARCHS:
             f = p.joinpath(arch + '.hash.xz')
             if f.is_file():
-                contents = (_ for _ in unxz(f, 't').split('\n') if len(_))
+                contents = (_ for _ in unxz(f, mode_binary=False).split('\n') if len(_))
                 if arch == 'src':
                     # load to src_hashes
                     for c in contents:
@@ -813,22 +813,7 @@ def load(args):
         # store repository structure
         if args.repair is None:
             # level 0 : repository
-            tmp_d = {'depth': '0', 'type': 'repo', 'size': str(len(repo['src_hashes']) + len(repo['pkg_hashes']))}
-            tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs'], None)
-            tmp_d = join_dicts_with_as_string(tmp_d, repo['arch']['kwargs']['all_archs'], 'archs')
-            tmp_d = join_dicts_with_as_string(tmp_d, repo['comp']['kwargs']['all_comps'], 'comps')
-            insert_pkgset_name(
-                conn,
-                name=repo['repo']['name'],
-                uuid=repo['repo']['uuid'],
-                puuid=repo['repo']['puuid'],
-                ruuid=repo['repo']['uuid'],
-                depth=0,
-                tag=args.tag,
-                date=args.date,
-                complete=1,
-                kv_args=tmp_d
-            )
+            # rpository root loaded last as a 'transaction complete' sign
             repo_root = Path(repo['repo']['path'])
             # level 1 : src
             # load source RPMs first
@@ -969,6 +954,23 @@ def load(args):
                     complete=1,
                     kv_args=tmp_d
                 )
+            # level 0 : repository
+            tmp_d = {'depth': '0', 'type': 'repo', 'size': str(len(repo['src_hashes']) + len(repo['pkg_hashes']))}
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['repo']['kwargs'], None)
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['arch']['kwargs']['all_archs'], 'archs')
+            tmp_d = join_dicts_with_as_string(tmp_d, repo['comp']['kwargs']['all_comps'], 'comps')
+            insert_pkgset_name(
+                conn,
+                name=repo['repo']['name'],
+                uuid=repo['repo']['uuid'],
+                puuid=repo['repo']['puuid'],
+                ruuid=repo['repo']['uuid'],
+                depth=0,
+                tag=args.tag,
+                date=args.date,
+                complete=1,
+                kv_args=tmp_d
+            )
 
     # packages = LockedIterator(find_packages(args))
     # workers = []
