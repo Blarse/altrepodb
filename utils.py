@@ -5,8 +5,8 @@ import threading
 from functools import wraps
 from logging import handlers
 from time import time
-from datetime import datetime
 from dateutil import tz
+import json
 import argparse
 
 import mmh3
@@ -368,8 +368,30 @@ def cvt_ts_to_datetime(ts, use_local_tz=False):
     Returns:
         datetime: Converted timestamp as datetime object
     """
-    utc = datetime.utcfromtimestamp(ts).replace(tzinfo=tz.tzutc())
+    utc = datetime.datetime.utcfromtimestamp(ts).replace(tzinfo=tz.tzutc())
     if use_local_tz:
         return utc.astimezone(tz.tzlocal())
     else:
         return utc
+
+def val_from_json_str(json_str, val_key):
+    """Returns value from stringified JSON
+
+    Args:
+        json_str (str): stringified JSON
+        val_key (str): key to lookup value in JSON
+
+    Returns:
+        any: value found in JSON or None
+    """
+    if json_str is None or json_str == '':
+        return None
+    else:
+        try:
+            json_dict = json.loads(json_str)
+            if val_key in json_dict:
+                return json_dict[val_key]
+            else:
+                return None 
+        except json.JSONDecodeError:
+            return None
