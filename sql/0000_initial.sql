@@ -89,18 +89,19 @@ CREATE TABLE Tasks
 
 CREATE TABLE TaskStates
 (
-    task_changed    DateTime, -- from /task/state mtime         
-    task_id         UInt32,
-    task_state      LowCardinality(String), -- from /task/state
-    task_runby      LowCardinality(String), -- from /task/run
-    task_depends    Array(UInt32), -- from /task/depends
-    task_try        UInt16, -- from /task/try
-    task_testonly   UInt8, -- from /task/test-only (is exists)
-    task_failearly  UInt8, -- from /task/fail-early (is exists)
-    task_shared     UInt8, -- from /info.json
-    task_message    String, -- from /task/message
-    task_version    String, -- from /task/version
-    task_prev       UInt32, -- from /build/repo/prev symlink target
+    task_changed        DateTime, -- from /task/state mtime         
+    task_id             UInt32,
+    task_state          LowCardinality(String), -- from /task/state
+    task_runby          LowCardinality(String), -- from /task/run
+    task_depends        Array(UInt32), -- from /task/depends
+    task_try            UInt16, -- from /task/try
+    task_testonly       UInt8, -- from /task/test-only (is exists)
+    task_failearly      UInt8, -- from /task/fail-early (is exists)
+    task_shared         UInt8, -- from /info.json
+    task_message        String, -- from /task/message
+    task_version        String, -- from /task/version
+    task_prev           UInt32, -- from /build/repo/prev symlink target
+    task_eventlog_hash  Array(UInt64), -- events logs hashes 
     ts              DateTime MATERIALIZED now() -- DEBUG
 ) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_iteration) PRIMARY KEY (task_changed, task_id);
 
@@ -130,7 +131,9 @@ CREATE TABLE TaskIterations
     titer_srcrpm_hash   UInt64,
     titer_pkgs_hash     Array(UInt64),
     titer_chroot_base   Array(UInt64), -- change to UInt64 hash if 'TaskChroots' implemented
-    titer_chroot_br     Array(UInt64)  -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_chroot_br     Array(UInt64), -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_buildlog_hash UInt64, -- build log hash
+    titer_srpmlog_hash  UInt64  -- srpm build log hash
 ) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
 
 
@@ -143,14 +146,10 @@ CREATE TABLE TaskChroots
 
 CREATE TABLE TaskLogs
 (
-    -- task_id             UInt32,
-    -- subtask_id          UInt32,
-    -- subtask_arch        LowCardinality(String),
-    -- task_try            UInt16,
-    -- task_iter           UInt8,
-    tlog_hash           UInt64, -- hash from string of (str(task_id) + str(subtask_id) + subtask_arch + str(task_try) + str(task_iter))
-    tlog_line           UInt32,
-    tlog_message        String
+    tlog_hash           UInt64, -- hash from log file keys string
+    tlog_line           UInt32, -- line number
+    tlog_ts             DateTime, -- log line timestamp
+    tlog_message        String -- log line contents
 ) ENGINE = ReplacingMergeTree() ORDER BY (tlog_message, tlog_line, tlog_hash);
 
 
