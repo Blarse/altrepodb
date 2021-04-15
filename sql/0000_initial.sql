@@ -17,7 +17,7 @@ CREATE TABLE PackageSet
     pkg_hash        UInt64
 ) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
 
-CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 10000000);
 
 
 CREATE TABLE PackageHash
@@ -28,7 +28,7 @@ CREATE TABLE PackageHash
     pkgh_sha256     FixedString(32)
 ) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh;
 
-CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase(), PackageHash, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase(), PackageHash, 16, 10, 100, 10000, 1000000, 1000000, 10000000);
 
 CREATE 
 OR REPLACE VIEW PackageHash_view AS
@@ -86,6 +86,8 @@ CREATE TABLE Tasks
     ts                  DateTime MATERIALIZED now() -- DEBUG
 ) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_repo, task_owner) PRIMARY KEY (task_id, subtask_id);
 
+CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+
 
 CREATE TABLE TaskStates
 (
@@ -103,7 +105,7 @@ CREATE TABLE TaskStates
     task_prev           UInt32, -- from /build/repo/prev symlink target
     task_eventlog_hash  Array(UInt64), -- events logs hashes 
     ts              DateTime MATERIALIZED now() -- DEBUG
-) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_iteration) PRIMARY KEY (task_changed, task_id);
+) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
 
 
 CREATE TABLE TaskApprovals
@@ -136,12 +138,16 @@ CREATE TABLE TaskIterations
     titer_srpmlog_hash  UInt64  -- srpm build log hash
 ) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
 
+CREATE TABLE TaskIterations_buffer AS TaskIterations ENGINE = Buffer(currentDatabase(), TaskIterations, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+
 
 CREATE TABLE TaskChroots
 (
-    tch_hash        UInt64 MATERIALIZED murmurHash3_64(chroot),
+    tch_hash        UInt64 MATERIALIZED murmurHash3_64(tch_chroot),
     tch_chroot      Array(UInt64)
 ) ENGINE = ReplacingMergeTree ORDER BY (tch_chroot);
+
+CREATE TABLE TaskChroots_buffer AS TaskChroots ENGINE = Buffer(currentDatabase(), TaskChroots, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
 CREATE TABLE TaskLogs
@@ -151,6 +157,8 @@ CREATE TABLE TaskLogs
     tlog_ts             DateTime, -- log line timestamp
     tlog_message        String -- log line contents
 ) ENGINE = ReplacingMergeTree() ORDER BY (tlog_message, tlog_line, tlog_hash);
+
+CREATE TABLE TaskLogs_buffer AS TaskLogs ENGINE = Buffer(currentDatabase(), TaskLogs, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
 CREATE TABLE Files
@@ -249,7 +257,7 @@ CREATE TABLE Changelog
 ) ENGINE = ReplacingMergeTree ORDER BY (chlog_hash, chlog_text) PRIMARY KEY chlog_hash;
 
 
-CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 10000, 1000000, 1000000, 100000000);
+CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 1000, 1000000, 1000000, 10000000);
 
 
 CREATE TABLE Depends
@@ -261,9 +269,8 @@ CREATE TABLE Depends
     dp_type    Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
 ) ENGINE = MergeTree ORDER BY (dp_name, dp_version, dp_type) PRIMARY KEY dp_name;
 
+CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 1000000, 10000000);
 
-CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000,
-                                                10000000, 100000000);
 
 CREATE TABLE Config
 (
