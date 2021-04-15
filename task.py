@@ -414,6 +414,7 @@ def init_task_structure_from_task(girar):
                 'subtask_dir': None,
                 'subtask_package': None,
                 'subtask_type': sid.split(':')[0]  if sid else '',
+                'subtask_pkg_from': None,
                 'subtask_tag_author': None,
                 'subtask_tag_id': None,
                 'subtask_tag_name': None,
@@ -437,13 +438,15 @@ def init_task_structure_from_task(girar):
                 and not girar.file_exists_and_not_empty('/'.join((subtask_dir, 'dir'))):
                 if girar.file_exists_and_not_empty('/'.join((subtask_dir, 'copy_repo'))):
                     t = girar.get('/'.join((subtask_dir, 'copy_repo')))
-                    subtask_dict['subtask_type'] = f"copy from {t.strip()}"
+                    subtask_dict['subtask_type'] = 'copy'
+                    subtask_dict['subtask_pkg_from'] = t.strip()
                 else:
                     subtask_dict['subtask_type'] = 'delete'
 
             if girar.check_file('/'.join((subtask_dir, 'rebuild'))):
                 t = girar.get('/'.join((subtask_dir, 'rebuild')))
-                subtask_dict['subtask_type'] = f"rebuild from {t.strip()}"
+                subtask_dict['subtask_type'] = 'rebuild'
+                subtask_dict['subtask_pkg_from'] = t.strip()
 
             t = girar.get('/'.join((subtask_dir, 'dir')))
             subtask_dict['subtask_dir'] = t.strip() if t else None
