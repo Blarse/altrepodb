@@ -484,27 +484,21 @@ def log_parser(logger, log_file, log_type, log_start_time):
                 dt = dt[0]
                 last_dt = dt
                 first_line = False
-                res.append((
-                    line_cnt,
-                    datetime.datetime.strptime(
-                        ' '.join([_ for _ in dt[4:].split(' ') if len(_) > 0]),
-                        '%b %d %H:%M:%S'
-                        ).replace(year=log_start_time.year),
-                    msg
-                ))
+                ts = datetime.datetime.strptime(
+                    ' '.join([_ for _ in dt[4:].split(' ') if len(_) > 0]),
+                    '%b %d %H:%M:%S').replace(year=log_start_time.year)
+                res.append((line_cnt, ts, msg))
             else:
                 if first_line:
-                    logger.error(f"File '{log_file}' first line doesn't contain valid datetime."
-                                 f" Log file parsing aborted.")
-                    break
-                res.append((
-                    line_cnt,
-                    datetime.datetime.strptime(
+                    logger.debug(f"File '{log_file}' first line doesn't contain valid datetime."
+                                 f" Using 'log_start_time' as timestamp.")
+                    # break
+                    ts = log_start_time
+                else:
+                    ts = datetime.datetime.strptime(
                         ' '.join([_ for _ in last_dt[4:].split(' ') if len(_) > 0]),
-                        '%b %d %H:%M:%S'
-                        ).replace(year=log_start_time.year),
-                    msg
-                ))
+                        '%b %d %H:%M:%S').replace(year=log_start_time.year)
+                res.append((line_cnt, ts, msg))
         return tuple(res)
     elif log_type == 'build':
         line_cnt = 0
