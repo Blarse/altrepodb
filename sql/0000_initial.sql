@@ -132,8 +132,8 @@ CREATE TABLE TaskIterations
     task_iter           UInt8,  -- from /task/iter
     titer_srcrpm_hash   UInt64,
     titer_pkgs_hash     Array(UInt64),
-    titer_chroot_base   Array(UInt64), -- change to UInt64 hash if 'TaskChroots' implemented
-    titer_chroot_br     Array(UInt64), -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_chroot_base   UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_chroot_br     UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
     titer_buildlog_hash UInt64, -- build log hash
     titer_srpmlog_hash  UInt64  -- srpm build log hash
 ) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
