@@ -761,7 +761,7 @@ def load(args, conn):
         if args.dumpjson:
             Path.joinpath(
                 Path.cwd(),
-                f"{str(task_struct['task_state']['task_id'])}_dump.json"
+                f"dump-{str(task_struct['task_state']['task_id'])}-{datetime.date.today().strftime('%Y-%m-%d')}.json"
             ).write_text(
                 json.dumps(task_struct, indent=2, sort_keys=True, default=str)
             )
