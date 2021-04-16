@@ -781,9 +781,10 @@ def load(args, conn):
         log.info(f"reading task structure for {args.url}")
         task_struct = init_task_structure_from_task(girar)
         if args.dumpjson:
+            p = Path.joinpath(Path.cwd(), 'JSON')
+            p.mkdir(exist_ok=True)
             Path.joinpath(
-                Path.cwd(),
-                f"dump-{str(task_struct['task_state']['task_id'])}-{datetime.date.today().strftime('%Y-%m-%d')}.json"
+                p, f"dump-{str(task_struct['task_state']['task_id'])}-{datetime.date.today().strftime('%Y-%m-%d')}.json"
             ).write_text(
                 json.dumps(task_struct, indent=2, sort_keys=True, default=str)
             )
