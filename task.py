@@ -18,7 +18,7 @@ import json
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file, cvt_ts_to_datetime, val_from_json_str, log_parser
+from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file, cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
 
 NAME = 'task'
 
@@ -85,7 +85,7 @@ class Task:
                 'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
                 'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
             )
-            log.info(f"add package: {sha1.hex()}")
+            log.info(f"add package: {sha1.hex()} : {kw['pkg_filename']}")
         return pkg_hash
 
     def _save_task(self):
@@ -102,10 +102,32 @@ class Task:
             settings={'types_check': True}
         )
         # 2 - proceed with TaskApprovals
-        # fake 'tapp_revoked'
-        # TODO: set 'tapp_rewoked' after compare approvals states
+        # 2.1 - collect task approvals from DB
+        tapps = []
+        keywords = ('task_id', 'subtask_id', 'tapp_type', 'tapp_revoked', 'tapp_date', 'tapp_name', 'tapp_message')
+        res = self.conn.execute(
+            """SELECT argMax(tuple(*), ts) FROM TaskApprovals
+            WHERE task_id = %(task_id)s GROUP BY (subtask_id, tapp_name)""",
+            {'task_id': self.task['task_state']['task_id']}
+        )
+        res = [_[0] for _ in res]
+        # 2.2 - collect previous approvals that are not rewoked
+        for tapp in res:
+            d = dict(zip(keywords, tapp))
+            if d['tapp_revoked'] == 0:
+                del d['tapp_revoked']
+                tapps.append(d)
+        # 2.3 - find rewoked by compare DB and actual task approvals 
+        for tapp in tapps:
+            if tapp not in self.task['task_approvals']:
+                tapp['tapp_revoked'] = 1
+                tapp['tapp_date'] = cvt_datetime_local_to_utc(datetime.datetime.now())
+                self.task['task_approvals'].append(tapp)
+        # 2.4 - set 'tapp_rewoked' flag for new and not revoked ones
         for tapp in self.task['task_approvals']:
-            tapp['tapp_revoked'] = 0
+            if 'tapp_revoked' not in tapp:
+                tapp['tapp_revoked'] = 0
+        # 2.5 - load new approvals state to DB
         if self.task['task_approvals']:
             self.conn.execute(
                 'INSERT INTO TaskApprovals (*) VALUES',
