@@ -9,7 +9,7 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 import datetime
-import itertools
+import time
 
 import clickhouse_driver as chd
 import rpm
@@ -55,9 +55,9 @@ class Task:
         r = self.conn.execute(sql, {'hashes': hashes})
         return int(r[0][0])
 
-    def _insert_log(self, log_name, log_hash):
+    def _insert_log(self, log_name, log_hash, log_type, log_start_time):
         log_file = self.girar.get_file_path(log_name)
-        log_parsed = log_parser(log, log_file, 'events', None)
+        log_parsed = log_parser(log, log_file, log_type, log_start_time)
         if log_parsed:
             self.conn.execute(
                 'INSERT INTO TaskLogs_buffer (*) VALUES',
@@ -94,7 +94,7 @@ class Task:
         # 1.1 - save events logs
         for _, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
             self.task['task_state']['task_eventlog_hash'].append(log_hash)
-            self._insert_log(log_file, log_hash)
+            self._insert_log(log_file, log_hash, 'events', None)
         # 1.2 - save current task state
         self.conn.execute(
             'INSERT INTO TaskStates (*) VALUES',
@@ -138,13 +138,14 @@ class Task:
             titer['titer_buildlog_hash'] = 0
             titer['titer_srpmlog_hash'] = 0
             for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
-                log_subtask, log_arch = log_file.split('/')[1:2]
+                log_subtask, log_arch = log_file.split('/')[1:3]
                 if log_subtask == subtask and log_arch == arch:
+                    log_start_time = self.girar.get_file_mtime(log_file)
                     if log_type == 'srpm':
                         titer['titer_srpmlog_hash'] = log_hash
                     elif log_type == 'build':
                         titer['titer_buildlog_hash'] = log_hash
-                    self._insert_log(log_file, log_hash)
+                    self._insert_log(log_file, log_hash, log_type, log_start_time)
             # 4.3 - load chroots
             if titer['titer_chroot_base']:
                 self.conn.execute(
@@ -418,6 +419,7 @@ class TaskFromFS:
         return cvt_ts_to_datetime(mtime, use_local_tz=False)
 
     def get_header(self, path):
+        log.debug(f"reading header for {path}")
         return extract.get_header(self.ts, str(Path.joinpath(self.url, path)))
 
     def get_file_path(self, path):
@@ -585,17 +587,17 @@ def init_task_structure_from_task(girar):
                 subtask_dict['subtask_pkg_from'] = t.strip()
 
             t = girar.get('/'.join((subtask_dir, 'dir')))
-            subtask_dict['subtask_dir'] = t.strip() if t else None
+            subtask_dict['subtask_dir'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'package')))
-            subtask_dict['subtask_package'] = t.strip() if t else None
+            subtask_dict['subtask_package'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'tag_author')))
-            subtask_dict['subtask_tag_author'] = t.strip() if t else None
+            subtask_dict['subtask_tag_author'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'tag_id')))
-            subtask_dict['subtask_tag_id'] = t.strip() if t else None
+            subtask_dict['subtask_tag_id'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'tag_name')))
-            subtask_dict['subtask_tag_name'] = t.strip() if t else None
+            subtask_dict['subtask_tag_name'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'srpm')))
-            subtask_dict['subtask_srpm'] = t.strip() if t else None
+            subtask_dict['subtask_srpm'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'nevr')))
             if t:
                 subtask_dict['subtask_srpm_name'] = t.split('\t')[0].strip()
@@ -607,11 +609,11 @@ def init_task_structure_from_task(girar):
     bin_pkgs = defaultdict(lambda: defaultdict(list))
     t = girar.get('plan/add-src')
     if t:
-        for *_, pkg, n in (_.split('\t') for _ in t.split('\n') if len(_) > 0):
+        for *_, pkg, n in [_.split('\t') for _ in t.split('\n') if len(_) > 0]:
             src_pkgs[n] = pkg
     t = girar.get('plan/add-bin')
     if t:
-        for _, _, arch, _, pkg, n, *_ in (_.split('\t') for _ in t.split('\n') if len(_) > 0):
+        for _, _, arch, _, pkg, n, *_ in [_.split('\t') for _ in t.split('\n') if len(_) > 0]:
             bin_pkgs[n][arch].append(pkg)
     # 1 - get contents from /build/%subtask_id%/%arch%
     for subtask in (_.name for _ in girar.get_file_path('build').glob('[0-7]*') if _.is_dir()):
@@ -657,7 +659,7 @@ def init_task_structure_from_task(girar):
             t = girar.get('/'.join((arch_dir, 'srpm')))
             if t and len(t) > 0:
                 build_dict['titer_status'] = 'built'
-                src_pkgs[subtask] = '/'.join((arch_dir, t[0].name))
+                src_pkgs[subtask] = '/'.join((arch_dir, 'srpm', t[0].name))
             if subtask in src_pkgs:
                 build_dict['titer_srpm'] = src_pkgs[subtask]
 
@@ -666,7 +668,7 @@ def init_task_structure_from_task(girar):
                 build_dict['titer_status'] = 'built'
                 bin_pkgs[subtask][arch] = []
                 for brpm in t:
-                    bin_pkgs[subtask][arch].append('/'.join((arch_dir, brpm.name)))
+                    bin_pkgs[subtask][arch].append('/'.join((arch_dir, 'rpms', brpm.name)))
 
             if subtask in bin_pkgs and arch in bin_pkgs[subtask]:
                 build_dict['titer_rpms'] = [_ for _ in bin_pkgs[subtask][arch]]
@@ -727,6 +729,7 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
+    parser.add_argument('-D', '--dumpjson', action='store_true', help='Dump parsed task structure to JSON file')
     args = parser.parse_args()
     if args.config is not None:
         cfg = configparser.ConfigParser()
@@ -752,22 +755,30 @@ def load(args, conn):
     # girar = Girar(args.url)
     girar = TaskFromFS(args.url)
     if girar.check():
+        ts = time.time()
+        log.info(f"reading task structure for {args.url}")
         task_struct = init_task_structure_from_task(girar)
-        Path.joinpath(
-            Path.cwd(),
-            f"{str(task_struct['task_state']['task_id'])}_dump.json"
-        ).write_text(
-            json.dumps(task_struct, indent=2, sort_keys=True, default=str)
-        )
+        if args.dumpjson:
+            Path.joinpath(
+                Path.cwd(),
+                f"{str(task_struct['task_state']['task_id'])}_dump.json"
+            ).write_text(
+                json.dumps(task_struct, indent=2, sort_keys=True, default=str)
+            )
         task = Task(conn, girar, task_struct)
+        log.info(f"loading {task_struct['task_state']['task_id']} to database {args.dbname}")
         task.save()
+        ts = time.time() - ts
+        log.info(F"task {task_struct['task_state']['task_id']} loaded in {ts:.3f} seconds")
     else:
         raise ValueError('task not found: {0}'.format(args.url))
 
 
 def main():
     args = get_args()
-    logger = get_logger(NAME)
+    if args.url.endswith('/'):
+        args.url = args.url[:-1]
+    logger = get_logger(NAME, tag=(args.url.split('/')[-1]))
     logger.setLevel(logging.DEBUG)
     conn = None
     try:
