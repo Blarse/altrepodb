@@ -38,6 +38,142 @@ def get_client(args):
 
 
 class Task:
+    def __init__(self, conn, girar, task):
+        self.girar = girar
+        self.conn = conn
+        self.task = task
+        self.cache = extract.init_cache(self.conn)
+        self.approvals = []
+        self._load_approvals()
+
+    def _load_approvals(self):
+        # select from DB last approval state for given task
+        pass
+
+    def _calculate_hash_from_array_by_CH(self, hashes):
+        sql = 'SELECT murmurHash3_64(%(hashes)s)'
+        r = self.conn.execute(sql, {'hashes': hashes})
+        return int(r[0][0])
+
+    def _insert_log(self, log_name, log_hash):
+        log_file = self.girar.get_file_path(log_name)
+        log_parsed = log_parser(log, log_file, 'events', None)
+        if log_parsed:
+            self.conn.execute(
+                'INSERT INTO TaskLogs_buffer (*) VALUES',
+                [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
+                settings={'types_check': True}
+            )
+
+    def _insert_package(self, pkg, srpm_hash, is_srpm=False):
+        kw = {}
+        hdr = self.girar.get_header(pkg)
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+        pkg_hash = mmhash(sha1)
+        kw['pkg_hash'] = pkg_hash
+        kw['pkg_filename'] = Path(pkg).name
+        if is_srpm:
+            kw['pkg_sourcerpm'] = kw['pkg_filename']
+            kw['pkg_srcrpm_hash'] = pkg_hash
+        else:
+            kw['pkg_srcrpm_hash'] = srpm_hash
+        if not extract.check_package_in_cache(self.cache, pkg_hash):
+            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_pkg_hash_single(self.conn,
+                {'mmh': pkg_hash,
+                'sha1': sha1,
+                'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
+                'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
+            )
+            log.info(f"add package: {sha1.hex()}")
+        return pkg_hash
+
+    def _save_task(self):
+        # 1 - proceed with TaskStates
+        self.task['task_state']['task_eventlog_hash'] = []
+        # 1.1 - save events logs
+        for _, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
+            self.task['task_state']['task_eventlog_hash'].append(log_hash)
+            self._insert_log(log_file, log_hash)
+        # 1.2 - save current task state
+        self.conn.execute(
+            'INSERT INTO TaskStates (*) VALUES',
+            [self.task['task_state']],
+            settings={'types_check': True}
+        )
+        # 2 - proceed with TaskApprovals
+        # fake 'tapp_revoked'
+        # TODO: set 'tapp_rewoked' after compare approvals states
+        for tapp in self.task['task_approvals']:
+            tapp['tapp_revoked'] = 0
+        if self.task['task_approvals']:
+            self.conn.execute(
+                'INSERT INTO TaskApprovals (*) VALUES',
+                self.task['task_approvals'],
+                settings={'types_check': True}
+            )
+        # 3 - proceed with Tasks
+        if self.task['tasks']:
+            self.conn.execute(
+                'INSERT INTO Tasks_buffer (*) VALUES',
+                self.task['tasks'],
+                settings={'types_check': True}
+            )
+        # 4 - proceed with TaskIterations
+        for titer in self.task['task_iterations']:
+            # 4.1 - load packages
+            titer['titer_srcrpm_hash'] = 0
+            titer['titer_pkgs_hash'] = []
+            # 4.1.1 - load srpm package
+            if titer['titer_srpm']:
+                titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
+            # 4.1.2 - load binary packages
+            for pkg in titer['titer_rpms']:
+                titer['titer_pkgs_hash'].append(
+                    self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
+                )
+            # 4.2 - load build logs
+            subtask = str(titer['subtask_id'])
+            arch = titer['subtask_arch']
+            titer['titer_buildlog_hash'] = 0
+            titer['titer_srpmlog_hash'] = 0
+            for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
+                log_subtask, log_arch = log_file.split('/')[1:2]
+                if log_subtask == subtask and log_arch == arch:
+                    if log_type == 'srpm':
+                        titer['titer_srpmlog_hash'] = log_hash
+                    elif log_type == 'build':
+                        titer['titer_buildlog_hash'] = log_hash
+                    self._insert_log(log_file, log_hash)
+            # 4.3 - load chroots
+            if titer['titer_chroot_base']:
+                self.conn.execute(
+                    'INSERT INTO TaskChroots_buffer (*) VALUES',
+                    [{'tch_chroot': titer['titer_chroot_base']}],
+                    settings={'types_check': True}
+                )
+                titer['titer_chroot_base'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_base'])
+            if titer['titer_chroot_br']:
+                self.conn.execute(
+                    'INSERT INTO TaskChroots_buffer (*) VALUES',
+                    [{'tch_chroot': titer['titer_chroot_br']}],
+                    settings={'types_check': True}
+                )
+                titer['titer_chroot_br'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_br'])
+            # 4.4 - load task iteration
+            self.conn.execute(
+                'INSERT INTO TaskIterations_buffer (*) VALUES',
+                [titer],
+                settings={'types_check': True}
+            )
+        # 5 - load arepo packages
+        for pkg in self.task['arepo']:
+            self._insert_package(pkg, 0, is_srpm=False)
+
+    def save(self):
+        self._save_task()
+
+class Task2:
     def __init__(self, conn, girar):
         self.girar = girar
         self.conn = conn
@@ -411,16 +547,16 @@ def init_task_structure_from_task(girar):
                 'subtask_changed': None,
                 'subtask_userid': girar.get('/'.join((subtask_dir, 'userid'))).strip(),
                 'subtask_sid': sid.split(':')[1].strip() if sid else '',
-                'subtask_dir': None,
-                'subtask_package': None,
+                'subtask_dir': '',
+                'subtask_package': '',
                 'subtask_type': sid.split(':')[0]  if sid else '',
-                'subtask_pkg_from': None,
-                'subtask_tag_author': None,
-                'subtask_tag_id': None,
-                'subtask_tag_name': None,
-                'subtask_srpm': None,
-                'subtask_srpm_name': None,
-                'subtask_srpm_evr': None
+                'subtask_pkg_from': '',
+                'subtask_tag_author': '',
+                'subtask_tag_id': '',
+                'subtask_tag_name': '',
+                'subtask_srpm': '',
+                'subtask_srpm_name': '',
+                'subtask_srpm_evr': ''
         }
 
         if girar.check_file('/'.join((subtask_dir, 'userid'))):
@@ -503,7 +639,7 @@ def init_task_structure_from_task(girar):
             else:
                 t = girar.get_file_mtime(arch_dir)
                 build_dict['titer_status'] = 'failed'
-            build_dict['titer_ts'] = t if t else None
+            build_dict['titer_ts'] = t
             t = girar.get('task/try')
             build_dict['task_try'] = int(t.strip()) if t else 0
             t = girar.get('task/iter')
@@ -616,15 +752,15 @@ def load(args, conn):
     # girar = Girar(args.url)
     girar = TaskFromFS(args.url)
     if girar.check():
-        # task = Task(conn, girar)
-        # task.save()
-        t = init_task_structure_from_task(girar)
+        task_struct = init_task_structure_from_task(girar)
         Path.joinpath(
             Path.cwd(),
-            f"{str(t['task_state']['task_id'])}_dump.json"
+            f"{str(task_struct['task_state']['task_id'])}_dump.json"
         ).write_text(
-            json.dumps(t, indent=4, sort_keys=True, default=str)
+            json.dumps(task_struct, indent=2, sort_keys=True, default=str)
         )
+        task = Task(conn, girar, task_struct)
+        task.save()
     else:
         raise ValueError('task not found: {0}'.format(args.url))
 
