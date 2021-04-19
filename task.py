@@ -150,11 +150,15 @@ class Task:
             # 4.1.1 - load srpm package
             if titer['titer_srpm']:
                 titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
+            else:
+                titer['titer_srcrpm_hash'] = 0
             # 4.1.2 - load binary packages
             for pkg in titer['titer_rpms']:
                 titer['titer_pkgs_hash'].append(
                     self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
                 )
+            if not titer['titer_pkgs_hash']:
+                titer['titer_pkgs_hash'] = [0]
             # 4.2 - load build logs
             subtask = str(titer['subtask_id'])
             arch = titer['subtask_arch']
@@ -170,7 +174,6 @@ class Task:
                         titer['titer_buildlog_hash'] = log_hash
                     self._insert_log(log_file, log_hash, log_type, log_start_time)
             # 4.3 - load chroots
-            # FIXME: set valid value for empty chroots!!
             if titer['titer_chroot_base']:
                 self.conn.execute(
                     'INSERT INTO TaskChroots_buffer (*) VALUES',
@@ -178,6 +181,8 @@ class Task:
                     settings={'types_check': True}
                 )
                 titer['titer_chroot_base'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_base'])
+            else:
+                titer['titer_chroot_base'] = 0
             if titer['titer_chroot_br']:
                 self.conn.execute(
                     'INSERT INTO TaskChroots_buffer (*) VALUES',
@@ -185,6 +190,8 @@ class Task:
                     settings={'types_check': True}
                 )
                 titer['titer_chroot_br'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_br'])
+            else:
+                titer['titer_chroot_br'] = 0
             # 4.4 - load task iteration
             self.conn.execute(
                 'INSERT INTO TaskIterations_buffer (*) VALUES',
