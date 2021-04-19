@@ -423,7 +423,7 @@ def log_parser(logger, log_file, log_type, log_start_time):
     # matches with '[00:03:15] '
     build_pattern = re.compile('^\[\d{2}:\d{2}:\d{2}\]')
     try:
-        contents = Path(log_file).read_text()
+        contents = Path(log_file).read_text(encoding='utf-8', errors='backslashreplace')
         contents = (_ for _ in contents.split('\n') if len(_) > 0)
     except FileNotFoundError:
         logger.error(f"file '{log_file}' not found")
