@@ -72,7 +72,7 @@ class Task:
         pkg_hash = mmhash(sha1)
         kw['pkg_hash'] = pkg_hash
         kw['pkg_filename'] = Path(pkg).name
-        kw['pkg_filesize'] = Path(pkg).stat().st_size
+        kw['pkg_filesize'] = self.girar.get_file_size(pkg)
         if is_srpm:
             kw['pkg_sourcerpm'] = kw['pkg_filename']
             kw['pkg_srcrpm_hash'] = pkg_hash
@@ -448,6 +448,14 @@ class TaskFromFS:
         except FileNotFoundError:
             return None
         return cvt_ts_to_datetime(mtime, use_local_tz=False)
+    
+    def get_file_size(self, path):
+        p = Path.joinpath(self.url, path)
+        try:
+            file_size = p.stat().st_size
+        except FileNotFoundError:
+            return 0
+        return file_size
 
     def get_header(self, path):
         log.debug(f"reading header for {path}")
