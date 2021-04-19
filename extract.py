@@ -329,7 +329,10 @@ class Worker(threading.Thread):
                     'pkg_arch',
                     'pkg_cs'
                     ))
-                kw = {'pkg_filename': Path(package).name}
+                kw = {
+                    'pkg_filename': Path(package).name,
+                    'pkg_filesize': Path(package).stat().st_size
+                    }
                 # TODO: Add thread safety lock here!!!
                 with self.lock:
                     if self.is_src:

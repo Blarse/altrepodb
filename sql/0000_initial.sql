@@ -203,6 +203,7 @@ CREATE TABLE Packages
     pkg_buildhost         LowCardinality(String),
     pkg_size              UInt64,
     pkg_archivesize       UInt64,
+    pkg_filesize          UInt64, -- actual file size from '.rpm' file stat
     pkg_rpmversion        LowCardinality(String),
     pkg_cookie            String,
     pkg_sourcepackage     UInt8,

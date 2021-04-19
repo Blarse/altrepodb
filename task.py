@@ -72,6 +72,7 @@ class Task:
         pkg_hash = mmhash(sha1)
         kw['pkg_hash'] = pkg_hash
         kw['pkg_filename'] = Path(pkg).name
+        kw['pkg_filesize'] = Path(pkg).stat().st_size
         if is_srpm:
             kw['pkg_sourcerpm'] = kw['pkg_filename']
             kw['pkg_srcrpm_hash'] = pkg_hash
@@ -169,6 +170,7 @@ class Task:
                         titer['titer_buildlog_hash'] = log_hash
                     self._insert_log(log_file, log_hash, log_type, log_start_time)
             # 4.3 - load chroots
+            # FIXME: set valid value for empty chroots!!
             if titer['titer_chroot_base']:
                 self.conn.execute(
                     'INSERT INTO TaskChroots_buffer (*) VALUES',
