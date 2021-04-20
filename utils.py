@@ -315,6 +315,22 @@ def md5_from_file(fname, as_bytes=False, capitalized=False):
         return md5(data).hexdigest()
 
 
+def md5_sha256_from_file(fname):
+    """Calculates MD5 and SHA256 sums from file
+
+    Args:
+        fname (str or path object): path to file
+
+    Returns:
+        bytes, bytes: MD5, SHA256 hashes as raw bytes
+    """
+    with open(fname, 'rb') as f:
+        data = f.read()
+        md5_sum = md5(data).digest()
+        sha256_sum = sha256(data).digest()
+    return md5_sum, sha256_sum
+
+
 def join_dicts_with_as_string(d1, d2, key):
     """Join dictionary with dictionary, list, tuple or any object
     that can be represented as string.
@@ -522,3 +538,66 @@ def log_parser(logger, log_file, log_type, log_start_time):
     else:
         logger.error(f"Unknown log format specifier '{log_type}'.  Log file parsing aborted.")
         return tuple()
+
+def parse_hash_diff(hash_file):
+    """Parse hash diff file.
+    Returns added and deleted hashes as dictionaries
+
+    Args:
+        hash_file (str): hash diff file name
+
+    Returns:
+        (dict, dict): added hashses, deleted hashes
+    """
+    hash_pattern = re.compile('^[+-]+[0-9a-f]{64}\s+')
+    h_added = {}
+    h_deleted = {}
+    try:
+        contents = Path(hash_file).read_text()
+        contents = (_ for _ in contents.split('\n') if len(_) > 0)
+    except FileNotFoundError:
+        return {}, {}
+    for line in contents:
+        h = hash_pattern.findall(line)
+        if h:
+            sign = h[0][0]
+            sha256 = h[0][1:].strip()
+            pkg_name = hash_pattern.split(line)[-1].strip()
+            if sign == '+':
+                h_added[pkg_name] = bytes.fromhex(sha256)
+            else:
+                h_deleted[pkg_name] = bytes.fromhex(sha256)
+    return h_added, h_deleted
+
+def parse_pkglist_diff(diff_file, is_src_list):
+    """Parse package list diff file.
+    Returns added and deleted packages lists
+
+    Args:
+        diff_file (str): package list diff file
+        is_src_list (bool): parse file as source packages list or binary packages list
+
+    Returns:
+        (list, list): added packages, deleted packages
+    """
+    diff_pattern = re.compile('^[+-]+[a-zA-Z0-9]+\S+')
+    p_added = []
+    p_deleted = []
+    try:
+        contents = Path(diff_file).read_text()
+        contents = (_ for _ in contents.split('\n') if len(_) > 0)
+    except FileNotFoundError:
+        return [], []
+    for line in contents:
+        p = diff_pattern.findall(line)
+        if p:
+            sign = p[0][0]
+            if is_src_list:
+                pkg_name = diff_pattern.split(line)[-1].split('\t')[-1].strip()
+            else:
+                pkg_name = diff_pattern.split(line)[-1].split('\t')[-2].strip()
+            if sign == '+':
+                p_added.append(pkg_name)
+            else:
+                p_deleted.append(pkg_name)
+    return p_added, p_deleted
