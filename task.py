@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 import datetime
 import time
+import concurrent.futures
 
 import clickhouse_driver as chd
 import rpm
@@ -18,7 +19,9 @@ import json
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt, md5_from_file, mmhash, sha256_from_file, cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
+from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file, md5_sha256_from_file
+from utils import cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
+from utils import parse_hash_diff, parse_pkglist_diff
 
 NAME = 'task'
 
@@ -38,10 +41,11 @@ def get_client(args):
 
 
 class Task:
-    def __init__(self, conn, girar, task):
+    def __init__(self, conn, girar, task, args):
         self.girar = girar
         self.conn = conn
         self.task = task
+        self.args = args
         self.cache = extract.init_cache(self.conn)
         self.approvals = []
         self._load_approvals()
@@ -65,29 +69,51 @@ class Task:
                 settings={'types_check': True}
             )
 
-    def _insert_package(self, pkg, srpm_hash, is_srpm=False):
+    def _insert_package(self, pkg, srpm_hash, is_srpm, conn_args=None):
         kw = {}
         hdr = self.girar.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
-        pkg_hash = mmhash(sha1)
-        kw['pkg_hash'] = pkg_hash
-        kw['pkg_filename'] = Path(pkg).name
+        hashes = {
+            'sha1': sha1,
+            'mmh': mmhash(sha1)
+        }
+        pkg_name = Path(pkg).name
+
+        if self.task['pkg_hashes'][pkg_name]['md5']:
+            hashes['md5'] = self.task['pkg_hashes'][pkg_name]['md5']
+        else:
+            log.debug(f"calculate MD5 for {pkg_name} file")
+            hashes['md5'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+
+        if self.task['pkg_hashes'][pkg_name]['sha256']:
+            hashes['sha256'] = self.task['pkg_hashes'][pkg_name]['sha256']
+        else:
+            log.debug(f"calculate SHA256 for {pkg_name} file")
+            hashes['sha256'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+        # hashes['md5'], hashes['sha256'] =  md5_sha256_from_file(self.girar.get_file_path(pkg))
+
+        kw['pkg_hash'] = hashes['mmh']
+        kw['pkg_filename'] = pkg_name
         kw['pkg_filesize'] = self.girar.get_file_size(pkg)
         if is_srpm:
-            kw['pkg_sourcerpm'] = kw['pkg_filename']
-            kw['pkg_srcrpm_hash'] = pkg_hash
+            kw['pkg_sourcerpm'] = pkg_name
+            kw['pkg_srcrpm_hash'] = hashes['mmh']
         else:
             kw['pkg_srcrpm_hash'] = srpm_hash
-        if not extract.check_package_in_cache(self.cache, pkg_hash):
-            extract.insert_package(self.conn, hdr, **kw)
-            extract.insert_pkg_hash_single(self.conn,
-                {'mmh': pkg_hash,
-                'sha1': sha1,
-                'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
-                'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
-            )
-            log.info(f"add package: {sha1.hex()} : {kw['pkg_filename']}")
-        return pkg_hash
+
+        if not extract.check_package_in_cache(self.cache, hashes['mmh']):
+            if not conn_args:
+                conn = self.conn
+                extract.insert_package(conn, hdr, **kw)
+                extract.insert_pkg_hash_single(conn, hashes)
+            else:
+                conn = get_client(conn_args)
+                extract.insert_package(conn, hdr, **kw)
+                extract.insert_pkg_hash_single(conn, hashes)
+                conn.disconnect()
+            log.info(f"add package: {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+
+        return hashes['mmh']
 
     def _save_task(self):
         # 1 - proceed with TaskStates
@@ -153,10 +179,18 @@ class Task:
             else:
                 titer['titer_srcrpm_hash'] = 0
             # 4.1.2 - load binary packages
+            # for pkg in titer['titer_rpms']:
+            #     titer['titer_pkgs_hash'].append(
+            #         self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
+            #     )
+            pool_args = []
             for pkg in titer['titer_rpms']:
-                titer['titer_pkgs_hash'].append(
-                    self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
-                )
+                pool_args.append((pkg, titer['titer_srcrpm_hash'], False, self.args))
+            if pool_args:
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    res = list(pool.map(lambda p: self._insert_package(*p), pool_args))
+                titer['titer_pkgs_hash'] = res
+            
             if not titer['titer_pkgs_hash']:
                 titer['titer_pkgs_hash'] = [0]
             # 4.2 - load build logs
@@ -514,7 +548,9 @@ def init_task_structure_from_task(girar):
         'task_approvals': [],
         'task_iterations': [],
         'arepo': [],
-        'logs': []
+        'logs': [],
+        'plan': {},
+        'pkg_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None))
     }
     # parse '/task' and '/info.json' for 'TaskStates'
     if girar.check_file('task/state'):
@@ -541,6 +577,32 @@ def init_task_structure_from_task(girar):
     task['task_state']['task_version'] = t.strip() if t else ''
     t = girar.get_symlink_target('build/repo/prev', name_only=True)
     task['task_state']['task_prev'] = int(t.strip()) if t else 0
+    # parse '/plan' and '/build/repo' for diff lists and hashes
+    # 0 - get packages list diffs
+    for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
+        task['plan']['add'] = []
+        task['plan']['del'] = []
+        if pkgdiff.name == 'src.list.diff':
+            p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=True)
+        else:
+            p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=False)
+        for p in p_add:
+            task['plan']['add'].append(p)
+        for p in p_del:
+            task['plan']['del'].append(p)
+    # 1 - get SHA256 hashes from '/plan/*.hash.diff'
+    for hashdiff in (_ for _ in girar.get_file_path('plan').glob('*.hash.diff')):
+        h_add, _ = parse_hash_diff(hashdiff)
+        for k, v in h_add.items():
+            task['pkg_hashes'][k]['sha256'] = v
+    # 2 - get MD5 hashes from '/build/repo/%arch%/base/pkglist.task.xz'
+    for pkglist in (_ for _ in girar.get_file_path('build/repo').glob('*/base/pkglist.task.xz')):
+        hdrs = extract.read_headers_from_xz_pkglist(pkglist)
+        for hdr in hdrs:
+            for hdr in hdrs:
+                pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+                pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+                task['pkg_hashes'][pkg_name]['md5'] = pkg_md5
     # parse '/acl' for 'TaskApprovals'
     # 0 - iterate through 'acl/approved'
     for subtask in (_.name for _ in girar.get('acl/approved') if _.is_dir()):
@@ -805,7 +867,7 @@ def load(args, conn):
             ).write_text(
                 json.dumps(task_struct, indent=2, sort_keys=True, default=str)
             )
-        task = Task(conn, girar, task_struct)
+        task = Task(conn, girar, task_struct, args)
         log.info(f"loading {task_struct['task_state']['task_id']} to database {args.dbname}")
         task.save()
         ts = time.time() - ts
