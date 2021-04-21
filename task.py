@@ -78,7 +78,7 @@ class Task:
                     settings={'types_check': True}
                 )
                 conn.disconnect()
-        log.info(f"Logfile loaded in {(time.time() - st):.3f} seconds: {log_name} : {log_file_size} bytes")
+        log.debug(f"Logfile loaded in {(time.time() - st):.3f} seconds : {log_name} : {log_file_size} bytes")
 
     def _insert_package(self, pkg, srpm_hash, is_srpm, conn_args=None):
         st = time.time()
@@ -123,7 +123,7 @@ class Task:
                 extract.insert_package(conn, hdr, **kw)
                 extract.insert_pkg_hash_single(conn, hashes)
                 conn.disconnect()
-            log.info(f"package loaded in {(time.time() - st):.3f} seconds: {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+            log.info(f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
 
         return hashes['mmh']
 
@@ -131,10 +131,14 @@ class Task:
         # 1 - proceed with TaskStates
         self.task['task_state']['task_eventlog_hash'] = []
         # 1.1 - save events logs
+        st = time.time()
+        l_count = 0
         for _, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
             self.task['task_state']['task_eventlog_hash'].append(log_hash)
             log_file_size = self.girar.get_file_size(log_file)
             self._insert_log(log_file, log_hash, 'events', None, None, log_file_size)
+            l_count += 1
+        log.info(f"INFO: {l_count} events logs loaded in {(time.time() - st):.3f} seconds")
         # 1.2 - save current task state
         self.conn.execute(
             'INSERT INTO TaskStates (*) VALUES',
@@ -183,6 +187,7 @@ class Task:
             )
         # 4 - proceed with TaskIterations
         # 4.0 - load iterations logs
+        st = time.time()
         pool_args = []
         for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
             log_subtask, log_arch = log_file.split('/')[1:3]
@@ -192,6 +197,7 @@ class Task:
         # FIRE!!!
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.workers) as pool:
                 pool.map(lambda p: self._insert_log(*p), pool_args)
+        log.info(f"INFO: {len(pool_args)} build logs loaded in {(time.time() - st):.3f} seconds")
         # processing task iterations
         for titer in self.task['task_iterations']:
             # 4.1 - load packages
@@ -629,7 +635,7 @@ def init_task_structure_from_task(girar):
                 task['pkg_hashes'][pkg_name]['md5'] = pkg_md5
     # parse '/acl' for 'TaskApprovals'
     # 0 - iterate through 'acl/approved'
-    for subtask in (_.name for _ in girar.get('acl/approved') if _.is_dir()):
+    for subtask in (_.name for _ in girar.get_file_path('acl/disapproved').glob('[0-7]*') if _.is_dir()):
         subtask_dir = '/'.join(('acl/approved', subtask))
         for approver in (_.name for _ in girar.get(subtask_dir) if _.is_file()):
             t = girar.parse_approval_file('/'.join((subtask_dir, approver)))
@@ -897,7 +903,7 @@ def load(args, conn):
                 json.dumps(task_struct, indent=2, sort_keys=True, default=str)
             )
         task = Task(conn, girar, task_struct, args)
-        log.info(f"loading {task_struct['task_state']['task_id']} to database {args.dbname}")
+        log.info(f"loading task {task_struct['task_state']['task_id']} to database {args.dbname}")
         task.save()
         ts = time.time() - ts
         log.info(F"task {task_struct['task_state']['task_id']} loaded in {ts:.3f} seconds")
