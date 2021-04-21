@@ -710,7 +710,8 @@ def init_task_structure_from_task(girar):
                 t = girar.get('/'.join((subtask_dir, 'rebuild')))
                 subtask_dict['subtask_type'] = 'rebuild'
                 subtask_dict['subtask_pkg_from'] = t.strip()
-
+            if subtask_dict['subtask_type'] == '':
+                subtask_dict['subtask_type'] = 'unknown'
             t = girar.get('/'.join((subtask_dir, 'dir')))
             subtask_dict['subtask_dir'] = t.strip() if t else ''
             t = girar.get('/'.join((subtask_dir, 'package')))

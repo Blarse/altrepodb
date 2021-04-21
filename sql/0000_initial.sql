@@ -74,7 +74,7 @@ CREATE TABLE Tasks
     subtask_userid      LowCardinality(String), -- from /geras/%subtask_id%/userid
     subtask_dir         String, -- from /geras/%subtask_id%/dir
     subtask_package     String, -- from /geras/%subtask_id%/package
-    subtask_type        Enum8('srpm' = 0, 'gear' = 1, 'copy' = 2, 'delete' = 3, 'rebuild' = 4), -- from /geras/%subtask_id%/sid. WTF logic in girar-task-run check_copy_del()
+    subtask_type        Enum8('unknown' = 0, 'srpm' = 1, 'gear' = 2, 'copy' = 3, 'delete' = 4, 'rebuild' = 5), -- from /geras/%subtask_id%/sid. WTF logic in girar-task-run check_copy_del()
     subtask_pkg_from    LowCardinality(String), -- from 'rebuild' or 'copy_repo' file
     subtask_sid         String, -- from /geras/%subtask_id%/sid
     subtask_tag_author  String, -- from /geras/%subtask_id%/tag_author
