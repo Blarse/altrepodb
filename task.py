@@ -59,17 +59,29 @@ class Task:
         r = self.conn.execute(sql, {'hashes': hashes})
         return int(r[0][0])
 
-    def _insert_log(self, log_name, log_hash, log_type, log_start_time):
+    def _insert_log(self, log_name, log_hash, log_type, log_start_time, conn_args=None, log_file_size=0):
+        st = time.time()
         log_file = self.girar.get_file_path(log_name)
         log_parsed = log_parser(log, log_file, log_type, log_start_time)
         if log_parsed:
-            self.conn.execute(
-                'INSERT INTO TaskLogs_buffer (*) VALUES',
-                [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
-                settings={'types_check': True}
-            )
+            if not conn_args:
+                self.conn.execute(
+                    'INSERT INTO TaskLogs_buffer (*) VALUES',
+                    [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
+                    settings={'types_check': True}
+                )
+            else:
+                conn = get_client(conn_args)
+                conn.execute(
+                    'INSERT INTO TaskLogs_buffer (*) VALUES',
+                    [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
+                    settings={'types_check': True}
+                )
+                conn.disconnect()
+        log.info(f"Logfile loaded in {(time.time() - st):.3f} seconds: {log_name} : {log_file_size} bytes")
 
     def _insert_package(self, pkg, srpm_hash, is_srpm, conn_args=None):
+        st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
@@ -111,7 +123,7 @@ class Task:
                 extract.insert_package(conn, hdr, **kw)
                 extract.insert_pkg_hash_single(conn, hashes)
                 conn.disconnect()
-            log.info(f"add package: {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+            log.info(f"package loaded in {(time.time() - st):.3f} seconds: {hashes['sha1'].hex()} : {kw['pkg_filename']}")
 
         return hashes['mmh']
 
@@ -121,7 +133,8 @@ class Task:
         # 1.1 - save events logs
         for _, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
             self.task['task_state']['task_eventlog_hash'].append(log_hash)
-            self._insert_log(log_file, log_hash, 'events', None)
+            log_file_size = self.girar.get_file_size(log_file)
+            self._insert_log(log_file, log_hash, 'events', None, None, log_file_size)
         # 1.2 - save current task state
         self.conn.execute(
             'INSERT INTO TaskStates (*) VALUES',
@@ -169,6 +182,17 @@ class Task:
                 settings={'types_check': True}
             )
         # 4 - proceed with TaskIterations
+        # 4.0 - load iterations logs
+        pool_args = []
+        for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
+            log_subtask, log_arch = log_file.split('/')[1:3]
+            log_start_time = self.girar.get_file_mtime(log_file)
+            log_file_size = self.girar.get_file_size(log_file)
+            pool_args.append((log_file, log_hash, log_type, log_start_time, self.args, log_file_size))
+        # FIRE!!!
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.workers) as pool:
+                pool.map(lambda p: self._insert_log(*p), pool_args)
+        # processing task iterations
         for titer in self.task['task_iterations']:
             # 4.1 - load packages
             titer['titer_srcrpm_hash'] = 0
@@ -187,7 +211,7 @@ class Task:
             for pkg in titer['titer_rpms']:
                 pool_args.append((pkg, titer['titer_srcrpm_hash'], False, self.args))
             if pool_args:
-                with concurrent.futures.ThreadPoolExecutor() as pool:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.workers) as pool:
                     res = list(pool.map(lambda p: self._insert_package(*p), pool_args))
                 titer['titer_pkgs_hash'] = res
             
@@ -206,7 +230,7 @@ class Task:
                         titer['titer_srpmlog_hash'] = log_hash
                     elif log_type == 'build':
                         titer['titer_buildlog_hash'] = log_hash
-                    self._insert_log(log_file, log_hash, log_type, log_start_time)
+                    # self._insert_log(log_file, log_hash, log_type, log_start_time)
             # 4.3 - load chroots
             if titer['titer_chroot_base']:
                 self.conn.execute(
@@ -830,8 +854,10 @@ def get_args():
     parser.add_argument('-p', '--port', type=str, help='Database password')
     parser.add_argument('-u', '--user', type=str, help='Database login')
     parser.add_argument('-P', '--password', type=str, help='Database password')
+    parser.add_argument('-w', '--workers', type=int, help='Workers count (default: 4)')
     parser.add_argument('-D', '--dumpjson', action='store_true', help='Dump parsed task structure to JSON file')
     args = parser.parse_args()
+    args.workers = args.workers or 4
     if args.config is not None:
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
@@ -859,6 +885,7 @@ def load(args, conn):
         ts = time.time()
         log.info(f"reading task structure for {args.url}")
         task_struct = init_task_structure_from_task(girar)
+        log.info(F"task structure loaded in {(time.time() - ts):.3f} seconds")
         if args.dumpjson:
             p = Path.joinpath(Path.cwd(), 'JSON')
             p.mkdir(exist_ok=True)
