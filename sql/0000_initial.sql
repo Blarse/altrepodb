@@ -161,6 +161,25 @@ CREATE TABLE TaskLogs
 CREATE TABLE TaskLogs_buffer AS TaskLogs ENGINE = Buffer(currentDatabase(), TaskLogs, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
+CREATE TABLE TaskPlanPackages
+(
+    tplan_hash      UInt64,
+    tplan_action    Enum8('add' = 0, 'delete' = 1),
+    tplan_pkg_name  String,
+    tplan_pkg_evr   String,
+    tplan_bin_file  String,
+    tplan_src_file  String
+) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_src_file, tplan_bin_file);
+
+
+CREATE TABLE TaskPlanPkgHash
+(
+    tplan_hash      UInt64,
+    tplan_action    Enum8('add' = 0, 'delete' = 1),
+    tplan_sha256    FixedString(32)
+) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_sha256);
+
+
 CREATE TABLE Files
 (
     pkg_hash        UInt64,

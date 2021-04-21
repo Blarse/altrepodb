@@ -265,6 +265,49 @@ class Task:
         # 5 - load arepo packages
         for pkg in self.task['arepo']:
             self._insert_package(pkg, 0, is_srpm=False)
+        # 6 - load plan
+        # 6.1 - load plan package add and delete
+        payload = []
+        for arch in self.task['plan']['pkg_add'].keys():
+            for k, v in self.task['plan']['pkg_add'][arch].items():
+                payload.append({
+                    'tplan_hash': self.task['plan']['hashes'][arch],
+                    'tplan_action': 'add',
+                    'tplan_pkg_name': v[0],
+                    'tplan_pkg_evr': v[1],
+                    'tplan_bin_file': k,
+                    'tplan_src_file': v[2]
+                })
+        for arch in self.task['plan']['pkg_del'].keys():
+            for k, v in self.task['plan']['pkg_del'][arch].items():
+                payload.append({
+                    'tplan_hash': self.task['plan']['hashes'][arch],
+                    'tplan_action': 'delete',
+                    'tplan_pkg_name': v[0],
+                    'tplan_pkg_evr': v[1],
+                    'tplan_bin_file': k,
+                    'tplan_src_file': v[2]
+                })
+        if payload:
+            self.conn.execute("""INSERT INTO TaskPlanPackages (*) VALUES""", payload)
+        # 6.2 - load plan package hashes add and delete
+        payload = []
+        for arch in self.task['plan']['hash_add'].keys():
+            for k, v in self.task['plan']['hash_add'][arch].items():
+                payload.append({
+                    'tplan_hash': self.task['plan']['hashes'][arch],
+                    'tplan_action': 'add',
+                    'tplan_sha256': v
+                })
+        for arch in self.task['plan']['hash_del'].keys():
+            for k, v in self.task['plan']['hash_del'][arch].items():
+                payload.append({
+                    'tplan_hash': self.task['plan']['hashes'][arch],
+                    'tplan_action': 'delete',
+                    'tplan_sha256': v
+                })
+        if payload:
+            self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
 
     def save(self):
         self._save_task()
@@ -597,6 +640,8 @@ def init_task_structure_from_task(girar):
     task['task_state']['task_depends'] = [int(_) for _ in t.split('\n') if len(_) > 0] if t else []
     t = girar.get('task/try')
     task['task_state']['task_try'] = int(t.strip()) if t else 0
+    t = girar.get('task/iter')
+    task['task_state']['task_iter'] = int(t.strip()) if t else 0
     task['task_state']['task_testonly'] = 1 if girar.check_file('task/test-only') else 0
     task['task_state']['task_failearly'] = 1 if girar.check_file('task/fail-early') else 0
     t  = val_from_json_str(girar.get('info.json'), 'shared')
@@ -609,20 +654,29 @@ def init_task_structure_from_task(girar):
     task['task_state']['task_prev'] = int(t.strip()) if t else 0
     # parse '/plan' and '/build/repo' for diff lists and hashes
     # 0 - get packages list diffs
+    task['plan']['pkg_add'] = {}
+    task['plan']['pkg_del'] = {}
     for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
-        task['plan']['add'] = []
-        task['plan']['del'] = []
         if pkgdiff.name == 'src.list.diff':
             p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=True)
         else:
             p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=False)
         for p in p_add:
-            task['plan']['add'].append(p)
+            if p[4] not in task['plan']['pkg_add']:
+                task['plan']['pkg_add'][p[4]] = {}
+            task['plan']['pkg_add'][p[4]].update({p[2]: (p[0], p[1], p[3])})
         for p in p_del:
-            task['plan']['del'].append(p)
+            if p[4] not in task['plan']['pkg_del']:
+                task['plan']['pkg_del'][p[4]] = {}
+            task['plan']['pkg_del'][p[4]].update({p[2]: (p[0], p[1], p[3])})
     # 1 - get SHA256 hashes from '/plan/*.hash.diff'
+    task['plan']['hash_add'] = {}
+    task['plan']['hash_del'] = {}
     for hashdiff in (_ for _ in girar.get_file_path('plan').glob('*.hash.diff')):
-        h_add, _ = parse_hash_diff(hashdiff)
+        h_add, h_del = parse_hash_diff(hashdiff)
+        h_arch = hashdiff.name.split('.')[0]
+        task['plan']['hash_add'][h_arch] = h_add
+        task['plan']['hash_del'][h_arch] = h_del
         for k, v in h_add.items():
             task['pkg_hashes'][k]['sha256'] = v
     # 2 - get MD5 hashes from '/build/repo/%arch%/base/pkglist.task.xz'
@@ -633,6 +687,20 @@ def init_task_structure_from_task(girar):
                 pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
                 pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
                 task['pkg_hashes'][pkg_name]['md5'] = pkg_md5
+    # 3 - set hashes for TaskPlan* tables
+    p_arch = {_ for _ in task['plan']['pkg_add'].keys()}
+    p_arch.update({_ for _ in task['plan']['pkg_del'].keys()})
+    p_arch.update({_ for _ in task['plan']['hash_add'].keys()})
+    p_arch.update({_ for _ in task['plan']['hash_del'].keys()})
+    task['plan']['hashes'] = {}
+    for arch in p_arch:
+        plan_hash = (''
+            + str(task['task_state']['task_id'])
+            + str(task['task_state']['task_try'])
+            + str(task['task_state']['task_iter'])
+            + arch
+        )
+        task['plan']['hashes'][arch] = mmhash(plan_hash)
     # parse '/acl' for 'TaskApprovals'
     # 0 - iterate through 'acl/approved'
     for subtask in (_.name for _ in girar.get_file_path('acl/disapproved').glob('[0-7]*') if _.is_dir()):
