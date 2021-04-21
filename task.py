@@ -694,6 +694,7 @@ def init_task_structure_from_task(girar):
         if 'dir' not in files and 'srpm' not in files and 'package' not in files:
             # deleted subtask
             subtask_dict['subtask_deleted'] = 1
+            subtask_dict['subtask_type'] = 'unknown'
         else:
             subtask_dict['subtask_deleted'] = 0
             # logic from girar-task-run check_copy_del()
