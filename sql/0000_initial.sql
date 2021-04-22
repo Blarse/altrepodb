@@ -36,33 +36,6 @@ SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh
 FROM  PackageHash_buffer;
 
 
--- CREATE TABLE Tasks
--- (
---     task_id         UInt32,
---     subtask         UInt32,
---     sourcepkg_hash  UInt64,
---     try             UInt16,
---     iteration       UInt8,
---     status          LowCardinality(String),
---     is_test         UInt8,
---     branch          LowCardinality(String),
---     pkgs            Array(UInt64),
---     userid          LowCardinality(String),
---     dir             String,
---     tag_name        String,
---     tag_id          String,
---     tag_author      LowCardinality(String),
---     srpm            String,
---     type            Enum8('srpm' = 0, 'gear' = 1),
---     hash            String,
---     task_arch       LowCardinality(String),
---     chroot_base     Array(UInt64),
---     chroot_BR       Array(UInt64)
--- )
--- ENGINE = MergeTree
--- ORDER BY (task_id, subtask, userid, status, branch, task_arch);
-
-
 CREATE TABLE Tasks
 (
     task_id             UInt32,
@@ -180,12 +153,36 @@ CREATE TABLE TaskPlanPkgHash
 ) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_sha256);
 
 
+-- CREATE TABLE Files
+-- (
+--     pkg_hash        UInt64,
+--     file_name       String,
+--     file_hashname   UInt64 MATERIALIZED murmurHash3_64(file_name),
+--     file_hashdir    UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)))),
+--     file_linkto     String,
+--     file_md5        FixedString(16),
+--     file_size       UInt32,
+--     file_mode       UInt16,
+--     file_rdev       UInt16,
+--     file_mtime      DateTime,
+--     file_flag       UInt16,
+--     file_username   LowCardinality(String),
+--     file_groupname  LowCardinality(String),
+--     file_verifyflag UInt32,
+--     file_device     UInt32,
+--     file_lang       LowCardinality(String),
+--     file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+-- ) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
+
+
+-- CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
+--                                           100000000);
+
 CREATE TABLE Files
 (
     pkg_hash        UInt64,
-    file_name       String,
-    file_hashname   UInt64 MATERIALIZED murmurHash3_64(file_name),
-    file_hashdir    UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)))),
+    file_hashname   UInt64,
+    file_hashdir    UInt64,
     file_linkto     String,
     file_md5        FixedString(16),
     file_size       UInt32,
@@ -199,11 +196,75 @@ CREATE TABLE Files
     file_device     UInt32,
     file_lang       LowCardinality(String),
     file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
-) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_hashname, file_hashdir, file_class, file_md5) PRIMARY KEY pkg_hash;
+
+CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
-CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
-                                          100000000);
+CREATE TABLE FileNames
+(
+    fn_name       String,
+    fn_hash   UInt64 MATERIALIZED murmurHash3_64(fn_name)
+)
+ENGINE = ReplacingMergeTree ORDER BY fn_name;
+
+CREATE TABLE FileNames_buffer AS FileNames ENGINE = Buffer(currentDatabase(), FileNames, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+
+
+CREATE TABLE Files_insert
+(
+    pkg_hash        UInt64,
+    file_name       String,
+    file_linkto     String,
+    file_md5        FixedString(16),
+    file_size       UInt32,
+    file_mode       UInt16,
+    file_rdev       UInt16,
+    file_mtime      DateTime,
+    file_flag       UInt16,
+    file_username   LowCardinality(String),
+    file_groupname  LowCardinality(String),
+    file_verifyflag UInt32,
+    file_device     UInt32,
+    file_lang       LowCardinality(String),
+    file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+) ENGINE = Null;
+
+
+CREATE MATERIALIZED VIEW mv_files TO Files_buffer
+(
+    pkg_hash        UInt64,
+    file_hashname   UInt64,
+    file_hashdir    UInt64,
+    file_linkto     String,
+    file_md5        FixedString(16),
+    file_size       UInt32,
+    file_mode       UInt16,
+    file_rdev       UInt16,
+    file_mtime      DateTime,
+    file_flag       UInt16,
+    file_username   LowCardinality(String),
+    file_groupname  LowCardinality(String),
+    file_verifyflag UInt32,
+    file_device     UInt32,
+    file_lang       LowCardinality(String),
+    file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+) AS SELECT
+    pkg_hash, file_linkto, file_md5, file_size, file_mode, file_rdev, file_mtime,
+    file_flag, file_username, file_groupname, file_verifyflag, file_device, file_lang, file_class,
+    murmurHash3_64(file_name) as file_hashname,
+    murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)),'/')) as file_hashdir
+FROM Files_insert;
+
+CREATE MATERIALIZED VIEW mv_filenames_filename TO FileNames_buffer
+(
+    fn_name         String
+) AS SELECT file_name as fn_name FROM Files_insert;
+
+CREATE MATERIALIZED VIEW mv_filenames_filedir TO FileNames_buffer
+(
+    fn_name         String
+) AS SELECT arrayStringConcat(arrayPopBack(splitByChar('/', file_name)),'/') as fn_name FROM Files_insert;
 
 
 CREATE TABLE Packages

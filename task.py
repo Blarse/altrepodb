@@ -175,10 +175,11 @@ class TaskIterationLoaderWorker(threading.Thread):
                 subtask = str(titer['subtask_id'])
                 arch = titer['subtask_arch']
                 # 1.1 - load srpm package
-                if titer['titer_srpm']:
-                    titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
-                else:
-                    titer['titer_srcrpm_hash'] = 0
+                with self.lock:
+                    if titer['titer_srpm']:
+                        titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
+                    else:
+                        titer['titer_srcrpm_hash'] = 0
                 # 1.2 - load binary packages
                 for pkg in titer['titer_rpms']:
                     titer['titer_pkgs_hash'].append(
