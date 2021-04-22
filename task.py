@@ -11,6 +11,7 @@ from pathlib import Path
 import datetime
 import time
 import concurrent.futures
+import threading
 
 import clickhouse_driver as chd
 import rpm
@@ -21,7 +22,7 @@ import extract
 # from extract import get_header, insert_package, init_cache, check_package
 from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file, md5_sha256_from_file
 from utils import cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
-from utils import parse_hash_diff, parse_pkglist_diff
+from utils import parse_hash_diff, parse_pkglist_diff, LockedIterator
 
 NAME = 'task'
 
@@ -39,48 +40,88 @@ def get_client(args):
         password=args.password
     )
 
-
-class Task:
-    def __init__(self, conn, girar, task, args):
-        self.girar = girar
+class LogLoaderWorker(threading.Thread):
+    def __init__(self, conn, girar, logger, logs, count_list, *args, **kwargs) -> None:
         self.conn = conn
-        self.task = task
-        self.args = args
-        self.cache = extract.init_cache(self.conn)
-        self.approvals = []
-        self._load_approvals()
+        self.girar = girar
+        self.logger = logger
+        self.logs = logs
+        self.count_list = count_list
+        self.lock = threading.Lock()
+        super().__init__(*args, **kwargs)
 
-    def _load_approvals(self):
-        # select from DB last approval state for given task
-        pass
+    def run(self):
+        self.logger.debug(f"thread {self.ident} start")
+        count = 0
+        for log in self.logs:
+            try:
+                st = time.time()
+                log_type, log_name, log_hash, _ = log
+                # log_subtask, log_arch = log_file.split('/')[1:3]
+                log_start_time = self.girar.get_file_mtime(log_name)
+                log_file_size = self.girar.get_file_size(log_name)
+                log_file = self.girar.get_file_path(log_name)
+                log_parsed = log_parser(self.logger, log_file, log_type, log_start_time)
+                if log_parsed:
+                    count += 1
+                    self.conn.execute(
+                        'INSERT INTO TaskLogs_buffer (*) VALUES',
+                        [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
+                        settings={'types_check': True}
+                    )
+                    self.logger.debug(f"Logfile loaded in {(time.time() - st):.3f} seconds : {log_name} : {log_file_size} bytes")
+                else:
+                    self.logger.debug(f"Logfile parsing failed for {log_name}")
+            except Exception as error:
+                self.logger.error(error, exc_info=True)
+        self.logger.debug("thread {self.ident} stop")
+        self.count_list.append(count)
 
+def log_load_worker_pool(args, girar, logger, logs_list, num_of_workers=None):
+    st = time.time()
+    workers = []
+    connections = []
+    logs = LockedIterator((log for log in logs_list))
+    logs_count = []
+    if num_of_workers:
+        args.workers = num_of_workers
+
+    for i in range(args.workers):
+        conn = get_client(args)
+        connections.append(conn)
+        worker = LogLoaderWorker(conn, girar, logger, logs, logs_count)
+        worker.start()
+        workers.append(worker)
+
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.disconnect()
+
+    logger.info(f"{sum(logs_count)} log files loaded in {(time.time() - st):.3f} seconds")
+
+class TaskIterationLoaderWorker(threading.Thread):
+    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, task_iterations, count_list, *args, **kwargs) -> None:
+        self.conn = conn
+        self.girar = girar
+        self.logger = logger
+        self.cache = pkg_hashes_cache
+        self.pkg_hashes = task_pkg_hashes
+        self.task_logs = task_logs
+        self.titers = task_iterations
+        self.count_list = count_list
+        self.count = 0
+        self.lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+    
     def _calculate_hash_from_array_by_CH(self, hashes):
-        sql = 'SELECT murmurHash3_64(%(hashes)s)'
-        r = self.conn.execute(sql, {'hashes': hashes})
-        return int(r[0][0])
+            sql = 'SELECT murmurHash3_64(%(hashes)s)'
+            r = self.conn.execute(sql, {'hashes': hashes})
+            return int(r[0][0])
 
-    def _insert_log(self, log_name, log_hash, log_type, log_start_time, conn_args=None, log_file_size=0):
-        st = time.time()
-        log_file = self.girar.get_file_path(log_name)
-        log_parsed = log_parser(log, log_file, log_type, log_start_time)
-        if log_parsed:
-            if not conn_args:
-                self.conn.execute(
-                    'INSERT INTO TaskLogs_buffer (*) VALUES',
-                    [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
-                    settings={'types_check': True}
-                )
-            else:
-                conn = get_client(conn_args)
-                conn.execute(
-                    'INSERT INTO TaskLogs_buffer (*) VALUES',
-                    [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
-                    settings={'types_check': True}
-                )
-                conn.disconnect()
-        log.debug(f"Logfile loaded in {(time.time() - st):.3f} seconds : {log_name} : {log_file_size} bytes")
-
-    def _insert_package(self, pkg, srpm_hash, is_srpm, conn_args=None):
+    def _insert_package(self, pkg, srpm_hash, is_srpm):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
@@ -91,18 +132,17 @@ class Task:
         }
         pkg_name = Path(pkg).name
 
-        if self.task['pkg_hashes'][pkg_name]['md5']:
-            hashes['md5'] = self.task['pkg_hashes'][pkg_name]['md5']
+        if self.pkg_hashes[pkg_name]['md5']:
+            hashes['md5'] = self.pkg_hashes[pkg_name]['md5']
         else:
-            log.debug(f"calculate MD5 for {pkg_name} file")
+            self.logger.debug(f"calculate MD5 for {pkg_name} file")
             hashes['md5'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
-        if self.task['pkg_hashes'][pkg_name]['sha256']:
-            hashes['sha256'] = self.task['pkg_hashes'][pkg_name]['sha256']
+        if self.pkg_hashes[pkg_name]['sha256']:
+            hashes['sha256'] = self.pkg_hashes[pkg_name]['sha256']
         else:
-            log.debug(f"calculate SHA256 for {pkg_name} file")
+            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
             hashes['sha256'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
-        # hashes['md5'], hashes['sha256'] =  md5_sha256_from_file(self.girar.get_file_path(pkg))
 
         kw['pkg_hash'] = hashes['mmh']
         kw['pkg_filename'] = pkg_name
@@ -114,31 +154,217 @@ class Task:
             kw['pkg_srcrpm_hash'] = srpm_hash
 
         if not extract.check_package_in_cache(self.cache, hashes['mmh']):
-            if not conn_args:
-                conn = self.conn
-                extract.insert_package(conn, hdr, **kw)
-                extract.insert_pkg_hash_single(conn, hashes)
-            else:
-                conn = get_client(conn_args)
-                extract.insert_package(conn, hdr, **kw)
-                extract.insert_pkg_hash_single(conn, hashes)
-                conn.disconnect()
-            log.info(f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_pkg_hash_single(self.conn, hashes)
+            self.cache.add(hashes['mmh'])
+            self.count += 1
+            self.logger.debug(f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+        else:
+            self.logger.debug(f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
 
         return hashes['mmh']
+
+    def run(self):
+        self.logger.debug(f"thread {self.ident} start")
+        count = 0
+        for titer in self.titers:
+            try:
+                # 1 - load packages
+                titer['titer_srcrpm_hash'] = 0
+                titer['titer_pkgs_hash'] = []
+                subtask = str(titer['subtask_id'])
+                arch = titer['subtask_arch']
+                # 1.1 - load srpm package
+                if titer['titer_srpm']:
+                    titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
+                else:
+                    titer['titer_srcrpm_hash'] = 0
+                # 1.2 - load binary packages
+                for pkg in titer['titer_rpms']:
+                    titer['titer_pkgs_hash'].append(
+                        self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
+                    )
+                
+                if not titer['titer_pkgs_hash']:
+                    titer['titer_pkgs_hash'] = [0]
+                # 2 - save build log hashes
+                titer['titer_buildlog_hash'] = 0
+                titer['titer_srpmlog_hash'] = 0
+                for log_type, log_file, log_hash, _ in [_ for _ in self.task_logs if _[0] in ('srpm', 'build')]:
+                    log_subtask, log_arch = log_file.split('/')[1:3]
+                    if log_subtask == subtask and log_arch == arch:
+                        if log_type == 'srpm':
+                            titer['titer_srpmlog_hash'] = log_hash
+                        elif log_type == 'build':
+                            titer['titer_buildlog_hash'] = log_hash
+                # 3 - load chroots
+                if titer['titer_chroot_base']:
+                    self.conn.execute(
+                        'INSERT INTO TaskChroots_buffer (*) VALUES',
+                        [{'tch_chroot': titer['titer_chroot_base']}],
+                        settings={'types_check': True}
+                    )
+                    titer['titer_chroot_base'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_base'])
+                else:
+                    titer['titer_chroot_base'] = 0
+                if titer['titer_chroot_br']:
+                    self.conn.execute(
+                        'INSERT INTO TaskChroots_buffer (*) VALUES',
+                        [{'tch_chroot': titer['titer_chroot_br']}],
+                        settings={'types_check': True}
+                    )
+                    titer['titer_chroot_br'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_br'])
+                else:
+                    titer['titer_chroot_br'] = 0
+                # 4 - load task iteration
+                self.conn.execute(
+                    'INSERT INTO TaskIterations_buffer (*) VALUES',
+                    [titer],
+                    settings={'types_check': True}
+                )
+                count += 1
+            except Exception as error:
+                self.logger.error(error, exc_info=True)
+        if self.count:
+            self.logger.info(f"{self.count} packages loaded from /build/{subtask}/{arch}")
+        self.logger.debug(f"thread {self.ident} stop")
+        self.count_list.append(count)
+        
+
+def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs, task_iterations, num_of_workers=None):
+    st = time.time()
+    workers = []
+    connections = []
+    titer = LockedIterator((titer for titer in task_iterations))
+    pkg_hashes_cache = extract.init_cache(conn)
+    titer_count = []
+    if num_of_workers:
+        args.workers = num_of_workers
+
+    for i in range(args.workers):
+        conn = get_client(args)
+        connections.append(conn)
+        worker = TaskIterationLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, titer, titer_count)
+        worker.start()
+        workers.append(worker)
+
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.disconnect()
+
+    logger.info(f"{sum(titer_count)} TaskIteration loaded in {(time.time() - st):.3f} seconds")
+
+class PackageLoaderWorker(threading.Thread):
+    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, count_list, *args, **kwargs) -> None:
+        self.conn = conn
+        self.girar = girar
+        self.logger = logger
+        self.cache = pkg_hashes_cache
+        self.pkg_hashes = task_pkg_hashes
+        self.packages = packages
+        self.count_list = count_list
+        self.count = 0
+        self.lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+
+    def _insert_package(self, pkg, srpm_hash, is_srpm):
+        st = time.time()
+        kw = {}
+        hdr = self.girar.get_header(pkg)
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+        hashes = {
+            'sha1': sha1,
+            'mmh': mmhash(sha1)
+        }
+        pkg_name = Path(pkg).name
+
+        if self.pkg_hashes[pkg_name]['md5']:
+            hashes['md5'] = self.pkg_hashes[pkg_name]['md5']
+        else:
+            self.logger.debug(f"calculate MD5 for {pkg_name} file")
+            hashes['md5'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+
+        if self.pkg_hashes[pkg_name]['sha256']:
+            hashes['sha256'] = self.pkg_hashes[pkg_name]['sha256']
+        else:
+            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+            hashes['sha256'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+
+        kw['pkg_hash'] = hashes['mmh']
+        kw['pkg_filename'] = pkg_name
+        kw['pkg_filesize'] = self.girar.get_file_size(pkg)
+        if is_srpm:
+            kw['pkg_sourcerpm'] = pkg_name
+            kw['pkg_srcrpm_hash'] = hashes['mmh']
+        else:
+            kw['pkg_srcrpm_hash'] = srpm_hash
+
+        if not extract.check_package_in_cache(self.cache, hashes['mmh']):
+            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_pkg_hash_single(self.conn, hashes)
+            self.cache.add(hashes['mmh'])
+            self.count += 1
+            self.logger.debug(f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+        else:
+            self.logger.debug(f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}")
+
+        return hashes['mmh']
+
+    def run(self):
+        self.logger.debug(f"thread {self.ident} start")
+        for pkg in self.packages:
+            try:
+                self._insert_package(pkg, 0, is_srpm=False)
+            except Exception as error:
+                self.logger.error(error, exc_info=True)
+        self.logger.debug(f"thread {self.ident} stop")
+        self.count_list.append(self.count)
+
+def package_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, packages, num_of_workers=None, loaded_from=''):
+    st = time.time()
+    workers = []
+    connections = []
+    packages = LockedIterator((pkg for pkg in packages))
+    pkg_hashes_cache = extract.init_cache(conn)
+    pkg_count = []
+    if num_of_workers:
+        args.workers = num_of_workers
+
+    for i in range(args.workers):
+        conn = get_client(args)
+        connections.append(conn)
+        worker = PackageLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, pkg_count)
+        worker.start()
+        workers.append(worker)
+
+    for w in workers:
+        w.join()
+
+    for c in connections:
+        if c is not None:
+            c.disconnect()
+    if sum(pkg_count):
+        logger.info(f"{sum(pkg_count)} packages loaded in {(time.time() - st):.3f} seconds from {loaded_from}")
+
+class Task:
+    def __init__(self, conn, girar, logger, task, args):
+        self.girar = girar
+        self.conn = conn
+        self.logger = logger
+        self.task = task
+        self.args = args
+        # self.cache = extract.init_cache(self.conn)
+        self.approvals = []
 
     def _save_task(self):
         # 1 - proceed with TaskStates
         self.task['task_state']['task_eventlog_hash'] = []
-        # 1.1 - save events logs
-        st = time.time()
-        l_count = 0
-        for _, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
+        # 1.1 - save event logs hashes
+        for _, _, log_hash, _ in [_ for _ in self.task['logs'] if _[0] == 'events']:
             self.task['task_state']['task_eventlog_hash'].append(log_hash)
-            log_file_size = self.girar.get_file_size(log_file)
-            self._insert_log(log_file, log_hash, 'events', None, None, log_file_size)
-            l_count += 1
-        log.info(f"INFO: {l_count} events logs loaded in {(time.time() - st):.3f} seconds")
         # 1.2 - save current task state
         self.conn.execute(
             'INSERT INTO TaskStates (*) VALUES',
@@ -185,88 +411,43 @@ class Task:
                 self.task['tasks'],
                 settings={'types_check': True}
             )
-        # 4 - proceed with TaskIterations
-        # 4.0 - load iterations logs
-        st = time.time()
-        pool_args = []
-        for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
-            log_subtask, log_arch = log_file.split('/')[1:3]
-            log_start_time = self.girar.get_file_mtime(log_file)
-            log_file_size = self.girar.get_file_size(log_file)
-            pool_args.append((log_file, log_hash, log_type, log_start_time, self.args, log_file_size))
-        # FIRE!!!
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.workers) as pool:
-                pool.map(lambda p: self._insert_log(*p), pool_args)
-        log.info(f"INFO: {len(pool_args)} build logs loaded in {(time.time() - st):.3f} seconds")
-        # processing task iterations
-        for titer in self.task['task_iterations']:
-            # 4.1 - load packages
-            titer['titer_srcrpm_hash'] = 0
-            titer['titer_pkgs_hash'] = []
-            # 4.1.1 - load srpm package
-            if titer['titer_srpm']:
-                titer['titer_srcrpm_hash'] = self._insert_package(titer['titer_srpm'], 0 , is_srpm=True)
-            else:
-                titer['titer_srcrpm_hash'] = 0
-            # 4.1.2 - load binary packages
-            # for pkg in titer['titer_rpms']:
-            #     titer['titer_pkgs_hash'].append(
-            #         self._insert_package(pkg, titer['titer_srcrpm_hash'], is_srpm=False)
-            #     )
-            pool_args = []
-            for pkg in titer['titer_rpms']:
-                pool_args.append((pkg, titer['titer_srcrpm_hash'], False, self.args))
-            if pool_args:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.workers) as pool:
-                    res = list(pool.map(lambda p: self._insert_package(*p), pool_args))
-                titer['titer_pkgs_hash'] = res
-            
-            if not titer['titer_pkgs_hash']:
-                titer['titer_pkgs_hash'] = [0]
-            # 4.2 - load build logs
-            subtask = str(titer['subtask_id'])
-            arch = titer['subtask_arch']
-            titer['titer_buildlog_hash'] = 0
-            titer['titer_srpmlog_hash'] = 0
-            for log_type, log_file, log_hash, _ in [_ for _ in self.task['logs'] if _[0] in ('srpm', 'build')]:
-                log_subtask, log_arch = log_file.split('/')[1:3]
-                if log_subtask == subtask and log_arch == arch:
-                    log_start_time = self.girar.get_file_mtime(log_file)
-                    if log_type == 'srpm':
-                        titer['titer_srpmlog_hash'] = log_hash
-                    elif log_type == 'build':
-                        titer['titer_buildlog_hash'] = log_hash
-                    # self._insert_log(log_file, log_hash, log_type, log_start_time)
-            # 4.3 - load chroots
-            if titer['titer_chroot_base']:
-                self.conn.execute(
-                    'INSERT INTO TaskChroots_buffer (*) VALUES',
-                    [{'tch_chroot': titer['titer_chroot_base']}],
-                    settings={'types_check': True}
-                )
-                titer['titer_chroot_base'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_base'])
-            else:
-                titer['titer_chroot_base'] = 0
-            if titer['titer_chroot_br']:
-                self.conn.execute(
-                    'INSERT INTO TaskChroots_buffer (*) VALUES',
-                    [{'tch_chroot': titer['titer_chroot_br']}],
-                    settings={'types_check': True}
-                )
-                titer['titer_chroot_br'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_br'])
-            else:
-                titer['titer_chroot_br'] = 0
-            # 4.4 - load task iteration
-            self.conn.execute(
-                'INSERT INTO TaskIterations_buffer (*) VALUES',
-                [titer],
-                settings={'types_check': True}
+        # 4 - load all logs
+        if self.task['logs']:
+            log_load_worker_pool(
+                self.args,
+                self.girar,
+                self.logger,
+                self.task['logs'],
+                num_of_workers=None
             )
-        # 5 - load arepo packages
-        for pkg in self.task['arepo']:
-            self._insert_package(pkg, 0, is_srpm=False)
-        # 6 - load plan
-        # 6.1 - load plan package add and delete
+        # 5 - proceed with TaskIterations
+        if self.task['task_iterations']:
+            titer_load_worker_pool(
+                self.args,
+                self.conn,
+                self.girar,
+                self.logger,
+                self.task['pkg_hashes'],
+                self.task['logs'],
+                self.task['task_iterations'],
+                num_of_workers=None
+            )
+        # 6 - load arepo packages
+        # for pkg in self.task['arepo']:
+        #     self._insert_package(pkg, 0, is_srpm=False)
+        if self.task['arepo']:
+            package_load_worker_pool(
+                self.args,
+                self.conn,
+                self.girar,
+                self.logger,
+                self.task['pkg_hashes'],
+                self.task['arepo'],
+                num_of_workers=None,
+                loaded_from="'/arepo'"
+            )
+        # 7 - load plan
+        # 7.1 - load plan package add and delete
         payload = []
         for arch in self.task['plan']['pkg_add'].keys():
             for k, v in self.task['plan']['pkg_add'][arch].items():
@@ -290,7 +471,7 @@ class Task:
                 })
         if payload:
             self.conn.execute("""INSERT INTO TaskPlanPackages (*) VALUES""", payload)
-        # 6.2 - load plan package hashes add and delete
+        # 7.2 - load plan package hashes add and delete
         payload = []
         for arch in self.task['plan']['hash_add'].keys():
             for k, v in self.task['plan']['hash_add'][arch].items():
@@ -308,166 +489,6 @@ class Task:
                 })
         if payload:
             self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
-
-    def save(self):
-        self._save_task()
-
-class Task2:
-    def __init__(self, conn, girar):
-        self.girar = girar
-        self.conn = conn
-        self.cache = extract.init_cache(self.conn)
-        self._prepare_fields()
-
-    def _prepare_fields(self):
-        self.fields = {
-            'task_id': int(self.girar.get('task/id').strip()),
-            'try': int(self.girar.get('task/try').strip()),
-            'iteration': int(self.girar.get('task/iter').strip()),
-            'status': self.girar.get('task/state').strip(),
-            'is_test': self.girar.get('task/test-only', status=True),
-            'branch': self.girar.get('task/repo').strip()
-        }
-
-    def _get_gears_info(self, n):
-        userid = self.girar.get('gears/{0}/userid'.format(n))
-        userid = userid.strip() if userid else ''
-        dir_ = self.girar.get('gears/{0}/dir'.format(n))
-        dir_ = dir_.strip() if dir_ else ''
-        tag_name = self.girar.get('gears/{0}/tag_name'.format(n))
-        tag_name = tag_name.strip() if tag_name else ''
-        tag_id = self.girar.get('gears/{0}/tag_id'.format(n))
-        tag_id = tag_id.strip() if tag_id else ''
-        tag_author = self.girar.get('gears/{0}/tag_author'.format(n))
-        tag_author = tag_author.strip() if tag_author else ''
-        srpm = self.girar.get('gears/{0}/srpm'.format(n))
-        srpm = srpm.strip() if srpm else ''
-        try:
-            type_, hash_ = self.girar.get('gears/{0}/sid'.format(n)).strip().split(':')
-        except Exception as error:
-            log.error(error)
-            type_ = 'gear' if srpm == '' else 'srpm'
-            hash_ = ''
-
-        fields = dict(
-            userid=userid,
-            dir=dir_,
-            tag_name=tag_name,
-            tag_id=tag_id,
-            tag_author=tag_author,
-            srpm=srpm,
-            type=type_,
-            hash=hash_
-        )
-        return fields
-
-    def _get_pkg_list(self, method):
-        try:
-            return [i.split('\t') for i in self.girar.get(method).split('\n') if len(i) > 0]
-        except Exception as error:
-            log.error(error)
-            return []
-
-    def _get_chroot_list(self, subtask, arch, chroot):
-        method = 'build/{0}/{1}/{2}'.format(subtask, arch, chroot)
-        try:
-            content = self.girar.get(method)
-            if content is not None:
-                return [i.split('\t')[-1].strip() for i in content.split('\n') if len(i) > 0]
-        except Exception as error:
-            log.error(error)
-        return []
-
-    def _get_archs_list(self):
-        return [i.strip() for i in self.girar.get('plan/change-arch').split('\n') if len(i) > 0]
-
-    def _check_task(self):
-        sql = ("SELECT COUNT(*) "
-        "FROM Tasks WHERE task_id = %(task_id)s "
-        "AND try = %(try)s "
-        "AND iteration = %(iteration)s")
-        already = self.conn.execute(sql, {'task_id': self.fields['task_id'], 'try': self.fields['try'], 'iteration': self.fields['iteration']})
-        return already[0][0] > 0
-        # return False
-
-    def _save_task(self):
-        if self._check_task():
-            log.info('Task {0} already exist'.format(self.fields['task_id']))
-            return
-        src_pkgs = self._get_src()
-        bin_pkgs = self._get_bin(src_pkgs)
-        archs = self._get_archs_list()
-        tasks = []
-        for subtask, sha1 in src_pkgs.items():
-            task = self.fields.copy()
-            task.update(self._get_gears_info(subtask))
-            task['subtask'] = int(subtask)
-            task['sourcepkg_hash'] = mmhash(sha1)
-            for arch in archs:
-                task_ = task.copy()
-                task_['task_arch'] = arch
-                task_['pkgs'] = [mmhash(p) for p in bin_pkgs[subtask][arch]]
-                # skip packages, that are not build for arch
-                if len(task_['pkgs']) == 0:
-                    continue
-                task_['chroot_base'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_base')]
-                task_['chroot_BR'] = [mmhash(p) for p in self._get_chroot_list(subtask, arch, 'chroot_BR')]
-                tasks.append(task_)
-        sql = """INSERT INTO Tasks (task_id, subtask, sourcepkg_hash, try, iteration, status,
-                   is_test, branch, pkgs, userid, dir, tag_name, tag_id,
-                   tag_author, srpm, type, hash, task_arch, chroot_base,
-                   chroot_BR) VALUES"""
-        self.conn.execute(sql, tasks)
-        log.info('save task={0} try={1} iter={2}'.format(self.fields['task_id'], self.fields['try'], self.fields['iteration']))
-
-    def _get_src(self):
-        src_list = self._get_pkg_list('plan/add-src')
-        src_pkgs = {}
-        for *_, pkg, n in src_list:
-            kw = {}
-            hdr = self.girar.get_header(pkg)
-            sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
-            pkghash = mmhash(sha1)
-            kw['pkg_hash'] = pkghash
-            kw['pkg_srcrpm_hash'] = pkghash
-            kw['pkg_filename'] = Path(pkg).name
-            kw['pkg_sourcerpm'] = Path(pkg).name
-            # if not extract.check_package(self.cache, hdr):
-            if not extract.check_package_in_cache(self.cache, pkghash):
-                extract.insert_package(self.conn, hdr, **kw)
-                extract.insert_pkg_hash_single(self.conn,
-                    {'mmh': pkghash,
-                    'sha1': sha1,
-                    'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
-                    'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
-                )
-                log.info('add src package: {0}'.format(sha1.hex()))
-            src_pkgs[n] = sha1
-        return src_pkgs
-
-    def _get_bin(self, src):
-        bin_list = self._get_pkg_list('plan/add-bin')
-        bin_pkgs = defaultdict(lambda: defaultdict(list))
-        for _, _, arch, _, pkg, n, *_ in bin_list:
-            kw = {}
-            hdr = self.girar.get_header(pkg)
-            sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
-            pkghash = mmhash(sha1)
-            kw['pkg_hash'] = pkghash
-            kw['pkg_srcrpm_hash'] = mmhash(src[n])
-            kw['pkg_filename'] = Path(pkg).name
-            # if not extract.check_package(self.cache, hdr):
-            if not extract.check_package_in_cache(self.cache, pkghash):
-                extract.insert_package(self.conn, hdr, **kw)
-                extract.insert_pkg_hash_single(self.conn,
-                    {'mmh': pkghash,
-                    'sha1': sha1,
-                    'md5': md5_from_file(self.girar.get_file_path(pkg), as_bytes=True),
-                    'sha256': sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)}
-                )
-                log.info('add bin package: {0}'.format(sha1.hex()))
-            bin_pkgs[n][arch].append(sha1)
-        return bin_pkgs
 
     def save(self):
         self._save_task()
@@ -507,49 +528,49 @@ class Girar:
 
 
 class TaskFromFS:
-    def __init__(self, url):
-        self.url = Path(url)
+    def __init__(self, path):
+        self.path = Path(path)
         self.ts = rpm.TransactionSet()
 
-    def _get_content(self, url, status=False):
+    def _get_content(self, path, status=False):
         r = None
         if status:
-            if Path(url).exists():
+            if Path(path).exists():
                 return True
             else:
                 return False
         try:
-            r = Path(url).read_bytes()
+            r = Path(path).read_bytes()
         except IsADirectoryError:
             # return directory listing
-            return [_ for _ in Path(url).iterdir()]
+            return [_ for _ in Path(path).iterdir()]
         except FileNotFoundError as e:
-            log.debug(f"{e} - {url}")
+            log.debug(f"{e} - {path}")
             return None
         except Exception as e:
-            log.error(f"{e} - {url}")
+            log.error(f"{e} - {path}")
             return None
         return r
 
     def get(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         r = self._get_content(p, status=False)
         return cvt(r)
 
     def check(self):
-        return self._get_content(self.url, status=True)
+        return self._get_content(self.path, status=True)
 
     def check_file(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         return self._get_content(p, status=True)
 
     def get_bytes(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         r = self._get_content(p, status=False)
         return r
 
     def get_file_mtime(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         try:
             mtime = p.stat().st_mtime
         except FileNotFoundError:
@@ -557,7 +578,7 @@ class TaskFromFS:
         return cvt_ts_to_datetime(mtime, use_local_tz=False)
     
     def get_file_size(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         try:
             file_size = p.stat().st_size
         except FileNotFoundError:
@@ -566,20 +587,20 @@ class TaskFromFS:
 
     def get_header(self, path):
         log.debug(f"reading header for {path}")
-        return extract.get_header(self.ts, str(Path.joinpath(self.url, path)))
+        return extract.get_header(self.ts, str(Path.joinpath(self.path, path)))
 
     def get_file_path(self, path):
-        return Path.joinpath(self.url, path)
+        return Path.joinpath(self.path, path)
 
     def file_exists_and_not_empty(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         if p.is_file() and p.stat().st_size > 0:
             return True
         else:
             return False
 
     def get_symlink_target(self, path, name_only=False):
-        symlink = Path.joinpath(self.url, path)
+        symlink = Path.joinpath(self.path, path)
         if symlink.is_symlink():
             if name_only:
                 return str(symlink.resolve().name)
@@ -589,7 +610,7 @@ class TaskFromFS:
             return None
 
     def parse_approval_file(self, path):
-        p = Path.joinpath(self.url, path)
+        p = Path.joinpath(self.path, path)
         r = self._get_content(p, status=False)
         n = d = m = None
         if r:
@@ -970,7 +991,7 @@ def load(args, conn):
             ).write_text(
                 json.dumps(task_struct, indent=2, sort_keys=True, default=str)
             )
-        task = Task(conn, girar, task_struct, args)
+        task = Task(conn, girar, log, task_struct, args)
         log.info(f"loading task {task_struct['task_state']['task_id']} to database {args.dbname}")
         task.save()
         ts = time.time() - ts
