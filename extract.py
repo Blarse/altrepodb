@@ -129,7 +129,7 @@ def insert_file(conn, pkghash, hdr):
     map_file['pkg_hash'] = itertools.cycle([pkghash])
     data = unpack_map(map_file)
     conn.execute(
-        'INSERT INTO Files_buffer ({0}) VALUES'.format(', '.join(map_file.keys())),
+        'INSERT INTO Files_insert ({0}) VALUES'.format(', '.join(map_file.keys())),
         data
     )
     log.debug('insert file for pkghash: {0}'.format(pkghash))

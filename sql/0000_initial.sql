@@ -36,33 +36,6 @@ SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh
 FROM  PackageHash_buffer;
 
 
--- CREATE TABLE Tasks
--- (
---     task_id         UInt32,
---     subtask         UInt32,
---     sourcepkg_hash  UInt64,
---     try             UInt16,
---     iteration       UInt8,
---     status          LowCardinality(String),
---     is_test         UInt8,
---     branch          LowCardinality(String),
---     pkgs            Array(UInt64),
---     userid          LowCardinality(String),
---     dir             String,
---     tag_name        String,
---     tag_id          String,
---     tag_author      LowCardinality(String),
---     srpm            String,
---     type            Enum8('srpm' = 0, 'gear' = 1),
---     hash            String,
---     task_arch       LowCardinality(String),
---     chroot_base     Array(UInt64),
---     chroot_BR       Array(UInt64)
--- )
--- ENGINE = MergeTree
--- ORDER BY (task_id, subtask, userid, status, branch, task_arch);
-
-
 CREATE TABLE Tasks
 (
     task_id             UInt32,
@@ -161,12 +134,30 @@ CREATE TABLE TaskLogs
 CREATE TABLE TaskLogs_buffer AS TaskLogs ENGINE = Buffer(currentDatabase(), TaskLogs, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
+CREATE TABLE TaskPlanPackages
+(
+    tplan_hash      UInt64,
+    tplan_action    Enum8('add' = 0, 'delete' = 1),
+    tplan_pkg_name  String,
+    tplan_pkg_evr   String,
+    tplan_bin_file  String,
+    tplan_src_file  String
+) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_src_file, tplan_bin_file);
+
+
+CREATE TABLE TaskPlanPkgHash
+(
+    tplan_hash      UInt64,
+    tplan_action    Enum8('add' = 0, 'delete' = 1),
+    tplan_sha256    FixedString(32)
+) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_sha256);
+
+
 CREATE TABLE Files
 (
     pkg_hash        UInt64,
-    file_name       String,
-    file_hashname   UInt64 MATERIALIZED murmurHash3_64(file_name),
-    file_hashdir    UInt64 MATERIALIZED murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)))),
+    file_hashname   UInt64,
+    file_hashdir    UInt64,
     file_linkto     String,
     file_md5        FixedString(16),
     file_size       UInt32,
@@ -180,11 +171,75 @@ CREATE TABLE Files
     file_device     UInt32,
     file_lang       LowCardinality(String),
     file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
-) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_name, file_class, file_md5) PRIMARY KEY pkg_hash;
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_hashname, file_hashdir, file_class, file_md5) PRIMARY KEY pkg_hash;
+
+CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
-CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 200, 10000, 1000000, 10000000,
-                                          100000000);
+CREATE TABLE FileNames
+(
+    fn_name       String,
+    fn_hash   UInt64 MATERIALIZED murmurHash3_64(fn_name)
+)
+ENGINE = ReplacingMergeTree ORDER BY fn_name;
+
+CREATE TABLE FileNames_buffer AS FileNames ENGINE = Buffer(currentDatabase(), FileNames, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+
+
+CREATE TABLE Files_insert
+(
+    pkg_hash        UInt64,
+    file_name       String,
+    file_linkto     String,
+    file_md5        FixedString(16),
+    file_size       UInt32,
+    file_mode       UInt16,
+    file_rdev       UInt16,
+    file_mtime      DateTime,
+    file_flag       UInt16,
+    file_username   LowCardinality(String),
+    file_groupname  LowCardinality(String),
+    file_verifyflag UInt32,
+    file_device     UInt32,
+    file_lang       LowCardinality(String),
+    file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+) ENGINE = Null;
+
+
+CREATE MATERIALIZED VIEW mv_files TO Files_buffer
+(
+    pkg_hash        UInt64,
+    file_hashname   UInt64,
+    file_hashdir    UInt64,
+    file_linkto     String,
+    file_md5        FixedString(16),
+    file_size       UInt32,
+    file_mode       UInt16,
+    file_rdev       UInt16,
+    file_mtime      DateTime,
+    file_flag       UInt16,
+    file_username   LowCardinality(String),
+    file_groupname  LowCardinality(String),
+    file_verifyflag UInt32,
+    file_device     UInt32,
+    file_lang       LowCardinality(String),
+    file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
+) AS SELECT
+    pkg_hash, file_linkto, file_md5, file_size, file_mode, file_rdev, file_mtime,
+    file_flag, file_username, file_groupname, file_verifyflag, file_device, file_lang, file_class,
+    murmurHash3_64(file_name) as file_hashname,
+    murmurHash3_64(arrayStringConcat(arrayPopBack(splitByChar('/', file_name)),'/')) as file_hashdir
+FROM Files_insert;
+
+CREATE MATERIALIZED VIEW mv_filenames_filename TO FileNames_buffer
+(
+    fn_name         String
+) AS SELECT file_name as fn_name FROM Files_insert;
+
+CREATE MATERIALIZED VIEW mv_filenames_filedir TO FileNames_buffer
+(
+    fn_name         String
+) AS SELECT arrayStringConcat(arrayPopBack(splitByChar('/', file_name)),'/') as fn_name FROM Files_insert;
 
 
 CREATE TABLE Packages
@@ -268,16 +323,10 @@ CREATE TABLE Depends
     dp_version String,
     dp_flag    UInt32,
     dp_type    Enum8('require' = 1, 'conflict' = 2, 'obsolete' = 3, 'provide' = 4)
-) ENGINE = MergeTree ORDER BY (dp_name, dp_version, dp_type) PRIMARY KEY dp_name;
+) ENGINE = ReplacingMergeTree ORDER BY (dp_name, dp_version, dp_type, dp_flag, pkg_hash) PRIMARY KEY dp_name;
 
 CREATE TABLE Depends_buffer AS Depends ENGINE = Buffer(currentDatabase(), Depends, 16, 10, 200, 10000, 1000000, 1000000, 10000000);
 
-
-CREATE TABLE Config
-(
-    key   String,
-    value String
-) ENGINE = MergeTree ORDER BY (key, value);
 
 CREATE TABLE Acl
 (
@@ -321,8 +370,8 @@ CREATE TABLE CveChecked
     cc_checkdate              DateTime,
     cc_description            String,
     cc_description_ru         String,
-    cc_checked_ver.pkg_evr    Array(String),
-    cc_checked_ver.pkg_branch Array(String)
+    `cc_checked_ver.pkg_evr`    Array(String),
+    `cc_checked_ver.pkg_branch` Array(String)
 )
     ENGINE = MergeTree PRIMARY KEY (cve_id, pkg_name) ORDER BY (cve_id, pkg_name, cc_checkdate) SETTINGS index_granularity = 8192;
 
@@ -347,89 +396,8 @@ CREATE TABLE FstecBduList
 )
     ENGINE = MergeTree ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
 
-CREATE TABLE AptPkgRelease
-(
-    apr_uuid         UUID,
-    apr_tag          String,
-    apr_hashrelease  UInt64,
-    apr_origin       String,
-    apr_label        String,
-    apr_suite        String,
-    apr_codename     UInt64,
-    apr_arch         String,
-    apr_archive      String,
-    apr_date         DateTime,
-    apr_description  String,
-    apr_notautomatic UInt8,
-    apr_version      UInt64,
-    apr_component    String
-)
-    ENGINE = MergeTree ORDER BY (apr_date, apr_tag, apr_suite, apr_arch, apr_version) PRIMARY KEY (apr_date, apr_tag, apr_suite, apr_arch);
-
-CREATE TABLE AptPkgSet
-(
-    apr_uuid      UUID,
-    aps_uuid      UUID,
-    aps_name      String,
-    aps_version   String,
-    aps_release   String,
-    aps_epoch     UInt32,
-    aps_serial    UInt32,
-    aps_buildtime UInt32,
-    aps_disttag   String,
-    aps_arch      String,
-    aps_sourcerpm String,
-    aps_md5       String,
-    aps_filesize  UInt64,
-    aps_filename  String
-) ENGINE = MergeTree ORDER BY (apr_uuid, aps_md5, aps_sourcerpm, aps_filename) PRIMARY KEY (apr_uuid, aps_md5);
-
 
 -- VIEW TABLES --
-
-CREATE
-OR REPLACE VIEW last_pkgset AS
-SELECT *
-FROM last_pkgnames
-INNER JOIN 
-(
-    SELECT *
-    FROM PackageSet_buffer
-    WHERE pkgset_uuid IN 
-    (
-        SELECT pkgset_uuid
-        FROM last_pkgnames
-    )
-) AS PkgSet USING (pkgset_uuid);
-
-CREATE
-OR REPLACE VIEW last_packages AS
-SELECT *
-FROM last_pkgset
-INNER JOIN 
-(
-    SELECT *
-    FROM Packages_buffer
-    WHERE pkg_hash IN 
-    (
-        SELECT pkg_hash
-        FROM last_pkgset
-    )
-) AS Packages USING (pkg_hash);
-
-CREATE
-OR REPLACE VIEW last_pkgnames AS
-SELECT
-    last_pkgnames_without_pname.*,
-    PkgSetParent.pkgset_pname AS pkgset_pname
-FROM last_pkgnames_without_pname
-LEFT JOIN 
-(
-    SELECT
-        pkgset_uuid,
-        pkgset_nodename AS pkgset_pname
-    FROM PackageSetName
-) AS PkgSetParent ON PkgSetParent.pkgset_uuid = pkgset_puuid;
 
 CREATE
 OR REPLACE VIEW last_pkgnames_without_pname AS
@@ -449,6 +417,54 @@ RIGHT JOIN
 ORDER BY
     pkgset_name ASC,
     pkgset_depth ASC;
+
+
+CREATE
+OR REPLACE VIEW last_pkgnames AS
+SELECT
+    last_pkgnames_without_pname.*,
+    PkgSetParent.pkgset_pname AS pkgset_pname
+FROM last_pkgnames_without_pname
+LEFT JOIN 
+(
+    SELECT
+        pkgset_uuid,
+        pkgset_nodename AS pkgset_pname
+    FROM PackageSetName
+) AS PkgSetParent ON PkgSetParent.pkgset_uuid = pkgset_puuid;
+
+
+CREATE
+OR REPLACE VIEW last_pkgset AS
+SELECT *
+FROM last_pkgnames
+INNER JOIN 
+(
+    SELECT *
+    FROM PackageSet_buffer
+    WHERE pkgset_uuid IN 
+    (
+        SELECT pkgset_uuid
+        FROM last_pkgnames
+    )
+) AS PkgSet USING (pkgset_uuid);
+
+
+CREATE
+OR REPLACE VIEW last_packages AS
+SELECT *
+FROM last_pkgset
+INNER JOIN 
+(
+    SELECT *
+    FROM Packages_buffer
+    WHERE pkg_hash IN 
+    (
+        SELECT pkg_hash
+        FROM last_pkgset
+    )
+) AS Packages USING (pkg_hash);
+
 
 CREATE
 OR REPLACE VIEW last_depends AS
@@ -479,24 +495,24 @@ CREATE
 OR REPLACE VIEW all_packages_with_source AS
 SELECT Packages_buffer.*, srcPackage.*
 FROM Packages_buffer
-         LEFT JOIN ( SELECT pkg_hash AS sourcepkghash, pkg_name AS sourcepkgname, pkg_filename AS sourcerpm
+         LEFT JOIN ( SELECT pkg_hash AS sourcepkghash, pkg_name AS sourcepkgname, pkg_filename AS pkg_sourcerpm
                      FROM Packages_buffer
-                     WHERE sourcepackage = 1 ) AS srcPackage USING (sourcerpm)
-WHERE sourcepackage = 0;
+                     WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_sourcerpm)
+WHERE pkg_sourcepackage = 0;
 
 -- view to JOIN all pkgset's for source packages
-CREATE
-OR REPLACE VIEW all_pkgsets_sources AS
-SELECT pkg_hash, pkgset_name, date AS pkgset_date
-FROM PackageSet_buffer
-         RIGHT JOIN ( SELECT pkgset_uuid, pkgset_name, pkgset_date AS date FROM PackageSetName ) AS PkgSet
-                    USING (pkgset_uuid) PREWHERE pkg_hash IN (SELECT pkg_hash FROM Packages WHERE pkg_sourcepackage = 1);
+-- CREATE
+-- OR REPLACE VIEW all_pkgsets_sources AS
+-- SELECT pkg_hash, pkgset_name, date AS pkgset_date
+-- FROM PackageSet_buffer
+--          RIGHT JOIN ( SELECT pkgset_uuid, pkgset_name, pkgset_date AS date FROM PackageSetName ) AS PkgSet
+--                     USING (pkgset_uuid) PREWHERE pkg_hash IN (SELECT pkg_hash FROM Packages WHERE pkg_sourcepackage = 1);
 
 -- view to get joined list packages with sourcepackage
 CREATE
 OR REPLACE VIEW last_packages_with_source AS
 SELECT pkg.*, pkgset_name, pkgset_date, pkg_hash
-FROM last_pkgsets ALL
+FROM last_pkgset ALL
          INNER JOIN ( SELECT * FROM all_packages_with_source ) AS pkg USING (pkg_hash);
 
 -- view to get last list from ACL
@@ -507,29 +523,29 @@ FROM Acl
 GROUP BY Acl.acl_branch, Acl.acl_for;
 
 -- view to prepare source packages with array of binary packages
-CREATE
-OR REPLACE VIEW source_with_binary_array_packages AS
-SELECT DISTINCT pkg_hash,
-                any(pkg_name)                AS pkgname,
-                any(pkg_version)             AS version,
-                any(pkg_release)             AS release,
-                any(pkg_changelog)           AS changelog,
-                groupUniqArray(name_evr) AS binlist
-FROM Packages_buffer
-         LEFT JOIN ( SELECT concat(pkg_name, ':', pkg_version, ':', pkg_release) AS name_evr, pkg_sourcerpm AS sourcerpm
-                     FROM Packages_buffer
-                     WHERE (pkg_sourcepackage = 0)
-                       AND (pkg_name NOT LIKE '%-debuginfo')
-                       AND (pkg_name NOT LIKE 'i586-%') ) AS Bin ON Bin.sourcerpm = pkg_filename
-WHERE pkg_sourcepackage = 1
-GROUP BY pkg_hash;
+-- CREATE
+-- OR REPLACE VIEW source_with_binary_array_packages AS
+-- SELECT DISTINCT pkg_hash,
+--                 any(pkg_name)                AS pkgname,
+--                 any(pkg_version)             AS version,
+--                 any(pkg_release)             AS release,
+--                 any(pkg_changelog)           AS changelog,
+--                 groupUniqArray(name_evr) AS binlist
+-- FROM Packages_buffer
+--          LEFT JOIN ( SELECT concat(pkg_name, ':', pkg_version, ':', pkg_release) AS name_evr, pkg_sourcerpm AS sourcerpm
+--                      FROM Packages_buffer
+--                      WHERE (pkg_sourcepackage = 0)
+--                        AND (pkg_name NOT LIKE '%-debuginfo')
+--                        AND (pkg_name NOT LIKE 'i586-%') ) AS Bin ON Bin.sourcerpm = pkg_filename
+-- WHERE pkg_sourcepackage = 1
+-- GROUP BY pkg_hash;
 
 -- VIEW to get all pkghash with a unique array of pkgset names
 
-CREATE VIEW all_source_pkghash_with_uniq_branch_name (pkg_hash UInt64, pkgset_array Array(String)) AS
-SELECT pkg_hash, groupUniqArray(pkgset_name) AS pkgset_array
-FROM all_pkgsets_sources
-GROUP BY pkg_hash;
+-- CREATE VIEW all_source_pkghash_with_uniq_branch_name (pkg_hash UInt64, pkgset_array Array(String)) AS
+-- SELECT pkg_hash, groupUniqArray(pkgset_name) AS pkgset_array
+-- FROM all_pkgsets_sources
+-- GROUP BY pkg_hash;
 
 -- view to get expanded list ACLs from database with groups
 CREATE
@@ -557,46 +573,15 @@ SELECT *
 FROM Cve
          LEFT JOIN last_packages USING (pkg_hash);
 
--- all pkgset's with date, name and pkghash
-CREATE
-OR REPLACE VIEW all_pkgsets
-AS
-SELECT pkg_hash, pkgset_name, date AS pkgset_date
-FROM PackageSet_buffer
-         RIGHT JOIN ( SELECT pkgset_uuid, pkgset_name, pkgset_date AS date FROM PackageSetName ) AS PkgSet USING (pkgset_uuid);
-
--- all packages from all assignments
-CREATE
-OR REPLACE VIEW all_packages AS
-SELECT pkg.*, pkgset_name, pkgset_date, pkg_hash
-FROM all_pkgsets ALL
-         INNER JOIN ( SELECT * FROM Packages_buffer ) AS pkg USING (pkg_hash);
 
 -- view for cve-check-tool with source, array of binary packages and changelogs.
 
-CREATE
-OR REPLACE VIEW packages_for_cvecheck AS
-SELECT pkg_hash, pkg_name, pkg_version, pkg_release, binlist, pkgset_array, changelog
-FROM Package
-         LEFT JOIN ( SELECT source_with_binary_array_packages.*, SrcSet.pkgset_array
-                     FROM source_with_binary_array_packages
-                              LEFT JOIN ( SELECT * FROM all_source_pkghash_with_uniq_branch_name ) AS SrcSet
-                                        USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
-WHERE sourcepackage = 1;
-
-
-CREATE
-OR REPLACE VIEW repodb_test.last_pkgsets AS
-SELECT
-    *,
-    pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] AS pkgset_class
-FROM repodb_test.PackageSetName
-RIGHT JOIN
-(
-    SELECT
-        argMax(pkgset_ruuid, pkgset_date) AS pkgset_ruuid,
-        pkgset_nodename AS pkgset_name
-    FROM repodb_test.PackageSetName
-    WHERE pkgset_depth = 0
-    GROUP BY pkgset_name
-) AS RootPkgs USING (pkgset_ruuid) ORDER BY pkgset_name, pkgset_depth;
+-- CREATE
+-- OR REPLACE VIEW packages_for_cvecheck AS
+-- SELECT pkg_hash, pkg_name, pkg_version, pkg_release, binlist, pkgset_array, changelog
+-- FROM Packages
+--          LEFT JOIN ( SELECT source_with_binary_array_packages.*, SrcSet.pkgset_array
+--                      FROM source_with_binary_array_packages
+--                               LEFT JOIN ( SELECT * FROM all_source_pkghash_with_uniq_branch_name ) AS SrcSet
+--                                         USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
+-- WHERE sourcepackage = 1;

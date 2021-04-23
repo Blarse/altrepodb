@@ -578,7 +578,7 @@ def parse_pkglist_diff(diff_file, is_src_list):
         is_src_list (bool): parse file as source packages list or binary packages list
 
     Returns:
-        (list, list): added packages, deleted packages
+        (list(tuple), list(tuple)): added packages, deleted packages
     """
     diff_pattern = re.compile('^[+-]+[a-zA-Z0-9]+\S+')
     p_added = []
@@ -593,11 +593,15 @@ def parse_pkglist_diff(diff_file, is_src_list):
         if p:
             sign = p[0][0]
             if is_src_list:
-                pkg_name = diff_pattern.split(line)[-1].split('\t')[-1].strip()
+                pkg_name = p[0][1:].strip()
+                pkg_evr, pkg_file = [_.strip() for _ in diff_pattern.split(line)[-1].split('\t') if len(_) > 0]
+                pkg_src = pkg_file
+                pkg_arch = 'src'
             else:
-                pkg_name = diff_pattern.split(line)[-1].split('\t')[-2].strip()
+                pkg_name = p[0][1:].strip()
+                pkg_evr, pkg_arch, pkg_file, pkg_src = [_.strip() for _ in diff_pattern.split(line)[-1].split('\t') if len(_) > 0]
             if sign == '+':
-                p_added.append(pkg_name)
+                p_added.append((pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
             else:
-                p_deleted.append(pkg_name)
+                p_deleted.append((pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
     return p_added, p_deleted
