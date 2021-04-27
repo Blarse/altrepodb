@@ -456,7 +456,7 @@ SELECT *
 FROM last_pkgset
 INNER JOIN 
 (
-    SELECT *
+    SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
     FROM Packages_buffer
     WHERE pkg_hash IN 
     (
