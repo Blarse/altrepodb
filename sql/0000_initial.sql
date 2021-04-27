@@ -186,6 +186,13 @@ ENGINE = ReplacingMergeTree ORDER BY fn_name;
 CREATE TABLE FileNames_buffer AS FileNames ENGINE = Buffer(currentDatabase(), FileNames, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
+CREATE 
+OR REPLACE VIEW Files_view AS
+SELECT fn_name as file_name, FLS.* EXCEPT (file_hashname, file_hashdir)
+FROM FileNames_buffer 
+    INNER JOIN (SELECT * from Files_buffer) AS FLS ON fn_hash = FLS.file_hashname;
+
+
 CREATE TABLE Files_insert
 (
     pkg_hash        UInt64,
