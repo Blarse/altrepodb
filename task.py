@@ -955,7 +955,7 @@ def get_args():
     parser.add_argument('-w', '--workers', type=int, help='Workers count (default: 4)')
     parser.add_argument('-D', '--dumpjson', action='store_true', help='Dump parsed task structure to JSON file')
     args = parser.parse_args()
-    args.workers = args.workers or 4
+    args.workers = args.workers or 10
     if args.config is not None:
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
