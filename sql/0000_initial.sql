@@ -323,6 +323,50 @@ CREATE TABLE Changelog
 CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 1000, 1000000, 1000000, 10000000);
 
 
+CREATE 
+OR REPLACE VIEW PackageChangelog_view AS
+SELECT
+    pkg_hash,
+    groupArray((pkg_changelog.date, pkg_changelog.name, pkg_changelog.evr, chlog_text)) AS changelog
+FROM 
+(
+    SELECT DISTINCT *
+    FROM 
+    (
+        SELECT
+            pkg_hash,
+            pkg_changelog.date,
+            pkg_changelog.name,
+            pkg_changelog.evr,
+            pkg_changelog.hash AS hash,
+            Chg.chlog_text
+        FROM Packages_buffer
+        ARRAY JOIN pkg_changelog
+        INNER JOIN 
+        (
+            SELECT
+                chlog_hash AS hash,
+                chlog_text
+            FROM Changelog_buffer
+        ) AS Chg USING (hash)
+    )
+    ORDER BY pkg_changelog.date DESC
+)
+GROUP BY pkg_hash
+
+
+CREATE 
+OR REPLACE VIEW PackagesWithLastChangelog_view AS
+SELECT DISTINCT
+    PKG.* EXCEPT (pkg_changelog_hash), chlog_text AS pkg_changelog_message
+FROM Changelog_buffer
+    RIGHT JOIN (
+        SELECT * EXCEPT ('pkg_changelog.*'),
+            pkg_changelog.date[1] AS pkg_changelog_date, pkg_changelog.name[1] AS pkg_changelog_name,
+            pkg_changelog.evr[1] AS pkg_changelog_evr, pkg_changelog.hash[1] as pkg_changelog_hash
+        FROM Packages_buffer) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
+
+
 CREATE TABLE Depends
 (
     pkg_hash   UInt64,
