@@ -302,7 +302,7 @@ def load(args, conn):
 def main():
     args = get_args()
     args = set_config(args)
-    logger = get_logger(NAME)
+    logger = get_logger(NAME, 'load')
     logger.setLevel(logging.DEBUG)
     conn = None
     try:
