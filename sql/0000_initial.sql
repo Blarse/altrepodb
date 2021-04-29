@@ -551,13 +551,64 @@ FROM Packages_buffer
                      WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_sourcerpm)
 WHERE pkg_sourcepackage = 0;
 
--- view to JOIN all pkgset's for source packages
--- CREATE
--- OR REPLACE VIEW all_pkgsets_sources AS
--- SELECT pkg_hash, pkgset_name, date AS pkgset_date
--- FROM PackageSet_buffer
---          RIGHT JOIN ( SELECT pkgset_uuid, pkgset_name, pkgset_date AS date FROM PackageSetName ) AS PkgSet
---                     USING (pkgset_uuid) PREWHERE pkg_hash IN (SELECT pkg_hash FROM Packages WHERE pkg_sourcepackage = 1);
+
+CREATE
+OR REPLACE VIEW all_pkgnames_without_pname AS
+SELECT
+    *,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] AS pkgset_class
+FROM PackageSetName
+RIGHT JOIN 
+(
+    SELECT
+        pkgset_ruuid,
+        pkgset_nodename AS pkgset_name
+    FROM PackageSetName
+    WHERE pkgset_depth = 0
+) AS RootPkgs USING (pkgset_ruuid)
+ORDER BY
+    pkgset_name ASC,
+    pkgset_depth ASC;
+
+
+CREATE 
+OR REPLACE VIEW all_pkgnames AS
+SELECT
+    all_pkgnames_without_pname.*,
+    PkgSetParent.pkgset_pname AS pkgset_pname
+FROM all_pkgnames_without_pname
+LEFT JOIN 
+(
+    SELECT
+        pkgset_uuid,
+        pkgset_nodename AS pkgset_pname
+    FROM PackageSetName
+) AS PkgSetParent ON PkgSetParent.pkgset_uuid = pkgset_puuid;
+
+
+CREATE
+OR REPLACE VIEW all_pkgset AS
+SELECT *
+FROM all_pkgnames
+INNER JOIN 
+(
+    SELECT *
+    FROM PackageSet_buffer
+) AS PkgSet USING (pkgset_uuid);
+
+
+CREATE
+OR REPLACE VIEW all_packages AS
+SELECT *
+FROM all_pkgset
+INNER JOIN 
+(
+    SELECT
+        * EXCEPT pkg_cs,
+        lower(hex(pkg_cs)) AS pkg_cs
+    FROM Packages_buffer
+) AS Packages USING (pkg_hash);
+
 
 -- view to get joined list packages with sourcepackage
 CREATE
