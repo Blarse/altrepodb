@@ -340,7 +340,8 @@ FROM
             pkg_changelog.evr,
             pkg_changelog.hash AS hash,
             Chg.chlog_text
-        FROM Packages_buffer
+        -- FIXME: Bug with FULL SCAN when select from 'Packages_buffer', doesn't happens when select form 'Packages'
+        FROM Packages
         ARRAY JOIN pkg_changelog
         INNER JOIN 
         (
@@ -352,7 +353,7 @@ FROM
     )
     ORDER BY pkg_changelog.date DESC
 )
-GROUP BY pkg_hash
+GROUP BY pkg_hash;
 
 
 CREATE 
@@ -364,7 +365,8 @@ FROM Changelog_buffer
         SELECT * EXCEPT ('pkg_changelog.*'),
             pkg_changelog.date[1] AS pkg_changelog_date, pkg_changelog.name[1] AS pkg_changelog_name,
             pkg_changelog.evr[1] AS pkg_changelog_evr, pkg_changelog.hash[1] as pkg_changelog_hash
-        FROM Packages_buffer) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
+        -- FIXME: Bug with FULL SCAN when select from 'Packages_buffer', doesn't happens when select form 'Packages'
+        FROM Packages) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
 
 
 CREATE TABLE Depends
