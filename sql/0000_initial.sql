@@ -327,7 +327,7 @@ CREATE
 OR REPLACE VIEW PackageChangelog_view AS
 SELECT
     pkg_hash,
-    groupArray((pkg_changelog.date, pkg_changelog.name, pkg_changelog.evr, chlog_text)) AS changelog
+    groupArray((toDate(pkg_changelog.date), pkg_changelog.name, pkg_changelog.evr, chlog_text)) AS changelog
 FROM 
 (
     SELECT DISTINCT *
@@ -363,7 +363,7 @@ SELECT DISTINCT
 FROM Changelog_buffer
     RIGHT JOIN (
         SELECT * EXCEPT ('pkg_changelog.*'),
-            pkg_changelog.date[1] AS pkg_changelog_date, pkg_changelog.name[1] AS pkg_changelog_name,
+            toDate(pkg_changelog.date[1]) AS pkg_changelog_date, pkg_changelog.name[1] AS pkg_changelog_name,
             pkg_changelog.evr[1] AS pkg_changelog_evr, pkg_changelog.hash[1] as pkg_changelog_hash
         -- FIXME: Bug with FULL SCAN when select from 'Packages_buffer', doesn't happens when select form 'Packages'
         FROM Packages) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
