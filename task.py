@@ -103,7 +103,7 @@ def log_load_worker_pool(args, girar, logger, logs_list, num_of_workers=None):
     logger.info(f"{sum(logs_count)} log files loaded in {(time.time() - st):.3f} seconds")
 
 class TaskIterationLoaderWorker(threading.Thread):
-    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, task_iterations, count_list, *args, **kwargs) -> None:
+    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, task_iterations, count_list, force_load, *args, **kwargs) -> None:
         self.conn = conn
         self.girar = girar
         self.logger = logger
@@ -113,6 +113,7 @@ class TaskIterationLoaderWorker(threading.Thread):
         self.titers = task_iterations
         self.count_list = count_list
         self.count = 0
+        self.force = force_load
         self.lock = threading.Lock()
         super().__init__(*args, **kwargs)
     
@@ -142,7 +143,7 @@ class TaskIterationLoaderWorker(threading.Thread):
             hashes['sha256'] = self.pkg_hashes[pkg_name]['sha256']
         else:
             self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-            hashes['sha256'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+            hashes['sha256'] = sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         kw['pkg_hash'] = hashes['mmh']
         kw['pkg_filename'] = pkg_name
@@ -153,7 +154,7 @@ class TaskIterationLoaderWorker(threading.Thread):
         else:
             kw['pkg_srcrpm_hash'] = srpm_hash
 
-        if not extract.check_package_in_cache(self.cache, hashes['mmh']):
+        if self.force or not extract.check_package_in_cache(self.cache, hashes['mmh']):
             extract.insert_package(self.conn, hdr, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes['mmh'])
@@ -245,7 +246,7 @@ def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = TaskIterationLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, titer, titer_count)
+        worker = TaskIterationLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, titer, titer_count, args.force)
         worker.start()
         workers.append(worker)
 
@@ -259,7 +260,7 @@ def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs
     logger.info(f"{sum(titer_count)} TaskIteration loaded in {(time.time() - st):.3f} seconds")
 
 class PackageLoaderWorker(threading.Thread):
-    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, count_list, *args, **kwargs) -> None:
+    def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, count_list, force_load, *args, **kwargs) -> None:
         self.conn = conn
         self.girar = girar
         self.logger = logger
@@ -269,6 +270,7 @@ class PackageLoaderWorker(threading.Thread):
         self.count_list = count_list
         self.count = 0
         self.lock = threading.Lock()
+        self.force = force_load
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
@@ -292,7 +294,7 @@ class PackageLoaderWorker(threading.Thread):
             hashes['sha256'] = self.pkg_hashes[pkg_name]['sha256']
         else:
             self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-            hashes['sha256'] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+            hashes['sha256'] = sha256_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         kw['pkg_hash'] = hashes['mmh']
         kw['pkg_filename'] = pkg_name
@@ -303,7 +305,7 @@ class PackageLoaderWorker(threading.Thread):
         else:
             kw['pkg_srcrpm_hash'] = srpm_hash
 
-        if not extract.check_package_in_cache(self.cache, hashes['mmh']):
+        if self.force or not extract.check_package_in_cache(self.cache, hashes['mmh']):
             extract.insert_package(self.conn, hdr, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes['mmh'])
@@ -337,7 +339,7 @@ def package_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, package
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = PackageLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, pkg_count)
+        worker = PackageLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, pkg_count, args.force)
         worker.start()
         workers.append(worker)
 
@@ -954,6 +956,7 @@ def get_args():
     parser.add_argument('-P', '--password', type=str, help='Database password')
     parser.add_argument('-w', '--workers', type=int, help='Workers count (default: 4)')
     parser.add_argument('-D', '--dumpjson', action='store_true', help='Dump parsed task structure to JSON file')
+    parser.add_argument('-F', '--force', action='store_true', help='Force to load packages from task to database')
     args = parser.parse_args()
     args.workers = args.workers or 10
     if args.config is not None:
