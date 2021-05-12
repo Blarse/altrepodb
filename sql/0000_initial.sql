@@ -15,7 +15,7 @@ CREATE TABLE PackageSet
 (
     pkgset_uuid     UUID,
     pkg_hash        UInt64
-) ENGINE = MergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
+) ENGINE = ReplacingMergeTree ORDER BY (pkgset_uuid, pkg_hash) PRIMARY KEY (pkgset_uuid);
 
 CREATE TABLE PackageSet_buffer AS PackageSet ENGINE = Buffer(currentDatabase(), PackageSet, 16, 10, 100, 10000, 1000000, 1000000, 10000000);
 
