@@ -710,7 +710,19 @@ def init_task_structure_from_task(girar):
             for hdr in hdrs:
                 pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
                 pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-                task['pkg_hashes'][pkg_name]['md5'] = pkg_md5
+                # workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
+                if task['pkg_hashes'][pkg_name]['md5']:
+                    if task['pkg_hashes'][pkg_name]['md5'] != pkg_md5:
+                        log.debug(f"Found mismatching MD5 from APT hash for {pkg_name}. Calculating MD5 from file")
+                        t = [_ for _ in girar.get_file_path('build/repo').glob(f"*/RPMS.task/{pkg_name}")]
+                        if t:
+                            task['pkg_hashes'][pkg_name]['md5'] = md5_from_file(t[0], as_bytes=True)
+                        else:
+                            log.error(f"Failed to calculate MD5 for {pkg_name} from file")
+                    else:
+                        continue
+                else:
+                    task['pkg_hashes'][pkg_name]['md5'] = pkg_md5
     # 3 - set hashes for TaskPlan* tables
     p_arch = {_ for _ in task['plan']['pkg_add'].keys()}
     p_arch.update({_ for _ in task['plan']['pkg_del'].keys()})
