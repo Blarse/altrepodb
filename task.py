@@ -410,7 +410,7 @@ class Task:
         # 3 - proceed with Tasks
         if self.task['tasks']:
             self.conn.execute(
-                'INSERT INTO Tasks_buffer (*) VALUES',
+                'INSERT INTO Tasks (*) VALUES',
                 self.task['tasks'],
                 settings={'types_check': True}
             )
@@ -652,6 +652,9 @@ def init_task_structure_from_task(girar):
     # parse '/task' and '/info.json' for 'TaskStates'
     if girar.check_file('task/state'):
         task['task_state']['task_changed'] = girar.get_file_mtime('task/state')
+        t = girar.get_file_mtime('info.json')
+        if t and t > task['task_state']['task_changed']:
+            task['task_state']['task_changed'] = t
     else:
         # skip tasks with uncertain state for God sake
         return task
