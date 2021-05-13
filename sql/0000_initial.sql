@@ -57,9 +57,10 @@ CREATE TABLE Tasks
     subtask_srpm_name   String, -- from /geras/%subtask_id%/nevr
     subtask_srpm_evr    String, -- from /geras/%subtask_id%/nevr
     ts                  DateTime MATERIALIZED now() -- DEBUG
-) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_repo, task_owner) PRIMARY KEY (task_id, subtask_id);
+) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
+--) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_repo, task_owner) PRIMARY KEY (task_id, subtask_id);
 
-CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+--CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
 
 CREATE TABLE TaskStates
@@ -78,7 +79,8 @@ CREATE TABLE TaskStates
     task_prev           UInt32, -- from /build/repo/prev symlink target
     task_eventlog_hash  Array(UInt64), -- events logs hashes 
     ts              DateTime MATERIALIZED now() -- DEBUG
-) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
+) ENGINE = ReplacingMergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
+--) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
 
 
 CREATE TABLE TaskApprovals
@@ -109,7 +111,8 @@ CREATE TABLE TaskIterations
     titer_chroot_br     UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
     titer_buildlog_hash UInt64, -- build log hash
     titer_srpmlog_hash  UInt64  -- srpm build log hash
-) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
+) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
+--) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
 
 CREATE TABLE TaskIterations_buffer AS TaskIterations ENGINE = Buffer(currentDatabase(), TaskIterations, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
