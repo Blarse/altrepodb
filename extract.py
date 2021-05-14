@@ -454,8 +454,7 @@ def init_hash_temp_table(conn, hashes):
 def update_hases_from_db(conn, repo_cache):
     result = conn.execute(
         """SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
-        FROM
-            (SELECT name, md5 FROM PkgHashTmp) AS t1 
+        FROM PkgHashTmp AS t1 
         LEFT JOIN
             (SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1 FROM PackageHash_buffer) AS t2
         ON t1.md5 = t2.md5""",
