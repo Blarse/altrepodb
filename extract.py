@@ -333,7 +333,7 @@ class Worker(threading.Thread):
                     'pkg_filename': Path(package).name,
                     'pkg_filesize': Path(package).stat().st_size
                     }
-                # TODO: Add thread safety lock here!!!
+                # add thread safety lock here
                 with self.lock:
                     if self.is_src:
                         #  store pkg mmh and sha1
@@ -448,32 +448,6 @@ def init_hash_temp_table(conn, hashes):
     # Free memory immediatelly
     del payload
     # return {i[0] for i in result}
-
-
-@Timing.timeit('PkgHash_check_md5')
-def get_packages_not_in_db_by_md5(conn):
-    result = conn.execute(
-        """SELECT md5 FROM PkgHashTmp 
-        WHERE md5 NOT IN (
-            SELECT pkgh_md5 FROM PackageHash_buffer
-        )""",
-        settings={'strings_as_bytes': True}
-    )
-    log.debug(f"Found {len(result)} packages are not in PackageHash")
-    return {i[0] for i in result}
-
-
-@Timing.timeit('PkgHash_check_sha256')
-def get_packages_not_in_db_by_sha256(conn):
-    result = conn.execute(
-        """SELECT md5 FROM PkgHashTmp 
-        WHERE sha256 NOT IN (
-            SELECT pkgh_sha256 FROM PackageHash_buffer
-        )""",
-        settings={'strings_as_bytes': True}
-    )
-    log.debug(f"Found {len(result)} packages are not in PackageHashes")
-    return {i[0] for i in result}
 
 
 @Timing.timeit('PkgHash_check_md5_not_in_db')
@@ -826,7 +800,6 @@ def load(args):
             # load source RPMs first
             # generate 'src.rpm' packages list
             packages_list = []
-            # packages_md5 = get_packages_not_in_db_by_md5(conn)
             src_pkg_set = set()
             pkgset_cached = set()
             ts = time.time()
@@ -851,14 +824,11 @@ def load(args):
                             src_pkg_set.add(rpm_file.name)
                             pkg_count_1 += 1
                             pkg_count += 1
-                        # if repo['src_hashes'][rpm_file.name]['md5'] in packages_md5:
                         if repo['src_hashes'][rpm_file.name]['sha1'] is None:
-                            # if rpm_file not in packages_list:
                             packages_list.append(str(rpm_file))
                         else:
                             pkgh = repo['src_hashes'][rpm_file.name]['mmh']
                             if not pkgh:
-                                # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
                             pkgset_cached.add(pkgh)
@@ -918,8 +888,6 @@ def load(args):
                 pkgset_cached = set()
                 # generate 'rpm' packages list
                 packages_list = []
-                # update_hases_from_db(conn, repo['pkg_hashes'])
-                # packages_md5 = get_packages_not_in_db_by_md5(conn)
                 ts = time.time()
                 pkg_count = 0
                 log.info(f"Start checking RPM packages in '{comp['path']}'")
@@ -927,13 +895,11 @@ def load(args):
                 for rpm_file in rpm_dir.iterdir():
                     if rpm_file.suffix == '.rpm':
                         pkg_count += 1
-                        # if repo['pkg_hashes'][rpm_file.name]['md5'] in packages_md5:
                         if repo['pkg_hashes'][rpm_file.name]['sha1'] is None:
                             packages_list.append(str(rpm_file))
                         else:
                             pkgh = repo['pkg_hashes'][rpm_file.name]['mmh']
                             if not pkgh:
-                                # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
                             pkgset_cached.add(pkgh)
