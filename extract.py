@@ -482,7 +482,7 @@ def update_hases_from_db(conn, repo_cache):
         """SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
         FROM
             (SELECT name, md5 FROM PkgHashTmp) AS t1 
-        INNER JOIN 
+        LEFT JOIN
             (SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1 FROM PackageHash_buffer) AS t2
         ON t1.md5 = t2.md5""",
         settings={'strings_as_bytes': True}
@@ -493,9 +493,13 @@ def update_hases_from_db(conn, repo_cache):
             if len(v) == 3:
                 kk = k.decode('utf-8')
                 if kk in repo_cache.keys():
-                    # repo_cache[kk]['md5'] = v[0]
-                    repo_cache[kk]['mmh'] = v[1]
-                    repo_cache[kk]['sha1'] = v[2]
+                    if v[1] != 0:
+                        # repo_cache[kk]['md5'] = v[0]
+                        repo_cache[kk]['mmh'] = v[1]
+                        repo_cache[kk]['sha1'] = v[2]
+                    else:
+                        repo_cache[kk]['mmh'] = 0
+                        repo_cache[kk]['sha1'] = None
 
 
 def check_assignment_name(conn, name):
@@ -803,7 +807,7 @@ def load(args):
         # read repo structures
         repo = read_repo_structure(args.pkgset, args.path)
         repo['repo']['kwargs']['class'] = 'repository'
-        # init hash cache
+        # init hash caches
         cache = init_cache(conn)
         init_hash_temp_table(conn, repo['src_hashes'])
         init_hash_temp_table(conn, repo['pkg_hashes'])
@@ -822,7 +826,7 @@ def load(args):
             # load source RPMs first
             # generate 'src.rpm' packages list
             packages_list = []
-            packages_md5 = get_packages_not_in_db_by_md5(conn)
+            # packages_md5 = get_packages_not_in_db_by_md5(conn)
             src_pkg_set = set()
             pkgset_cached = set()
             ts = time.time()
@@ -847,12 +851,13 @@ def load(args):
                             src_pkg_set.add(rpm_file.name)
                             pkg_count_1 += 1
                             pkg_count += 1
-                        if repo['src_hashes'][rpm_file.name]['md5'] in packages_md5:
+                        # if repo['src_hashes'][rpm_file.name]['md5'] in packages_md5:
+                        if repo['src_hashes'][rpm_file.name]['sha1'] is None:
                             # if rpm_file not in packages_list:
                             packages_list.append(str(rpm_file))
                         else:
                             pkgh = repo['src_hashes'][rpm_file.name]['mmh']
-                            if pkgh is None:
+                            if not pkgh:
                                 # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
@@ -913,8 +918,8 @@ def load(args):
                 pkgset_cached = set()
                 # generate 'rpm' packages list
                 packages_list = []
-                update_hases_from_db(conn, repo['pkg_hashes'])
-                packages_md5 = get_packages_not_in_db_by_md5(conn)
+                # update_hases_from_db(conn, repo['pkg_hashes'])
+                # packages_md5 = get_packages_not_in_db_by_md5(conn)
                 ts = time.time()
                 pkg_count = 0
                 log.info(f"Start checking RPM packages in '{comp['path']}'")
@@ -922,11 +927,12 @@ def load(args):
                 for rpm_file in rpm_dir.iterdir():
                     if rpm_file.suffix == '.rpm':
                         pkg_count += 1
-                        if repo['pkg_hashes'][rpm_file.name]['md5'] in packages_md5:
+                        # if repo['pkg_hashes'][rpm_file.name]['md5'] in packages_md5:
+                        if repo['pkg_hashes'][rpm_file.name]['sha1'] is None:
                             packages_list.append(str(rpm_file))
                         else:
                             pkgh = repo['pkg_hashes'][rpm_file.name]['mmh']
-                            if pkgh is None:
+                            if not pkgh:
                                 # TODO: retry to update hashes here?
                                 msg = f"No hash found in cache for {rpm_file.name}"
                                 raise ValueError(msg)
