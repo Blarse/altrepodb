@@ -187,7 +187,7 @@ def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complet
         'pkgset_kv.v': [v for k, v in kv_args.items() if v is not None],
     }
     conn.execute(sql, [data], settings={'types_check': True})
-    log.debug('insert assignment name uuid: {0}'.format(uuid))
+    log.debug('insert package set name uuid: {0}'.format(uuid))
 
 
 @Timing.timeit(NAME)
@@ -197,7 +197,7 @@ def insert_pkgset(conn, uuid, pkghash):
         [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
         settings={'types_check': True}
     )
-    log.debug('insert packageset uuid: {0}, pkg_hash: {1}'.format(uuid, len(pkghash)))
+    log.debug('insert package set uuid: {0}, pkg_hash: {1}'.format(uuid, len(pkghash)))
 
 
 @Timing.timeit(NAME)
@@ -460,7 +460,7 @@ def update_hases_from_db(conn, repo_cache):
         ON t1.md5 = t2.md5""",
         settings={'strings_as_bytes': True}
     )
-    log.debug(f"Found {len(result)} packages are in PackageHash")
+    cnt1 = cnt2 = 0
     if len(result):
         for (k, *v) in result:
             if len(v) == 3:
@@ -470,9 +470,14 @@ def update_hases_from_db(conn, repo_cache):
                         # repo_cache[kk]['md5'] = v[0]
                         repo_cache[kk]['mmh'] = v[1]
                         repo_cache[kk]['sha1'] = v[2]
+                        cnt1 += 1
                     else:
                         repo_cache[kk]['mmh'] = 0
                         repo_cache[kk]['sha1'] = None
+                        cnt2 += 1
+    log.debug(f"Requested {len(result)} package hashes from database. "
+                f"For {len(repo_cache)} packages {cnt1} hashes found in "
+                f"'PackagaeHash_buffer' table, {cnt2} packages not loaded yet.")
 
 
 def check_assignment_name(conn, name):
