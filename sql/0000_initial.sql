@@ -174,7 +174,7 @@ CREATE TABLE Files
     file_device     UInt32,
     file_lang       LowCardinality(String),
     file_class      Enum8('file' = 0, 'directory' = 1, 'symlink' = 2, 'socket' = 3, 'block' = 4, 'char' = 5, 'fifo' = 6)
-) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_hashname, file_hashdir, file_class, file_md5) PRIMARY KEY pkg_hash;
+) ENGINE = ReplacingMergeTree ORDER BY (pkg_hash, file_hashname, file_class, file_md5) PRIMARY KEY (pkg_hash, file_hashname);
 
 CREATE TABLE Files_buffer AS Files ENGINE = Buffer(currentDatabase(), Files, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
