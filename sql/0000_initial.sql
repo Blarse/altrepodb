@@ -549,12 +549,18 @@ FROM Depends_buffer ALL
 
 CREATE
 OR REPLACE VIEW all_packages_with_source AS
+-- SELECT Packages_buffer.*, srcPackage.*
+-- FROM Packages_buffer
+--          LEFT JOIN ( SELECT pkg_hash AS sourcepkghash, pkg_name AS sourcepkgname, pkg_filename AS pkg_sourcerpm
+--                      FROM Packages_buffer
+--                      WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_sourcerpm)
+-- WHERE pkg_sourcepackage = 0;
 SELECT Packages_buffer.*, srcPackage.*
-FROM Packages_buffer
-         LEFT JOIN ( SELECT pkg_hash AS sourcepkghash, pkg_name AS sourcepkgname, pkg_filename AS pkg_sourcerpm
-                     FROM Packages_buffer
-                     WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_sourcerpm)
-WHERE pkg_sourcepackage = 0;
+FROM repodb_test.Packages_buffer
+    LEFT JOIN ( SELECT pkg_hash AS pkg_srcrpm_hash, pkg_name AS sourcepkgname
+                FROM repodb_test.Packages_buffer
+                WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_srcrpm_hash)
+WHERE (pkg_sourcepackage = 0) AND (Packages_buffer.pkg_srcrpm_hash != 0)
 
 
 CREATE
