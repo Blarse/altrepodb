@@ -455,6 +455,26 @@ CREATE TABLE FstecBduList
 
 
 -- VIEW TABLES --
+CREATE
+OR REPLACE VIEW task_plan_hashes AS
+SELECT task_id, murmurHash3_64(concat(hash_string, archs)) AS tplan_hash
+FROM (
+    SELECT DISTINCT task_id, 
+                    concat(toString(task_id), toString(task_try), toString(task_iter)) AS hash_string,
+                    arrayConcat(groupUniqArray(subtask_arch), ['src']) AS archs
+    FROM TaskIterations_buffer
+    WHERE (task_try, task_iter) IN　(
+        SELECT max(task_try) AS try, argMax(task_iter, task_try) AS iter
+        FROM TaskIterations_buffer
+        GROUP BY task_id
+    ) AND task_id IN (
+        SELECT task_id
+        FROM TaskStates
+        WHERE task_state = 'DONE'
+    )
+    GROUP BY task_id, hash_string
+) ARRAY JOIN archs;
+
 
 CREATE
 OR REPLACE VIEW last_pkgnames_without_pname AS
