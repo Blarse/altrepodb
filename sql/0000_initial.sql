@@ -191,10 +191,14 @@ CREATE TABLE FileNames_buffer AS FileNames ENGINE = Buffer(currentDatabase(), Fi
 
 CREATE 
 OR REPLACE VIEW Files_view AS
--- SELECT fn_name as file_name, FLS.* EXCEPT (file_hashname, file_hashdir)
-SELECT fn_name as file_name, FLS.* EXCEPT (file_hashname, file_hashdir)
+SELECT
+    fn_name as file_name,
+    FLS.*
 FROM FileNames_buffer 
-    INNER JOIN (SELECT * from Files_buffer) AS FLS ON fn_hash = FLS.file_hashname;
+INNER JOIN (
+    SELECT *
+    FROM Files_buffer
+) AS FLS ON fn_hash = FLS.file_hashname;
 
 
 CREATE TABLE Files_insert
@@ -459,7 +463,7 @@ CREATE
 OR REPLACE VIEW task_plan_hashes AS
 SELECT task_id, murmurHash3_64(concat(hash_string, archs)) AS tplan_hash
 FROM (
-    SELECT DISTINCT task_id, 
+    SELECT DISTINCT task_id,
                     concat(toString(task_id), toString(task_try), toString(task_iter)) AS hash_string,
                     arrayConcat(groupUniqArray(subtask_arch), ['src']) AS archs
     FROM TaskIterations_buffer
@@ -577,9 +581,9 @@ OR REPLACE VIEW all_packages_with_source AS
 --                      WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_sourcerpm)
 -- WHERE pkg_sourcepackage = 0;
 SELECT Packages_buffer.*, srcPackage.*
-FROM repodb_test.Packages_buffer
+FROM Packages_buffer
     LEFT JOIN ( SELECT pkg_hash AS pkg_srcrpm_hash, pkg_name AS sourcepkgname
-                FROM repodb_test.Packages_buffer
+                FROM Packages_buffer
                 WHERE pkg_sourcepackage = 1 ) AS srcPackage USING (pkg_srcrpm_hash)
 WHERE (pkg_sourcepackage = 0) AND (Packages_buffer.pkg_srcrpm_hash != 0)
 
