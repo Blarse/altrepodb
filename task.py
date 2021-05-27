@@ -882,10 +882,8 @@ def init_task_structure_from_task(girar):
                 t = girar.get_file_mtime(arch_dir)
                 build_dict['titer_status'] = 'failed'
             build_dict['titer_ts'] = t
-            t = girar.get('task/try')
-            build_dict['task_try'] = int(t.strip()) if t else 0
-            t = girar.get('task/iter')
-            build_dict['task_iter'] = int(t.strip()) if t else 0
+            build_dict['task_try'] = task['task_state']['task_try']
+            build_dict['task_iter'] = task['task_state']['task_iter']
             # read chroots
             t = girar.get('/'.join((arch_dir, 'chroot_base')))
             if t:
@@ -939,6 +937,26 @@ def init_task_structure_from_task(girar):
                             mmhash(log_hash),
                             log_hash
                         ))
+    # generate task iterations for subtask with 'delete' action
+    build_subtasks = {_['subtask_id'] for _ in task['task_iterations']}
+    for t in task['tasks']:
+        if t['subtask_deleted'] == 0 and t['subtask_type'] == 'delete':
+            if t['subtask_id'] not in build_subtasks:
+                # create stub task iteration
+                build_dict = {
+                    'task_id': task['task_state']['task_id'],
+                    'subtask_id': t['subtask_id'],
+                    'subtask_arch': 'x86_64',
+                    'titer_ts': girar.get_file_mtime('build'),
+                    'titer_status': 'deleted',
+                    'task_try': task['task_state']['task_try'],
+                    'task_iter': task['task_state']['task_iter'],
+                    'titer_srpm': None,
+                    'titer_rpms': [],
+                    'titer_chroot_base': [],
+                    'titer_chroot_br': []
+                }
+                task['task_iterations'].append(build_dict)
     # parse '/arepo' for packages
     t = girar.get('arepo/x86_64-i586/rpms')
     for pkg in (_.name for _ in t if t and _.suffix == '.rpm'):
