@@ -465,7 +465,7 @@ SELECT task_id, murmurHash3_64(concat(hash_string, archs)) AS tplan_hash
 FROM (
     SELECT DISTINCT task_id,
                     concat(toString(task_id), toString(task_try), toString(task_iter)) AS hash_string,
-                    arrayConcat(groupUniqArray(subtask_arch), ['src', 'noarch']) AS archs
+                    arrayConcat(groupUniqArray(subtask_arch), ['src', 'noarch', 'x86_64-i586']) AS archs
     FROM TaskIterations_buffer
     WHERE (task_try, task_iter) IN　(
         SELECT max(task_try) AS try, argMax(task_iter, task_try) AS iter
