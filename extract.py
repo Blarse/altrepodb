@@ -744,8 +744,8 @@ def read_repo_structure(repo_name, repo_path):
     
     log.debug(f"Found {len(repo['src']['path'])} source directories")
     log.debug(f"Found {len(repo['comp']['comps'])} components for {len(repo['arch']['archs'])} architectures")
-    log.debug(f"Found {len(repo['src_hashes'])} hasesh for 'src.rpm' files")
-    log.debug(f"Found {len(repo['pkg_hashes'])} hasesh for 'rpm' files")
+    log.debug(f"Found {len(repo['src_hashes'])} hashes for 'src.rpm' files")
+    log.debug(f"Found {len(repo['pkg_hashes'])} hashes for 'rpm' files")
 
     return repo
 
