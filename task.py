@@ -784,6 +784,7 @@ def init_task_structure_from_task(girar):
                 'subtask_id': int(subtask),
                 'task_repo': girar.get('task/repo').strip(),
                 'task_owner': girar.get('task/owner').strip(),
+                'task_changed': task['task_state']['task_changed'],
                 'subtask_changed': None,
                 'subtask_userid': girar.get('/'.join((subtask_dir, 'userid'))).strip(),
                 'subtask_sid': sid.split(':')[1].strip() if sid else '',
@@ -863,6 +864,7 @@ def init_task_structure_from_task(girar):
             arch_dir = '/'.join((subtask_dir, arch))
             build_dict = {
                 'task_id': task['task_state']['task_id'],
+                'task_changed': task['task_state']['task_changed'],
                 'subtask_id': int(subtask),
                 'subtask_arch': arch,
                 'titer_ts': None,

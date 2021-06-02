@@ -42,6 +42,7 @@ CREATE TABLE Tasks
     subtask_id          UInt32, -- from listing gears/[1-7]*/userid
     task_repo           LowCardinality(String), -- from /task/repo
     task_owner          LowCardinality(String), -- from /task/owner
+    task_changed        DateTime, -- from /task/state mtime 
     subtask_changed     DateTime, -- from /gears/%subtask-id%/sid mtime
     subtask_deleted     UInt8, -- could find by /gears/%subtask_id%/{dir|srpm|package} directory contents
     subtask_userid      LowCardinality(String), -- from /geras/%subtask_id%/userid
@@ -57,8 +58,8 @@ CREATE TABLE Tasks
     subtask_srpm_name   String, -- from /geras/%subtask_id%/nevr
     subtask_srpm_evr    String, -- from /geras/%subtask_id%/nevr
     ts                  DateTime MATERIALIZED now() -- DEBUG
-) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
---) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_repo, task_owner) PRIMARY KEY (task_id, subtask_id);
+) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, task_changed, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
+-- ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
 
 --CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
@@ -99,6 +100,7 @@ CREATE TABLE TaskApprovals
 CREATE TABLE TaskIterations
 (
     task_id             UInt32,
+    task_changed        DateTime, -- from /task/state mtime
     subtask_id          UInt32,
     subtask_arch        LowCardinality(String),    
     titer_ts            DateTime, -- from /build/%subtask_id%/%build_arch%/status mtime
@@ -111,8 +113,8 @@ CREATE TABLE TaskIterations
     titer_chroot_br     UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
     titer_buildlog_hash UInt64, -- build log hash
     titer_srpmlog_hash  UInt64  -- srpm build log hash
-) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
---) ENGINE = MergeTree ORDER BY (task_id, subtask_id, task_try) PRIMARY KEY (task_id, subtask_id, task_try);
+) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, task_changed, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
+-- ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
 
 CREATE TABLE TaskIterations_buffer AS TaskIterations ENGINE = Buffer(currentDatabase(), TaskIterations, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
