@@ -1069,6 +1069,8 @@ def set_config(args):
 def main():
     args = get_args()
     args = set_config(args)
+    # avoid repository name accidentally contains capital letters
+    args.pkgset = args.pkgset.lower()
     logger = get_logger(NAME, args.pkgset, args.date)
     if args.debug:
         logger.setLevel(logging.DEBUG)
