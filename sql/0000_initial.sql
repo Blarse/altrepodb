@@ -61,7 +61,7 @@ CREATE TABLE Tasks
 ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, task_changed, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
 -- ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
 
---CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 1000000, 10000000);
+CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 100000, 1000000);
 
 
 CREATE TABLE TaskStates
@@ -82,6 +82,8 @@ CREATE TABLE TaskStates
     ts              DateTime MATERIALIZED now() -- DEBUG
 ) ENGINE = ReplacingMergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
 --) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
+
+CREATE TABLE TaskStates_buffer AS TaskStates ENGINE = Buffer(currentDatabase(), TaskStates, 16, 10, 100, 1000, 100000, 100000, 1000000);
 
 
 CREATE TABLE TaskApprovals
