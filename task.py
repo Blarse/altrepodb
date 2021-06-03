@@ -40,6 +40,29 @@ def get_client(args):
         password=args.password
     )
 
+
+def init_cache(conn, packages):
+    result = conn.execute(
+        """CREATE TEMPORARY TABLE IF NOT EXISTS PkgFNameTmp (pkg_filename String)"""
+    )
+    payload = []
+    for pkg_name in [_.split('/')[-1] for _ in packages]:
+        payload.append({'pkg_filename': pkg_name})
+
+    result = conn.execute("INSERT INTO PkgFNameTmp (*) VALUES", payload)
+
+    log.debug(f"Inserted {len(payload)} 'pkg_filename's into PkgFNameTmp")
+
+    result = conn.execute(
+        """SELECT pkg_hash
+           FROM Packages_buffer
+           WHERE pkg_filename IN
+             (SELECT * FROM PkgFNameTmp)"""
+    )
+
+    return {i[0] for i in result}
+
+
 class LogLoaderWorker(threading.Thread):
     def __init__(self, conn, girar, logger, logs, count_list, *args, **kwargs) -> None:
         self.conn = conn
@@ -237,16 +260,25 @@ def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs
     st = time.time()
     workers = []
     connections = []
-    titer = LockedIterator((titer for titer in task_iterations))
-    pkg_hashes_cache = extract.init_cache(conn)
     titer_count = []
+    titers = LockedIterator((titer for titer in task_iterations))
+
     if num_of_workers:
         args.workers = num_of_workers
+
+    packages_ = []
+    for titer in task_iterations:
+        if titer['titer_srpm']:
+            packages_.append(titer['titer_srpm'])
+        for pkg in titer['titer_rpms']:
+            packages_.append(pkg)
+
+    pkg_hashes_cache = init_cache(conn, packages_)
 
     for i in range(args.workers):
         conn = get_client(args)
         connections.append(conn)
-        worker = TaskIterationLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, titer, titer_count, args.force)
+        worker = TaskIterationLoaderWorker(conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, titers, titer_count, args.force)
         worker.start()
         workers.append(worker)
 
@@ -326,13 +358,15 @@ class PackageLoaderWorker(threading.Thread):
         self.logger.debug(f"thread {self.ident} stop")
         self.count_list.append(self.count)
 
-def package_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, packages, num_of_workers=None, loaded_from=''):
+def package_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, packages_, num_of_workers=None, loaded_from=''):
     st = time.time()
     workers = []
-    connections = []
-    packages = LockedIterator((pkg for pkg in packages))
-    pkg_hashes_cache = extract.init_cache(conn)
     pkg_count = []
+    connections = []
+    packages = LockedIterator((pkg for pkg in packages_))
+
+    pkg_hashes_cache = init_cache(conn, packages_)
+
     if num_of_workers:
         args.workers = num_of_workers
 
