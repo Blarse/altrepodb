@@ -404,7 +404,7 @@ class Task:
             self.task['task_state']['task_eventlog_hash'].append(log_hash)
         # 1.2 - save current task state
         self.conn.execute(
-            'INSERT INTO TaskStates (*) VALUES',
+            'INSERT INTO TaskStates_buffer (*) VALUES',
             [self.task['task_state']],
             settings={'types_check': True}
         )
@@ -444,7 +444,7 @@ class Task:
         # 3 - proceed with Tasks
         if self.task['tasks']:
             self.conn.execute(
-                'INSERT INTO Tasks (*) VALUES',
+                'INSERT INTO Tasks_buffer (*) VALUES',
                 self.task['tasks'],
                 settings={'types_check': True}
             )
