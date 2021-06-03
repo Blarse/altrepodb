@@ -42,7 +42,7 @@ CREATE TABLE Tasks
     subtask_id          UInt32, -- from listing gears/[1-7]*/userid
     task_repo           LowCardinality(String), -- from /task/repo
     task_owner          LowCardinality(String), -- from /task/owner
-    task_changed        DateTime, -- from /task/state mtime 
+    task_changed        DateTime, -- from /task/state mtime
     subtask_changed     DateTime, -- from /gears/%subtask-id%/sid mtime
     subtask_deleted     UInt8, -- could find by /gears/%subtask_id%/{dir|srpm|package} directory contents
     subtask_userid      LowCardinality(String), -- from /geras/%subtask_id%/userid
@@ -350,8 +350,7 @@ FROM
             pkg_changelog.evr,
             pkg_changelog.hash AS hash,
             Chg.chlog_text
-        -- FIXME: Bug with FULL SCAN when select from 'Packages_buffer', doesn't happens when select form 'Packages'
-        FROM Packages
+        FROM Packages_buffer
         ARRAY JOIN pkg_changelog
         INNER JOIN 
         (
@@ -375,8 +374,7 @@ FROM Changelog_buffer
         SELECT * EXCEPT ('pkg_changelog.*'),
             toDate(pkg_changelog.date[1]) AS pkg_changelog_date, pkg_changelog.name[1] AS pkg_changelog_name,
             pkg_changelog.evr[1] AS pkg_changelog_evr, pkg_changelog.hash[1] as pkg_changelog_hash
-        -- FIXME: Bug with FULL SCAN when select from 'Packages_buffer', doesn't happens when select form 'Packages'
-        FROM Packages) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
+        FROM Packages_buffer) AS PKG ON chlog_hash = PKG.pkg_changelog_hash;
 
 
 CREATE TABLE Depends
