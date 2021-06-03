@@ -981,6 +981,7 @@ def init_task_structure_from_task(girar):
                 # create stub task iteration
                 build_dict = {
                     'task_id': task['task_state']['task_id'],
+                    'task_changed': task['task_state']['task_changed'],
                     'subtask_id': t['subtask_id'],
                     'subtask_arch': 'x86_64',
                     'titer_ts': girar.get_file_mtime('build'),
