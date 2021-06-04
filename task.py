@@ -20,7 +20,7 @@ import json
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
-from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file, md5_sha256_from_file
+from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
 from utils import cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
 from utils import parse_hash_diff, parse_pkglist_diff, LockedIterator
 

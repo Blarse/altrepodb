@@ -284,14 +284,16 @@ def sha256_from_file(fname, as_bytes=False, capitalized=False):
     Returns:
         string or bytes: file's SHA256 hash
     """
+    sha256_hash = sha256()
     with open(fname, 'rb') as f:
-        data = f.read()
+        for byte_block in iter(lambda: f.read(8192),b""):
+            sha256_hash.update(byte_block)
     if as_bytes:
-        return sha256(data).digest()
+        return sha256_hash.digest()
     if capitalized:
-        return sha256(data).hexdigest().upper()
+        return sha256_hash.hexdigest().upper()
     else:
-        return sha256(data).hexdigest()
+        return sha256_hash.hexdigest()
 
 
 def md5_from_file(fname, as_bytes=False, capitalized=False):
@@ -305,30 +307,16 @@ def md5_from_file(fname, as_bytes=False, capitalized=False):
     Returns:
         string or bytes: file's MD5 hash
     """
+    md5_hash = md5()
     with open(fname, 'rb') as f:
-        data = f.read()
+        for byte_block in iter(lambda: f.read(8192),b""):
+            md5_hash.update(byte_block)
     if as_bytes:
-        return md5(data).digest()
+        return md5_hash.digest()
     if capitalized:
-        return md5(data).hexdigest().upper()
+        return md5_hash.hexdigest().upper()
     else:
-        return md5(data).hexdigest()
-
-
-def md5_sha256_from_file(fname):
-    """Calculates MD5 and SHA256 sums from file
-
-    Args:
-        fname (str or path object): path to file
-
-    Returns:
-        bytes, bytes: MD5, SHA256 hashes as raw bytes
-    """
-    with open(fname, 'rb') as f:
-        data = f.read()
-        md5_sum = md5(data).digest()
-        sha256_sum = sha256(data).digest()
-    return md5_sum, sha256_sum
+        return md5_hash.hexdigest()
 
 
 def join_dicts_with_as_string(d1, d2, key):
