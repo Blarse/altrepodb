@@ -408,8 +408,35 @@ def val_from_json_str(json_str, val_key):
             return None
 
 
+class GeneratorWrapper:
+    """Wraps generator function and allow to test it's emptyness at any time 
+    """
+    def __init__(self, iter):
+        self.source = iter
+        self.stored = False
+
+    def __iter__(self):
+        return self
+
+    def __bool__(self):
+        if self.stored:
+            return True
+        try:
+            self.value = next(self.source)
+            self.stored = True
+        except StopIteration:
+            return False
+        return True
+
+    def __next__(self):
+        if self.stored:
+            self.stored = False
+            return self.value
+        return next(self.source)
+
+
 def log_parser(logger, log_file, log_type, log_start_time):
-    """Task logs parser
+    """Task logs parser generator
 
     Args:
         logger (logger): Logger instance object
@@ -418,7 +445,7 @@ def log_parser(logger, log_file, log_type, log_start_time):
         log_start_time (datetime): log start time for logs with partial or none timestamps included
 
     Returns:
-        tuple(tuple(int, datetime, str),): return parsed log as tuples of line number, timestamp and message
+        generator(tuple(tuple(int, datetime, str),)): return parsed log as generator of tuples of line number, timestamp and message
     """
     # matches with '2020-May-15 10:30:00 '
     events_pattern = re.compile('^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}')
@@ -426,104 +453,94 @@ def log_parser(logger, log_file, log_type, log_start_time):
     srpm_pattern = re.compile('^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}')
     # matches with '[00:03:15] '
     build_pattern = re.compile('^\[\d{2}:\d{2}:\d{2}\]')
-    try:
-        contents = Path(log_file).read_text(encoding='utf-8', errors='backslashreplace')
-        contents = (_ for _ in contents.split('\n') if len(_) > 0)
-    except FileNotFoundError:
-        logger.error(f"file '{log_file}' not found")
+
+    if not Path(log_file).is_file():
+        logger.error(f"File '{log_file}' not found")
         return ()
-    
-    if log_type == 'events':
-        first_line = True
-        line_cnt = 0
-        res = []
-        for line in contents:
-            line_cnt += 1
-            if first_line:
-                dt = events_pattern.findall(line)
-                if not dt:
-                    logger.error(f"File '{log_file}' first line doesn't contain valid datetime."
-                                 f" Log file parsing aborted.")
-                    break
-                dt = dt[0]
-                msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
-                last_dt = dt
-                first_line = False
-                res.append((
-                    line_cnt,
-                    datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
-                    msg
-                ))
-            else:
-                dt = events_pattern.findall(line)
-                msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
-                if dt:
-                    dt = dt[0]
-                    last_dt = dt
-                    res.append((
-                        line_cnt,
-                        datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
-                        msg
-                    ))
-                else:
-                    res.append((
-                        line_cnt,
-                        datetime.datetime.strptime(last_dt, '%Y-%b-%d %H:%M:%S'),
-                        msg
-                    ))
-        return tuple(res)
-    elif log_type == 'srpm':
-        if not isinstance(log_start_time, datetime.datetime):
-            logger.error(f"Valid 'log_start_time' value is required to parse 'srpm.log'" 
-                         f" type file {log_file}. Log file parsing aborted.")
-            return ()
-        first_line = True
-        line_cnt = 0
-        res = []
-        for line in contents:
-            line_cnt += 1
-            dt = srpm_pattern.findall(line)
-            msg = srpm_pattern.split(line)[-1].strip()
-            if dt:
-                dt = dt[0]
-                last_dt = dt
-                first_line = False
-                # FIXME: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
-                ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in dt[4:].split(' ') if len(_) > 0])
-                ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
-                res.append((line_cnt, ts, msg))
-            else:
-                if first_line:
-                    logger.debug(f"File '{log_file}' first line doesn't contain valid datetime."
-                                 f" Using 'log_start_time' as timestamp.")
-                    ts = log_start_time
-                else:
-                    ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in last_dt[4:].split(' ') if len(_) > 0])
-                    ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
-                res.append((line_cnt, ts, msg))
-        return tuple(res)
-    elif log_type == 'build':
-        line_cnt = 0
-        res = []
-        for line in contents:
-            line_cnt += 1
-            ts = build_pattern.findall(line)
-            msg = build_pattern.split(line)[-1].strip()
-            if ts:
-                ts = ts[0][1:-1].split(':')
-                ts = log_start_time \
-                    + datetime.timedelta(
-                        hours=int(ts[0]),
-                        minutes=int(ts[1]),
-                        seconds=int(ts[2])
-                        )
-            else:
-                ts = log_start_time
-            res.append((line_cnt, ts, msg))
-        return tuple(res)
     else:
-        logger.error(f"Unknown log format specifier '{log_type}'.  Log file parsing aborted.")
-        return tuple()
+        with Path(log_file).open('r', encoding='utf-8', errors='backslashreplace') as f:
+            first_line = True
+            line_cnt = 0
+            for line in f:
+                if len(line) > 0:
+                    if log_type == 'events':
+                        line_cnt += 1
+                        if first_line:
+                            dt = events_pattern.findall(line)
+                            if not dt:
+                                logger.error(f"File '{log_file}' first line doesn't contain valid datetime."
+                                            f" Log file parsing aborted.")
+                                return tuple()
+                            dt = dt[0]
+                            msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
+                            last_dt = dt
+                            first_line = False
+                            yield (
+                                line_cnt,
+                                datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
+                                msg,
+                            )
+                        else:
+                            dt = events_pattern.findall(line)
+                            msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
+                            if dt:
+                                dt = dt[0]
+                                last_dt = dt
+                                yield (
+                                    line_cnt,
+                                    datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
+                                    msg,
+                                )
+                            else:
+                                yield (
+                                    line_cnt,
+                                    datetime.datetime.strptime(last_dt, '%Y-%b-%d %H:%M:%S'),
+                                    msg,
+                                )
+                    elif log_type == 'srpm':
+                        if not isinstance(log_start_time, datetime.datetime):
+                            logger.error(f"Valid 'log_start_time' value is required to parse 'srpm.log'" 
+                                        f" type file {log_file}. Log file parsing aborted.")
+                            return ()
+                        line_cnt += 1
+                        dt = srpm_pattern.findall(line)
+                        msg = srpm_pattern.split(line)[-1].strip()
+                        if dt:
+                            dt = dt[0]
+                            last_dt = dt
+                            first_line = False
+                            # FIXME: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
+                            ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in dt[4:].split(' ') if len(_) > 0])
+                            ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
+                            yield (line_cnt, ts, msg,)
+                        else:
+                            if first_line:
+                                logger.debug(f"File '{log_file}' first line doesn't contain valid datetime."
+                                            f" Using 'log_start_time' as timestamp.")
+                                ts = log_start_time
+                            else:
+                                ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in last_dt[4:].split(' ') if len(_) > 0])
+                                ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
+                            yield (line_cnt, ts, msg,)
+                    elif log_type == 'build':
+                        line_cnt += 1
+                        ts = build_pattern.findall(line)
+                        msg = build_pattern.split(line)[-1].strip()
+                        if ts:
+                            ts = ts[0][1:-1].split(':')
+                            ts = log_start_time \
+                                + datetime.timedelta(
+                                    hours=int(ts[0]),
+                                    minutes=int(ts[1]),
+                                    seconds=int(ts[2])
+                                    )
+                        else:
+                            ts = log_start_time
+                        yield (line_cnt, ts, msg,)
+                    else:
+                        logger.error(f"Unknown log format specifier '{log_type}'.  Log file parsing aborted.")
+                        return tuple()
+
 
 def parse_hash_diff(hash_file):
     """Parse hash diff file.

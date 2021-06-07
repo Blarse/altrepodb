@@ -22,7 +22,7 @@ import extract
 # from extract import get_header, insert_package, init_cache, check_package
 from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
 from utils import cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
-from utils import parse_hash_diff, parse_pkglist_diff, LockedIterator
+from utils import parse_hash_diff, parse_pkglist_diff, LockedIterator, GeneratorWrapper
 
 NAME = 'task'
 
@@ -84,12 +84,12 @@ class LogLoaderWorker(threading.Thread):
                 log_start_time = self.girar.get_file_mtime(log_name)
                 log_file_size = self.girar.get_file_size(log_name)
                 log_file = self.girar.get_file_path(log_name)
-                log_parsed = log_parser(self.logger, log_file, log_type, log_start_time)
+                log_parsed = GeneratorWrapper(log_parser(self.logger, log_file, log_type, log_start_time))
                 if log_parsed:
                     count += 1
                     self.conn.execute(
                         'INSERT INTO TaskLogs_buffer (*) VALUES',
-                        [dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed],
+                        (dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed),
                         settings={'types_check': True}
                     )
                     self.logger.debug(f"Logfile loaded in {(time.time() - st):.3f} seconds : {log_name} : {log_file_size} bytes")
