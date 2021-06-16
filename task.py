@@ -932,7 +932,10 @@ def init_task_structure_from_task(girar):
             t = girar.get('/'.join((arch_dir, 'srpm')))
             if t and len(t) > 0:
                 build_dict['titer_status'] = 'built'
-                src_pkgs[subtask] = '/'.join((arch_dir, 'srpm', t[0].name))
+                # skip srpm if got it from 'plan/add-src'
+                # TODO: handle particular srpm package loading somehow if plan exists
+                if subtask not in src_pkgs:
+                    src_pkgs[subtask] = '/'.join((arch_dir, 'srpm', t[0].name))
             if subtask in src_pkgs:
                 build_dict['titer_srpm'] = src_pkgs[subtask]
 
