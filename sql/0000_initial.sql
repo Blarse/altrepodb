@@ -470,7 +470,7 @@ FROM (
                     arrayConcat(groupUniqArray(subtask_arch), ['src', 'noarch', 'x86_64-i586']) AS archs
     FROM TaskIterations_buffer
     WHERE (task_try, task_iter) IN　(
-        SELECT max(task_try) AS try, argMax(task_iter, task_try) AS iter
+        SELECT argMax(task_try, task_changed) AS try, argMax(task_iter, task_changed) AS iter
         FROM TaskIterations_buffer
         GROUP BY task_id
     ) AND task_id IN (
@@ -541,11 +541,6 @@ INNER JOIN
 (
     SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
     FROM Packages_buffer
-    WHERE pkg_hash IN 
-    (
-        SELECT pkg_hash
-        FROM last_pkgset
-    )
 ) AS Packages USING (pkg_hash);
 
 
