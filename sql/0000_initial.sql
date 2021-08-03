@@ -401,17 +401,22 @@ CREATE TABLE Acl
 
 CREATE TABLE Cve
 (
-    pkg_hash            UInt64,
-    cve_id              String,
-    cve_description     String,
-    cve_url             String,
-    cve_score           Float64,
-    cve_attacktype      String,
-    cve_status          Enum8('check' = 0, 'patched' = 1),
-    cve_uris            Array(String),
-    cve_modifieddate    DateTime,
-    cve_parsingdate     DateTime
-) ENGINE = MergeTree ORDER BY (pkg_hash, cve_id, cve_modifieddate, cve_parsingdate) SETTINGS index_granularity = 8192;
+    pkg_hash                        UInt64,
+    cve_id                          String,
+    cve_description                 String,
+    cve_url                         String,
+    cve_score                       Float64,
+    cve_attacktype                  String,
+    cve_status                      Enum8('check' = 0, 'patched' = 1, 'discarded_by_version_check' = 2),
+    cve_uris                        Array(String),
+    cve_modifieddate                DateTime,
+    cve_parsingdate                 DateTime,
+    cve_cpe                         String,
+    cve_version_start_excluding     Nullable(String),
+    cve_version_start_including     Nullable(String),
+    cve_version_end_excluding       Nullable(String),
+    cve_version_end_including       Nullable(String)
+) ENGINE = MergeTree ORDER BY (pkg_hash, cve_id, cve_modifieddate, cve_parsingdate);
 
 CREATE TABLE CveAbsentPackages
 (
@@ -424,7 +429,7 @@ CREATE TABLE CveAbsentPackages
     cve_uris            Array(String),
     cve_modifieddate    DateTime,
     cve_parsingdate     DateTime
-) ENGINE = MergeTree ORDER BY (cap_product_name, cve_id, cve_modifieddate, cve_parsingdate) SETTINGS index_granularity = 8192;
+) ENGINE = MergeTree ORDER BY (cap_product_name, cve_id, cve_modifieddate, cve_parsingdate);
 
 CREATE TABLE CveChecked
 (
