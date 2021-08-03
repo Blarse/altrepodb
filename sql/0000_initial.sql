@@ -533,15 +533,26 @@ INNER JOIN
 ) AS PkgSet USING (pkgset_uuid);
 
 
+-- CREATE
+-- OR REPLACE VIEW last_packages AS
+-- SELECT *
+-- FROM last_pkgset
+-- INNER JOIN 
+-- (
+--     SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
+--     FROM Packages_buffer
+-- ) AS Packages USING (pkg_hash);
+
+-- New last_packages
 CREATE
 OR REPLACE VIEW last_packages AS
-SELECT *
-FROM last_pkgset
+SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
+FROM Packages_buffer
 INNER JOIN 
 (
-    SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
-    FROM Packages_buffer
-) AS Packages USING (pkg_hash);
+    SELECT pkg_hash, pkgset_name, pkgset_date
+    FROM static_last_packages
+) AS SLP USING (pkg_hash);
 
 
 CREATE
