@@ -777,6 +777,17 @@ ORDER BY (pkgset_name, pkg_name, pkg_sourcepackage);
 --     FROM StaticLastPackages
 -- );
 
+-- Table StaticLastPackages cleun up
+-- ALTER TABLE StaticLastPackages DELETE
+-- WHERE (pkgset_name, pkgset_date) NOT IN
+-- (
+--     SELECT
+--         argMax(pkgset_name, pkgset_date) AS pkgset_n,
+--         max(pkgset_date) AS pkgset_d
+--     FROM StaticLastPackages
+--     GROUP BY pkgset_name
+-- );
+
 -- MV STAGE 1
 CREATE MATERIALIZED VIEW mv_last_packages_stage1
 TO last_packages_stage1
