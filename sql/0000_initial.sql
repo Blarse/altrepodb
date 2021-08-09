@@ -465,6 +465,26 @@ CREATE TABLE FstecBduList
     ENGINE = MergeTree ORDER BY (bdu_identifier, bdu_identify_date, bdu_name) PRIMARY KEY (bdu_identifier, bdu_identify_date);
 
 
+-- Repocop info
+CREATE TABLE PackagesRepocop
+(
+    pkg_name String,
+    pkg_version String,
+    pkg_release String,
+    pkg_arch LowCardinality(String),
+    rc_srcpkg_name String,
+    rc_srcpkg_version String,
+    rc_srcpkg_release String,
+    rc_test_name LowCardinality(String),
+    rc_test_date DateTime,
+    rc_test_status LowCardinality(String),
+    rc_test_message String,
+    ts DateTime64 MATERIALIZED now64()
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (pkg_name, pkg_version, pkg_release, pkg_arch, rc_test_name, rc_test_date);
+
+
 -- VIEW TABLES --
 CREATE
 OR REPLACE VIEW task_plan_hashes AS
