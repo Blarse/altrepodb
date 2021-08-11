@@ -407,7 +407,7 @@ CREATE TABLE Cve
     cve_url                         String,
     cve_score                       Float64,
     cve_attacktype                  String,
-    cve_status                      Enum8('check' = 0, 'patched' = 1, 'discarded_by_version_check' = 2),
+    cve_status                      Enum8('check' = 0, 'patched' = 1, 'discarded_by_version_check' = 2, 'manually_excluded' = 3),
     cve_uris                        Array(String),
     cve_modifieddate                DateTime,
     cve_parsingdate                 DateTime,
@@ -415,7 +415,8 @@ CREATE TABLE Cve
     cve_version_start_excluding     Nullable(String),
     cve_version_start_including     Nullable(String),
     cve_version_end_excluding       Nullable(String),
-    cve_version_end_including       Nullable(String)
+    cve_version_end_including       Nullable(String),
+    cc_id                           Nullable(UInt64)
 ) ENGINE = MergeTree ORDER BY (pkg_hash, cve_id, cve_modifieddate, cve_parsingdate);
 
 CREATE TABLE CveAbsentPackages
@@ -433,15 +434,17 @@ CREATE TABLE CveAbsentPackages
 
 CREATE TABLE CveChecked
 (
-    cve_id                    String,
-    pkg_name                  String,
-    cc_checkdate              DateTime,
-    cc_description            String,
-    cc_description_ru         String,
+    cve_id                      String,
+    pkg_name                    String,
+    cc_id                       UInt64 MATERIALIZED murmurHash3_64(cve_id, pkg_name, cc_checked_ver.pkg_evr, cc_checked_ver.pkg_branch), -- hash
+    cc_status                   Enum8('patched' = 0, 'manually_excluded' = 1),
+    cc_checkdate                DateTime,
+    cc_description              String,
+    cc_description_ru           String,
     `cc_checked_ver.pkg_evr`    Array(String),
     `cc_checked_ver.pkg_branch` Array(String)
 )
-    ENGINE = MergeTree PRIMARY KEY (cve_id, pkg_name) ORDER BY (cve_id, pkg_name, cc_checkdate) SETTINGS index_granularity = 8192;
+    ENGINE = MergeTree PRIMARY KEY (cve_id, pkg_name) ORDER BY (cve_id, pkg_name, cc_checkdate);
 
 CREATE TABLE FstecBduList
 (
