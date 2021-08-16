@@ -714,32 +714,40 @@ def init_task_structure_from_task(girar):
     t = girar.get_symlink_target('build/repo/prev', name_only=True)
     task['task_state']['task_prev'] = int(t.strip()) if t else 0
     # parse '/plan' and '/build/repo' for diff lists and hashes
-    # 0 - get packages list diffs
+    # check if task '/plan' is up to date. Workaround for bug #40728
     task['plan']['pkg_add'] = {}
     task['plan']['pkg_del'] = {}
-    for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
-        if pkgdiff.name == 'src.list.diff':
-            p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=True)
-        else:
-            p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=False)
-        for p in p_add:
-            if p[4] not in task['plan']['pkg_add']:
-                task['plan']['pkg_add'][p[4]] = {}
-            task['plan']['pkg_add'][p[4]].update({p[2]: (p[0], p[1], p[3])})
-        for p in p_del:
-            if p[4] not in task['plan']['pkg_del']:
-                task['plan']['pkg_del'][p[4]] = {}
-            task['plan']['pkg_del'][p[4]].update({p[2]: (p[0], p[1], p[3])})
-    # 1 - get SHA256 hashes from '/plan/*.hash.diff'
     task['plan']['hash_add'] = {}
     task['plan']['hash_del'] = {}
-    for hashdiff in (_ for _ in girar.get_file_path('plan').glob('*.hash.diff')):
-        h_add, h_del = parse_hash_diff(hashdiff)
-        h_arch = hashdiff.name.split('.')[0]
-        task['plan']['hash_add'][h_arch] = h_add
-        task['plan']['hash_del'][h_arch] = h_del
-        for k, v in h_add.items():
-            task['pkg_hashes'][k]['sha256'] = v
+    load_plan = False
+    if task['task_state']['task_try'] != 0 and task['task_state']['task_iter'] != 0:
+        task_tryiter_time = max(girar.get_file_mtime('task/try'), girar.get_file_mtime('task/iter'))
+        task_plan_time = girar.get_file_mtime('plan')
+        if task_plan_time > task_tryiter_time:
+            load_plan = True
+    if load_plan:
+        # 0 - get packages list diffs
+        for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
+            if pkgdiff.name == 'src.list.diff':
+                p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=True)
+            else:
+                p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=False)
+            for p in p_add:
+                if p[4] not in task['plan']['pkg_add']:
+                    task['plan']['pkg_add'][p[4]] = {}
+                task['plan']['pkg_add'][p[4]].update({p[2]: (p[0], p[1], p[3])})
+            for p in p_del:
+                if p[4] not in task['plan']['pkg_del']:
+                    task['plan']['pkg_del'][p[4]] = {}
+                task['plan']['pkg_del'][p[4]].update({p[2]: (p[0], p[1], p[3])})
+        # 1 - get SHA256 hashes from '/plan/*.hash.diff'
+        for hashdiff in (_ for _ in girar.get_file_path('plan').glob('*.hash.diff')):
+            h_add, h_del = parse_hash_diff(hashdiff)
+            h_arch = hashdiff.name.split('.')[0]
+            task['plan']['hash_add'][h_arch] = h_add
+            task['plan']['hash_del'][h_arch] = h_del
+            for k, v in h_add.items():
+                task['pkg_hashes'][k]['sha256'] = v
     # 2 - get MD5 hashes from '/build/repo/%arch%/base/pkglist.task.xz'
     for pkglist in (_ for _ in girar.get_file_path('build/repo').glob('*/base/pkglist.task.xz')):
         hdrs = extract.read_headers_from_xz_pkglist(pkglist)
