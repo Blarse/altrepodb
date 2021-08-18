@@ -33,6 +33,10 @@ os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
 
+class PackageLoadError(Exception):
+    def __init__(self, message=None):
+        self.message = message
+        super().__init__()
 
 @Timing.timeit(NAME)
 def check_package(cache, hdr):
@@ -311,6 +315,8 @@ class Worker(threading.Thread):
         self.cache = pkg_cache
         self.repair = repair
         self.is_src = is_src
+        self.exc = None
+        self.exc_args = None
         self.lock = threading.Lock()
         super().__init__(*args, **kwargs)
 
@@ -373,15 +379,23 @@ class Worker(threading.Thread):
                     else:
                         insert_pkg_hash_single(self.connection, self.pkg_repo_cache[kw['pkg_filename']])
                 if pkghash is None:
-                    raise RuntimeError('no id for {0}'.format(package))
+                    raise PackageLoadError(f"No hash for {package} from 'insert_package()'")
                 self.aname.add(pkghash)
             except Exception as error:
                 log.error(error, exc_info=True)
+                self.exc = error
+                self.exc_args = {'package': package, 'hash': pkghash}
+                break
             else:
                 if self.display is not None:
                     self.display.inc()
         log.debug('thread stop')
 
+    def join(self):
+        super().join()
+        if self.exc:
+            msg = f"Exception occured in {self.name} for package {self.exc_args['package']} with {self.exc_args['hash']}"
+            raise PackageLoadError(msg) from self.exc
 
 def worker_pool(pkg_cache, src_repo_cache, pkg_repo_cache, packages_list, pkgset, display, is_src, args):
     workers = []
@@ -397,7 +411,11 @@ def worker_pool(pkg_cache, src_repo_cache, pkg_repo_cache, packages_list, pkgset
         workers.append(worker)
 
     for w in workers:
-        w.join()
+        try:
+            w.join()
+        except PackageLoadError as e:
+            log.error(f"Error: {e.message}")
+            raise e
 
     for c in connections:
         if c is not None:
