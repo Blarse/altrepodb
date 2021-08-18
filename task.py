@@ -10,13 +10,11 @@ from collections import defaultdict
 from pathlib import Path
 import datetime
 import time
-import concurrent.futures
+import traceback
 import threading
-
-import clickhouse_driver as chd
 import rpm
-
 import json
+import clickhouse_driver as chd
 
 import extract
 # from extract import get_header, insert_package, init_cache, check_package
@@ -29,6 +27,34 @@ NAME = 'task'
 os.environ['LANG'] = 'C'
 
 log = logging.getLogger(NAME)
+
+
+class RaisingThreadError(Exception):
+    """Custom exception class used in RaisingThread subclasses
+    
+    Args:
+        message (string): exception message
+        traceback (string): traceback of exception that raised in thread
+    """
+
+    def __init__(self, message=None, traceback=None) -> None:
+        self.message: str = message
+        self.traceback: str = traceback
+        super().__init__()
+
+class RaisingTread(threading.Thread):
+    """Base threading class that raises exception stored in self.exc at join()"""
+
+    def __init__(self, *args, **kwargs):
+        self.exc: Exception = None
+        self.exc_message: str = None
+        self.exc_traceback: str = None
+        super().__init__(*args, **kwargs)
+
+    def join(self):
+        super().join()
+        if self.exc:
+            raise RaisingThreadError(message=self.exc_message, traceback=self.exc_traceback) from self.exc
 
 
 def get_client(args):
@@ -63,7 +89,7 @@ def init_cache(conn, packages):
     return {i[0] for i in result}
 
 
-class LogLoaderWorker(threading.Thread):
+class LogLoaderWorker(RaisingTread):
     def __init__(self, conn, girar, logger, logs, count_list, *args, **kwargs) -> None:
         self.conn = conn
         self.girar = girar
@@ -97,6 +123,10 @@ class LogLoaderWorker(threading.Thread):
                     self.logger.debug(f"Logfile parsing failed for {log_name}")
             except Exception as error:
                 self.logger.error(error, exc_info=True)
+                self.exc = error
+                self.exc_message = f"Exception in thread {self.name} for log {log_name}"
+                self.exc_traceback = traceback.format_exc()
+                break
         self.logger.debug("thread {self.ident} stop")
         self.count_list.append(count)
 
@@ -117,7 +147,12 @@ def log_load_worker_pool(args, girar, logger, logs_list, num_of_workers=None):
         workers.append(worker)
 
     for w in workers:
-        w.join()
+        try:
+            w.join()
+        except RaisingThreadError as e:
+            logger.error(e.message)
+            # print(e.traceback)
+            raise e
 
     for c in connections:
         if c is not None:
@@ -125,7 +160,7 @@ def log_load_worker_pool(args, girar, logger, logs_list, num_of_workers=None):
 
     logger.info(f"{sum(logs_count)} log files loaded in {(time.time() - st):.3f} seconds")
 
-class TaskIterationLoaderWorker(threading.Thread):
+class TaskIterationLoaderWorker(RaisingTread):
     def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, task_logs, task_iterations, count_list, force_load, *args, **kwargs) -> None:
         self.conn = conn
         self.girar = girar
@@ -250,6 +285,10 @@ class TaskIterationLoaderWorker(threading.Thread):
                 count += 1
             except Exception as error:
                 self.logger.error(error, exc_info=True)
+                self.exc = error
+                self.exc_message = f"Exception in thread {self.name} for task iteration {titer['task_id']} {titer['subtask_id']}"
+                self.exc_traceback = traceback.format_exc()
+                break
         if self.count:
             self.logger.info(f"{self.count} packages loaded from /build/{subtask}/{arch}")
         self.logger.debug(f"thread {self.ident} stop")
@@ -283,7 +322,12 @@ def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs
         workers.append(worker)
 
     for w in workers:
-        w.join()
+        try:
+            w.join()
+        except RaisingThreadError as e:
+            logger.error(e.message)
+            # print(e.traceback)
+            raise e
 
     for c in connections:
         if c is not None:
@@ -291,7 +335,7 @@ def titer_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, task_logs
 
     logger.info(f"{sum(titer_count)} TaskIteration loaded in {(time.time() - st):.3f} seconds")
 
-class PackageLoaderWorker(threading.Thread):
+class PackageLoaderWorker(RaisingTread):
     def __init__(self, conn, girar, logger, pkg_hashes_cache, task_pkg_hashes, packages, count_list, force_load, *args, **kwargs) -> None:
         self.conn = conn
         self.girar = girar
@@ -355,6 +399,10 @@ class PackageLoaderWorker(threading.Thread):
                 self._insert_package(pkg, 0, is_srpm=False)
             except Exception as error:
                 self.logger.error(error, exc_info=True)
+                self.exc = error
+                self.exc_message = f"Exception in thread {self.name} for package {pkg}"
+                self.exc_traceback = traceback.format_exc()
+                break
         self.logger.debug(f"thread {self.ident} stop")
         self.count_list.append(self.count)
 
@@ -378,7 +426,12 @@ def package_load_worker_pool(args, conn, girar, logger, task_pkg_hashes, package
         workers.append(worker)
 
     for w in workers:
-        w.join()
+        try:
+            w.join()
+        except RaisingThreadError as e:
+            logger.error(e.message)
+            # print(e.traceback)
+            raise e
 
     for c in connections:
         if c is not None:
