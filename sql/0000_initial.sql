@@ -562,6 +562,120 @@ INNER JOIN
 ) AS PkgSet USING (pkgset_uuid);
 
 
+-- Tables and views for static_last_packages build
+-- STAGE1 TABLE
+-- intermediate table for MV cascading
+CREATE TABLE last_packages_stage1
+(
+    ts DateTime64 MATERIALIZED now64(),
+    pkgset_ruuid UUID,
+    pkgset_name String,
+    pkgset_date DateTime
+)
+ENGINE = MergeTree()
+ORDER BY pkgset_ruuid;
+
+-- FINAL TABLE
+-- populated by MV on insert to PackagaSetName table
+CREATE TABLE StaticLastPackages
+(
+    `pkgset_name` String,
+    `pkgset_date` DateTime,
+    `pkg_hash` UInt64,
+    `pkg_name` String,
+    `pkg_version` String,
+    `pkg_release` String,
+    `pkg_sourcepackage` UInt8
+)
+ENGINE = MergeTree
+PRIMARY KEY (pkgset_name, pkg_name)
+ORDER BY (pkgset_name, pkg_name, pkg_sourcepackage);
+
+-- Initial StaticLastPackages table fill up
+-- INSERT INTO StaticLastPackages SELECT
+--     pkgset_name,
+--     pkgset_date,
+--     pkg_hash,
+--     pkg_name,
+--     pkg_version,
+--     pkg_release,
+--     pkg_sourcepackage
+-- FROM last_packages
+-- WHERE pkgset_name NOT IN 
+-- (
+--     SELECT DISTINCT pkgset_name
+--     FROM StaticLastPackages
+-- );
+
+-- Table StaticLastPackages clean up
+-- ALTER TABLE StaticLastPackages DELETE
+-- WHERE (pkgset_name, pkgset_date) NOT IN
+-- (
+--     SELECT
+--         argMax(pkgset_name, pkgset_date) AS pkgset_n,
+--         max(pkgset_date) AS pkgset_d
+--     FROM StaticLastPackages
+--     GROUP BY pkgset_name
+-- );
+
+-- MV STAGE 1
+CREATE MATERIALIZED VIEW mv_last_packages_stage1
+TO last_packages_stage1
+AS
+SELECT
+    pkgset_ruuid,
+    pkgset_nodename as pkgset_name,
+    pkgset_date
+FROM PackageSetName
+WHERE pkgset_depth = 0;
+
+-- MV STAGE2
+CREATE MATERIALIZED VIEW mv_last_packages_stage2
+TO StaticLastPackages
+AS
+SELECT
+    pkgset_name,
+    pkgset_date,
+    LP.*
+FROM last_packages_stage1
+CROSS JOIN 
+(
+    SELECT DISTINCT
+        pkg_hash,
+        pkg_name,
+        pkg_version,
+        pkg_release,
+        pkg_sourcepackage
+    FROM Packages_buffer
+    WHERE pkg_hash IN 
+    (
+        SELECT pkg_hash
+        FROM PackageSet_buffer
+        WHERE pkgset_uuid IN 
+        (
+            SELECT pkgset_uuid
+            FROM PackageSetName
+            WHERE pkgset_ruuid IN
+            (
+                SELECT pkgset_ruuid
+                FROM last_packages_stage1
+            )
+        )
+    )
+) AS LP;
+
+-- get latest data from StaticLastPackages table for regular selects
+CREATE OR REPLACE VIEW static_last_packages AS
+SELECT * FROM StaticLastPackages
+WHERE (pkgset_name, pkgset_date) IN
+(
+    SELECT
+        argMax(pkgset_name, pkgset_date) AS pkgset_n,
+        max(pkgset_date) AS pkgset_d
+    FROM StaticLastPackages
+    GROUP BY pkgset_name
+);
+
 -- CREATE
 -- OR REPLACE VIEW last_packages AS
 -- SELECT *
@@ -754,118 +868,3 @@ FROM Cve
 --                               LEFT JOIN ( SELECT * FROM all_source_pkghash_with_uniq_branch_name ) AS SrcSet
 --                                         USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
 -- WHERE sourcepackage = 1;
-
-
--- Tables and views for static_last_packages build
--- STAGE1 TABLE
--- intermediate table for MV cascading
-CREATE TABLE last_packages_stage1
-(
-    ts DateTime64 MATERIALIZED now64(),
-    pkgset_ruuid UUID,
-    pkgset_name String,
-    pkgset_date DateTime
-)
-ENGINE = MergeTree()
-ORDER BY pkgset_ruuid;
-
--- FINAL TABLE
--- populated by MV on insert to PackagaSetName table
-CREATE TABLE StaticLastPackages
-(
-    `pkgset_name` String,
-    `pkgset_date` DateTime,
-    `pkg_hash` UInt64,
-    `pkg_name` String,
-    `pkg_version` String,
-    `pkg_release` String,
-    `pkg_sourcepackage` UInt8
-)
-ENGINE = MergeTree
-PRIMARY KEY (pkgset_name, pkg_name)
-ORDER BY (pkgset_name, pkg_name, pkg_sourcepackage);
-
--- Initial StaticLastPackages table fill up
--- INSERT INTO StaticLastPackages SELECT
---     pkgset_name,
---     pkgset_date,
---     pkg_hash,
---     pkg_name,
---     pkg_version,
---     pkg_release,
---     pkg_sourcepackage
--- FROM last_packages
--- WHERE pkgset_name NOT IN 
--- (
---     SELECT DISTINCT pkgset_name
---     FROM StaticLastPackages
--- );
-
--- Table StaticLastPackages cleun up
--- ALTER TABLE StaticLastPackages DELETE
--- WHERE (pkgset_name, pkgset_date) NOT IN
--- (
---     SELECT
---         argMax(pkgset_name, pkgset_date) AS pkgset_n,
---         max(pkgset_date) AS pkgset_d
---     FROM StaticLastPackages
---     GROUP BY pkgset_name
--- );
-
--- MV STAGE 1
-CREATE MATERIALIZED VIEW mv_last_packages_stage1
-TO last_packages_stage1
-AS
-SELECT
-    pkgset_ruuid,
-    pkgset_nodename as pkgset_name,
-    pkgset_date
-FROM PackageSetName
-WHERE pkgset_depth = 0;
-
--- MV STAGE2
-CREATE MATERIALIZED VIEW mv_last_packages_stage2
-TO StaticLastPackages
-AS
-SELECT
-    pkgset_name,
-    pkgset_date,
-    LP.*
-FROM last_packages_stage1
-CROSS JOIN 
-(
-    SELECT DISTINCT
-        pkg_hash,
-        pkg_name,
-        pkg_version,
-        pkg_release,
-        pkg_sourcepackage
-    FROM Packages_buffer
-    WHERE pkg_hash IN 
-    (
-        SELECT pkg_hash
-        FROM PackageSet_buffer
-        WHERE pkgset_uuid IN 
-        (
-            SELECT pkgset_uuid
-            FROM PackageSetName
-            WHERE pkgset_ruuid IN
-            (
-                SELECT pkgset_ruuid
-                FROM last_packages_stage1
-            )
-        )
-    )
-) AS LP;
-
--- get latest data from StaticLastPackages table for regular selects
-CREATE OR REPLACE VIEW static_last_packages AS
-SELECT * FROM StaticLastPackages
-WHERE (pkgset_name, pkgset_date) IN
-(
-    SELECT
-        argMax(pkgset_name, pkgset_date) AS pkgset_n,
-        max(pkgset_date) AS pkgset_d
-    FROM StaticLastPackages
-    GROUP BY pkgset_name
-);
