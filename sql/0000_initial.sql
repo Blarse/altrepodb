@@ -334,7 +334,8 @@ CREATE TABLE Changelog
 
 CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 1000, 1000000, 1000000, 10000000);
 
-
+-- FIXME: using Packages_buffer cause table full scan
+-- FIXME: join clause changed from 'USING (hash)' to 'ON Chg.hash = hash' for CH 21.8.3 version
 CREATE 
 OR REPLACE VIEW PackageChangelog_view AS
 SELECT
@@ -352,7 +353,7 @@ FROM
             pkg_changelog.evr,
             pkg_changelog.hash AS hash,
             Chg.chlog_text
-        FROM Packages_buffer
+        FROM Packages
         ARRAY JOIN pkg_changelog
         INNER JOIN 
         (
@@ -360,7 +361,7 @@ FROM
                 chlog_hash AS hash,
                 chlog_text
             FROM Changelog_buffer
-        ) AS Chg USING (hash)
+        ) AS Chg ON Chg.hash = hash
     )
     ORDER BY pkg_changelog.date DESC
 )
