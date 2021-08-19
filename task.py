@@ -115,8 +115,7 @@ class LogLoaderWorker(RaisingTread):
                     count += 1
                     self.conn.execute(
                         'INSERT INTO TaskLogs_buffer (*) VALUES',
-                        (dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed),
-                        settings={'types_check': True}
+                        (dict(tlog_hash=log_hash, tlog_line=l, tlog_ts=t, tlog_message=m) for l, t, m in log_parsed)
                     )
                     self.logger.debug(f"Logfile loaded in {(time.time() - st):.3f} seconds : {log_name} : {log_file_size} bytes")
                 else:
@@ -261,8 +260,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 if titer['titer_chroot_base']:
                     self.conn.execute(
                         'INSERT INTO TaskChroots_buffer (*) VALUES',
-                        [{'tch_chroot': titer['titer_chroot_base']}],
-                        settings={'types_check': True}
+                        [{'tch_chroot': titer['titer_chroot_base']}]
                     )
                     titer['titer_chroot_base'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_base'])
                 else:
@@ -270,8 +268,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 if titer['titer_chroot_br']:
                     self.conn.execute(
                         'INSERT INTO TaskChroots_buffer (*) VALUES',
-                        [{'tch_chroot': titer['titer_chroot_br']}],
-                        settings={'types_check': True}
+                        [{'tch_chroot': titer['titer_chroot_br']}]
                     )
                     titer['titer_chroot_br'] = self._calculate_hash_from_array_by_CH(titer['titer_chroot_br'])
                 else:
@@ -279,8 +276,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 # 4 - load task iteration
                 self.conn.execute(
                     'INSERT INTO TaskIterations_buffer (*) VALUES',
-                    [titer],
-                    settings={'types_check': True}
+                    [titer]
                 )
                 count += 1
             except Exception as error:
@@ -458,8 +454,7 @@ class Task:
         # 1.2 - save current task state
         self.conn.execute(
             'INSERT INTO TaskStates_buffer (*) VALUES',
-            [self.task['task_state']],
-            settings={'types_check': True}
+            [self.task['task_state']]
         )
         # 2 - proceed with TaskApprovals
         # 2.1 - collect task approvals from DB
@@ -491,15 +486,13 @@ class Task:
         if self.task['task_approvals']:
             self.conn.execute(
                 'INSERT INTO TaskApprovals (*) VALUES',
-                self.task['task_approvals'],
-                settings={'types_check': True}
+                self.task['task_approvals']
             )
         # 3 - proceed with Tasks
         if self.task['tasks']:
             self.conn.execute(
                 'INSERT INTO Tasks_buffer (*) VALUES',
-                self.task['tasks'],
-                settings={'types_check': True}
+                self.task['tasks']
             )
         # 4 - load all logs
         if self.task['logs']:
@@ -547,7 +540,10 @@ class Task:
                     'tplan_pkg_name': v[0],
                     'tplan_pkg_evr': v[1],
                     'tplan_bin_file': k,
-                    'tplan_src_file': v[2]
+                    'tplan_src_file': v[2],
+                    'tplan_arch': v[3],
+                    'tplan_comp': v[4],
+                    'tplan_subtask': v[5]
                 })
         for arch in self.task['plan']['pkg_del'].keys():
             for k, v in self.task['plan']['pkg_del'][arch].items():
@@ -557,7 +553,10 @@ class Task:
                     'tplan_pkg_name': v[0],
                     'tplan_pkg_evr': v[1],
                     'tplan_bin_file': k,
-                    'tplan_src_file': v[2]
+                    'tplan_src_file': v[2],
+                    'tplan_arch': v[3],
+                    'tplan_comp': v[4],
+                    'tplan_subtask': v[5]
                 })
         if payload:
             self.conn.execute("""INSERT INTO TaskPlanPackages (*) VALUES""", payload)
@@ -779,6 +778,22 @@ def init_task_structure_from_task(girar):
         if task_plan_time > task_tryiter_time:
             load_plan = True
     if load_plan:
+        # -1 - get binary packages add and delete from plan
+        t = girar.get('plan/add-bin')
+        pkgadd = {}
+        if t:
+            pkgadd  = {}
+            for f in (_ for _ in t.split('\n') if len(_) > 0):
+                f = f.split('\t')
+                pkgadd[f[3]] = (f[2], f[6], int(f[5]))
+
+        t = girar.get('plan/rm-bin')
+        pkgdel = {}
+        if t:
+            for f in (_ for _ in t.split('\n') if len(_) > 0):
+                f = f.split('\t')
+                pkgdel[f[3]] = (f[2], f[4], 0)
+
         # 0 - get packages list diffs
         for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
             if pkgdiff.name == 'src.list.diff':
@@ -786,13 +801,15 @@ def init_task_structure_from_task(girar):
             else:
                 p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=False)
             for p in p_add:
-                if p[4] not in task['plan']['pkg_add']:
-                    task['plan']['pkg_add'][p[4]] = {}
-                task['plan']['pkg_add'][p[4]].update({p[2]: (p[0], p[1], p[3])})
+                p_info = {p.file: (p.name, p.evr, p.srpm, *pkgadd.get(p.file, ('', '', 0)))}
+                if p.arch not in task['plan']['pkg_add']:
+                    task['plan']['pkg_add'][p.arch] = {}
+                task['plan']['pkg_add'][p.arch].update(p_info)
             for p in p_del:
-                if p[4] not in task['plan']['pkg_del']:
-                    task['plan']['pkg_del'][p[4]] = {}
-                task['plan']['pkg_del'][p[4]].update({p[2]: (p[0], p[1], p[3])})
+                p_info = {p.file: (p.name, p.evr, p.srpm, *pkgdel.get(p.file, ('', '', 0)))}
+                if p.arch not in task['plan']['pkg_del']:
+                    task['plan']['pkg_del'][p.arch] = {}
+                task['plan']['pkg_del'][p.arch].update(p_info)
         # 1 - get SHA256 hashes from '/plan/*.hash.diff'
         for hashdiff in (_ for _ in girar.get_file_path('plan').glob('*.hash.diff')):
             h_add, h_del = parse_hash_diff(hashdiff)
@@ -1143,6 +1160,7 @@ def load(args, conn):
 
 
 def main():
+    assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
     if args.url.endswith('/'):
         args.url = args.url[:-1]
