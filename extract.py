@@ -118,7 +118,7 @@ def insert_package(conn, hdr, **kwargs):
     map_provide = mapper.get_provide_map(hdr)
     insert_list(conn, map_provide, pkghash, 'provide')
 
-    conn.execute(sql_insert, [map_package], settings={'types_check': True})
+    conn.execute(sql_insert, [map_package])
 
     return pkghash
 
@@ -190,7 +190,7 @@ def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complet
         'pkgset_kv.k': [k for k, v in kv_args.items() if v is not None],
         'pkgset_kv.v': [v for k, v in kv_args.items() if v is not None],
     }
-    conn.execute(sql, [data], settings={'types_check': True})
+    conn.execute(sql, [data])
     log.debug('insert package set name uuid: {0}'.format(uuid))
 
 
@@ -198,8 +198,7 @@ def insert_pkgset_name(conn, name, uuid, puuid, ruuid, depth, tag, date, complet
 def insert_pkgset(conn, uuid, pkghash):
     conn.execute(
         'INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES',
-        [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
-        settings={'types_check': True}
+        [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash]
     )
     log.debug('insert package set uuid: {0}, pkg_hash: {1}'.format(uuid, len(pkghash)))
 
