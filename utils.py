@@ -9,7 +9,8 @@ from dateutil import tz
 import json
 import argparse
 from pathlib import Path
-
+from collections import namedtuple
+from dataclasses import dataclass
 import mmh3
 from hashlib import sha256, md5
 
@@ -581,11 +582,23 @@ def parse_pkglist_diff(diff_file, is_src_list):
         is_src_list (bool): parse file as source packages list or binary packages list
 
     Returns:
-        (list(tuple), list(tuple)): added packages, deleted packages
+        (list(PkgInfo), list(PkgInfo)): added packages, deleted packages.
+        PkgInfo attributes: ['name', 'evr', 'file', 'srpm', 'arch']
     """
+
+    # PkgInfo = namedtuple('PkgInfo', ('name', 'evr', 'file', 'srpm', 'arch'))
+    @dataclass(frozen=True)
+    class PkgInfo:
+        """Represents package info from task plan"""
+        name: str
+        evr: str
+        file: str
+        srpm: str
+        arch: str
+
     diff_pattern = re.compile('^[+-]+[a-zA-Z0-9]+\S+')
-    p_added = []
-    p_deleted = []
+    p_added: list[PkgInfo] = []
+    p_deleted: list[PkgInfo] = []
     try:
         contents = Path(diff_file).read_text()
         contents = (_ for _ in contents.split('\n') if len(_) > 0)
@@ -604,7 +617,7 @@ def parse_pkglist_diff(diff_file, is_src_list):
                 pkg_name = p[0][1:].strip()
                 pkg_evr, pkg_arch, pkg_file, pkg_src = [_.strip() for _ in diff_pattern.split(line)[-1].split('\t') if len(_) > 0]
             if sign == '+':
-                p_added.append((pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
+                p_added.append(PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
             else:
-                p_deleted.append((pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
+                p_deleted.append(PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
     return p_added, p_deleted
