@@ -148,7 +148,10 @@ CREATE TABLE TaskPlanPackages
     tplan_pkg_name  String,
     tplan_pkg_evr   String,
     tplan_bin_file  String,
-    tplan_src_file  String
+    tplan_src_file  String,
+    tplan_arch      LowCardinality(String),
+    tplan_comp      LowCardinality(String),
+    tplan_subtask   UInt32
 ) ENGINE = ReplacingMergeTree() ORDER BY (tplan_hash, tplan_action, tplan_src_file, tplan_bin_file);
 
 
