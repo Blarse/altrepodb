@@ -479,6 +479,7 @@ CREATE TABLE PackagesRepocop
     pkg_version String,
     pkg_release String,
     pkg_arch LowCardinality(String),
+    pkgset_name LowCardinality(String),
     rc_srcpkg_name String,
     rc_srcpkg_version String,
     rc_srcpkg_release String,
@@ -489,7 +490,7 @@ CREATE TABLE PackagesRepocop
     ts DateTime64 MATERIALIZED now64()
 )
 ENGINE = ReplacingMergeTree
-ORDER BY (pkg_name, pkg_version, pkg_release, pkg_arch, rc_test_name, rc_test_date);
+ORDER BY (pkg_name, pkg_version, pkg_release, pkg_arch, pkgset_name, rc_test_name, rc_test_date);
 
 
 -- VIEW TABLES --
