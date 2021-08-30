@@ -1165,7 +1165,7 @@ def main():
     if args.url.endswith('/'):
         args.url = args.url[:-1]
     logger = get_logger(NAME, tag=(args.url.split('/')[-1]))
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     conn = None
     try:
         conn = get_client(args)
