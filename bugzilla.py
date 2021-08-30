@@ -68,7 +68,7 @@ def load(args: object, conn: Client) -> None:
     # get bugs CSV from Bugzilla
     log.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
-    log.info(f"URL request elapsed {response.elapsed}")
+    log.info(f"URL request elapsed {response.elapsed.total_seconds():.3f}")
 
     bz_from_url = {}
 
@@ -93,7 +93,7 @@ GROUP BY bz_id"""
     bz_from_db = {}
 
     sql_res = conn.execute(sql)
-    log.info(f"SQL request elapsed {conn.last_query.elapsed} seconds")
+    log.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
     bz_from_db = {int(el[0]): el[1] for el in sql_res}
     log.info(f"Found {len(bz_from_db)} bug records")
     # find updated bugs
@@ -102,28 +102,30 @@ GROUP BY bz_id"""
     for k, v in bz_from_url.items():
         if k not in bz_from_db or v != bz_from_db[k]:
             bz_diff[k] = v
+    if not bz_diff:
+        log.info(f"No bug updates found. Exiting...")
+    else:
+        log.info(f"{len(bz_diff)} records updated. Saving to database...")
+        # store updated bugs to database
+        BugzillaRecord = namedtuple(
+            "BugzillaRecord",
+            (
+                "bz_id",
+                "bz_status",
+                "bz_resolution",
+                "bz_severity",
+                "bz_product",
+                "bz_component",
+                "bz_assignee",
+                "bz_reporter",
+                "bz_summary",
+            ),
+        )
+        payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
+        sql_res = conn.execute("INSERT INTO Bugzilla (*) VALUES", payload_gen)
 
-    log.info(f"{len(bz_diff)} records updated. Saving to database...")
-    # store updated bugs to database
-    BugzillaRecord = namedtuple(
-        "BugzillaRecord",
-        (
-            "bz_id",
-            "bz_status",
-            "bz_resolution",
-            "bz_severity",
-            "bz_product",
-            "bz_component",
-            "bz_assignee",
-            "bz_reporter",
-            "bz_summary",
-        ),
-    )
-    payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
-    sql_res = conn.execute("INSERT INTO Bugzilla (*) VALUES", payload_gen)
-
-    log.info(f"SQL request elapsed {conn.last_query.elapsed} seconds")
-    log.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
+        log.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
+        log.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
 
 
 def main():
