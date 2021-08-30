@@ -493,6 +493,24 @@ ENGINE = ReplacingMergeTree
 ORDER BY (pkg_name, pkg_version, pkg_release, pkg_arch, pkgset_name, rc_test_name, rc_test_date);
 
 
+-- Bugzilla info
+CREATE TABLE Bugzilla
+(
+    bz_id UInt32,
+    bz_status LowCardinality(String),
+    bz_resolution LowCardinality(String),
+    bz_severity LowCardinality(String),
+    bz_product LowCardinality(String),
+    bz_component String,
+    bz_assignee String,
+    bz_reporter String,
+    bz_summary String,
+    ts DateTime64 MATERIALIZED now64()
+)
+ENGINE = MergeTree
+ORDER BY (bz_id, bz_component, bz_assignee) PRIMARY KEY (bz_id);
+
+
 -- VIEW TABLES --
 CREATE
 OR REPLACE VIEW task_plan_hashes AS
