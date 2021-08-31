@@ -1,0 +1,9 @@
+[DEFAULT]
+workers=10
+
+[DATABASE]
+dbname=repodb
+host=localhost
+port=9000
+user=default
+password=
