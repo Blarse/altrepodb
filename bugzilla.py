@@ -3,6 +3,7 @@ import csv
 import logging
 import argparse
 import requests
+import configparser
 from collections import namedtuple
 from clickhouse_driver import Client
 
@@ -37,6 +38,7 @@ def get_client(args: object) -> Client:
 
 def get_args() -> object:
     parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
     parser.add_argument("-p", "--port", type=str, help="Database password")
@@ -47,11 +49,23 @@ def get_args() -> object:
     )
     args = parser.parse_args()
 
-    args.dbname = args.dbname or "default"
-    args.host = args.host or "localhost"
-    args.port = args.port or None
-    args.user = args.user or "default"
-    args.password = args.password or ""
+    if args.config is not None:
+        cfg = configparser.ConfigParser()
+        with open(args.config) as f:
+            cfg.read_file(f)
+        if cfg.has_section('DATABASE'):
+            section_db = cfg['DATABASE']
+            args.dbname = args.dbname or section_db.get('dbname', 'default')
+            args.host = args.host or section_db.get('host', 'localhost')
+            args.port = args.port or section_db.get('port', None)
+            args.user = args.user or section_db.get('user', 'default')
+            args.password = args.password or section_db.get('password', '')
+    else:
+        args.dbname = args.dbname or "default"
+        args.host = args.host or "localhost"
+        args.port = args.port or None
+        args.user = args.user or "default"
+        args.password = args.password or ""
 
     return args
 
