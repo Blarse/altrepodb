@@ -789,7 +789,7 @@ def init_task_structure_from_task(girar):
                     # new tasksk with component in plan
                     pkgadd[f[3]] = (f[2], f[6], int(f[5]))
                 else:
-                    # new tasksk without component in plan
+                    # old tasksk without component in plan
                     pkgadd[f[3]] = (f[2], '', int(f[5]))
 
         t = girar.get('plan/rm-bin')
@@ -797,7 +797,12 @@ def init_task_structure_from_task(girar):
         if t:
             for f in (_ for _ in t.split('\n') if len(_) > 0):
                 f = f.split('\t')
-                pkgdel[f[3]] = (f[2], f[4], 0)
+                if len(f) >= 5:
+                    # new tasksk with component in plan
+                    pkgdel[f[3]] = (f[2], f[4], 0)
+                else:
+                    # old tasksk without component in plan
+                    pkgdel[f[3]] = (f[2], '', 0)
 
         # 0 - get packages list diffs
         for pkgdiff in (_ for _ in girar.get_file_path('plan').glob('*.list.diff')):
