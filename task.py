@@ -785,7 +785,12 @@ def init_task_structure_from_task(girar):
             pkgadd  = {}
             for f in (_ for _ in t.split('\n') if len(_) > 0):
                 f = f.split('\t')
-                pkgadd[f[3]] = (f[2], f[6], int(f[5]))
+                if len(f) >= 7:
+                    # new tasksk with component in plan
+                    pkgadd[f[3]] = (f[2], f[6], int(f[5]))
+                else:
+                    # new tasksk without component in plan
+                    pkgadd[f[3]] = (f[2], '', int(f[5]))
 
         t = girar.get('plan/rm-bin')
         pkgdel = {}
