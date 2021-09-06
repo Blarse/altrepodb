@@ -206,7 +206,7 @@ def convert_file_class(fc: str):
     return ''
 
 
-packager_pattern = re.compile('([\w. ]+?) (\(.+?\) )?<(.+?)>')
+packager_pattern = re.compile("^\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")
 
 
 def packager_parse(packager):
@@ -216,7 +216,7 @@ def packager_parse(packager):
     """
     m = packager_pattern.search(packager)
     if m is not None:
-        return m.group(1), m.group(3)
+        return m.group(1).strip(), m.group(3).strip()
 
 
 class LockedIterator:
