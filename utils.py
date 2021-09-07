@@ -205,8 +205,8 @@ def convert_file_class(fc: str):
                 return v
     return ''
 
-
-packager_pattern = re.compile("^\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")
+# packager parsing regex
+packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")
 
 
 def packager_parse(packager):
@@ -216,7 +216,9 @@ def packager_parse(packager):
     """
     m = packager_pattern.search(packager)
     if m is not None:
-        return m.group(1).strip(), m.group(3).strip()
+        name_ = m.group(1).strip()
+        email_ = m.group(3).strip().replace(" at ", "@")
+        return name_, email_
 
 
 class LockedIterator:
