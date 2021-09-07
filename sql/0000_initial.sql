@@ -511,6 +511,21 @@ ENGINE = MergeTree
 ORDER BY (bz_id, bz_component, bz_assignee) PRIMARY KEY (bz_id);
 
 
+-- Repository status table
+CREATE TABLE RepositoryStatus
+(
+    pkgset_name         LowCardinality(String),
+    rs_start_date       DateTime,
+    rs_end_date         DateTime,
+    rs_show             UInt8, -- 0 - hide branch, 1 - show branch
+    rs_description_ru   String,
+    rs_description_en   String,
+    ts DateTime64 MATERIALIZED now64()
+)
+ENGINE = MergeTree
+ORDER BY (pkgset_name, rs_show) PRIMARY KEY (pkgset_name);
+
+
 -- VIEW TABLES --
 CREATE
 OR REPLACE VIEW task_plan_hashes AS
