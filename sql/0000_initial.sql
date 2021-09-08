@@ -520,6 +520,7 @@ CREATE TABLE RepositoryStatus
     rs_show             UInt8, -- 0 - hide branch, 1 - show branch
     rs_description_ru   String,
     rs_description_en   String,
+    rs_mirrors_json      String, -- package set mirror details as stringify JSON structure
     ts DateTime64 MATERIALIZED now64()
 )
 ENGINE = MergeTree
