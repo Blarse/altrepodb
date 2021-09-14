@@ -366,7 +366,7 @@ FROM
             FROM Changelog_buffer
         ) AS Chg ON Chg.hash = hash
     )
-    ORDER BY pkg_changelog.date DESC
+    ORDER BY pkg_changelog.date DESC, pkg_changelog.evr DESC
 )
 GROUP BY pkg_hash;
 

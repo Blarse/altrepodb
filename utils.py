@@ -166,25 +166,23 @@ def changelog_to_text(dates, names, texts):
                                             cvt(t))
     return text
 
-
-def changelog_to_dict(dates, names, texts):
+def changelog_to_list(dates, names, texts):
     """Compile changelog records to dict of elements"""
     if not len(dates) == len(names) == len(texts):
         raise ValueError
-    chlog = {}
-    for d, n, t in zip(dates, names, texts):
-        tmp = cvt(n)
-        # tmp = tmp.split('>')
+    chlog = []
+    for date_, name_, text_ in zip(dates, names, texts):
+        tmp = cvt(name_)
         if len(tmp.split('>')) == 2:
             name = tmp.split('>')[0] + '>'
             evr = tmp.split('>')[1].strip()
         else:
-            # TODO: try to parse changelog name record to get release info if available
             name = tmp
             evr = ''
-        chlog[mmhash(cvt(t))] = (int(d), name, evr, cvt(t))
+        chlog.append(
+            (int(date_), name, evr, cvt(text_), mmhash(cvt(text_)))
+        )
     return chlog
-
 
 def convert_file_class(fc: str):
     """Converts file class value from RPM header to CH Enum"""

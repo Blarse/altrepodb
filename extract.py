@@ -86,16 +86,15 @@ def insert_package(conn, hdr, **kwargs):
     map_package['pkg_changelog.name'] = []
     map_package['pkg_changelog.evr'] = []
     map_package['pkg_changelog.hash'] = []
-    payload = []
-    for k, v in chlog.items():
-        map_package['pkg_changelog.date'].append(v[0])
-        map_package['pkg_changelog.name'].append(v[1])
-        map_package['pkg_changelog.evr'].append(v[2])
-        map_package['pkg_changelog.hash'].append(k)
-        payload.append({
-            'chlog_hash': k,
-            'chlog_text': v[3]
-        })
+
+    for el in chlog:
+        map_package['pkg_changelog.date'].append(el[0])
+        map_package['pkg_changelog.name'].append(el[1])
+        map_package['pkg_changelog.evr'].append(el[2])
+        map_package['pkg_changelog.hash'].append(el[4])
+
+    payload = [{'chlog_hash': r[0], 'chlog_text': r[1]} for r in {(el[4], el[3]) for el in chlog}]
+
     conn.execute("""INSERT INTO Changelog_buffer (*) VALUES""", payload)
 
     sql_insert = 'INSERT INTO Packages_buffer ({0}) VALUES'.format(

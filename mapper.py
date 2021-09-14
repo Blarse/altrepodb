@@ -1,7 +1,7 @@
 import os
 import rpm
 
-from utils import changelog_to_dict, cvt, cvt_ts, packager_parse, mmhash, convert_file_class
+from utils import changelog_to_list, cvt, cvt_ts, packager_parse, mmhash, convert_file_class
 
 
 os.environ['LANG'] = 'C'
@@ -45,7 +45,7 @@ def get_package_map(hdr):
         'pkg_sourcerpm': cvt(hdr[rpm.RPMTAG_SOURCERPM]),
         'pkg_summary': cvt(hdr[rpm.RPMTAG_SUMMARY]),
         'pkg_description': cvt(hdr[rpm.RPMTAG_DESCRIPTION]),
-        'pkg_changelog': changelog_to_dict(
+        'pkg_changelog': changelog_to_list(
             hdr[rpm.RPMTAG_CHANGELOGTIME],
             hdr[rpm.RPMTAG_CHANGELOGNAME],
             hdr[rpm.RPMTAG_CHANGELOGTEXT]),
