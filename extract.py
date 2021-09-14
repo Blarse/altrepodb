@@ -1092,6 +1092,7 @@ def main():
         logger.setLevel(logging.DEBUG)
     if args.timing:
         Timing.timing = True
+    logger.info(f'run with args: {args}')
     logger.info('start loading packages')
     try:
         load(args)

@@ -1176,6 +1176,7 @@ def main():
         args.url = args.url[:-1]
     logger = get_logger(NAME, tag=(args.url.split('/')[-1]))
     logger.setLevel(logging.INFO)
+    logger.info(f'run with args: {args}')
     conn = None
     try:
         conn = get_client(args)
