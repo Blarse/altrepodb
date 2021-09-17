@@ -26,6 +26,14 @@
 
 0000_initial.sql - последняя версия струтуры БД
 
+Инициализация структуры БД:
+
+    cat sql/0000_initial.sql | clickhouse-client -h 10.88.13.52 -d repodb -n
+
+Загрузка данных в CveChecked:
+
+    cat sql/CveChecked-initial.json | clickhouse-client  -h 10.88.13.52 -d repodb --query="INSERT INTO CveChecked FORMAT JSONEachRow"
+
 
 Аргументы запуска extract.py:
     pkgset - обязательный позиционный аргумент. например: p9 или sisyphus или c8.1
