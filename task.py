@@ -579,6 +579,23 @@ class Task:
         if payload:
             self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
 
+    def _flush_buffer_tables(self):
+        """Force flush bufeer tables using OPTIMIZE TABLE SQL requests."""
+        buffer_tables = (
+            "Tasks_buffer",
+            "TaskIterations_buffer",
+            "TaskStates_buffer",
+            "Packages_buffer",
+            "Changelog_buffer",
+            "Depends_buffer",
+            "Files_buffer",
+        )
+        for buffer in buffer_tables:
+            self.conn.execute(f"OPTIMIZE TABLE {buffer}")
+
+    def flush(self):
+        self._flush_buffer_tables()
+
     def save(self):
         self._save_task()
 
@@ -1122,6 +1139,7 @@ def get_args():
     parser.add_argument('-w', '--workers', type=int, help='Workers count (default: 4)')
     parser.add_argument('-D', '--dumpjson', action='store_true', help='Dump parsed task structure to JSON file')
     parser.add_argument('-F', '--force', action='store_true', help='Force to load packages from task to database')
+    parser.add_argument('-f', '--flush-buffers', action='store_true', help='Force to flush buffer tables after task loaded')
     args = parser.parse_args()
     args.workers = args.workers or 10
     if args.config is not None:
@@ -1163,6 +1181,9 @@ def load(args, conn):
         task = Task(conn, girar, log, task_struct, args)
         log.info(f"loading task {task_struct['task_state']['task_id']} to database {args.dbname}")
         task.save()
+        if  args.flush_buffers:
+            log.info("Flushing buffer tables")
+            task.flush()
         ts = time.time() - ts
         log.info(F"task {task_struct['task_state']['task_id']} loaded in {ts:.3f} seconds")
     else:
