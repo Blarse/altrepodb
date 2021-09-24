@@ -582,13 +582,13 @@ class Task:
     def _flush_buffer_tables(self):
         """Force flush bufeer tables using OPTIMIZE TABLE SQL requests."""
         buffer_tables = (
-            "Tasks_buffer",
-            "TaskIterations_buffer",
-            "TaskStates_buffer",
-            "Packages_buffer",
-            "Changelog_buffer",
-            "Depends_buffer",
             "Files_buffer",
+            "Depends_buffer",
+            "Changelog_buffer",
+            "Packages_buffer",
+            "TaskIterations_buffer",
+            "Tasks_buffer",
+            "TaskStates_buffer",
         )
         for buffer in buffer_tables:
             self.conn.execute(f"OPTIMIZE TABLE {buffer}")
