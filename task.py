@@ -21,6 +21,7 @@ import extract
 from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
 from utils import cvt_ts_to_datetime, val_from_json_str, log_parser, cvt_datetime_local_to_utc
 from utils import parse_hash_diff, parse_pkglist_diff, LockedIterator, GeneratorWrapper
+from utils import set_datetime_timezone_to_utc
 
 NAME = 'task'
 
@@ -726,6 +727,7 @@ class TaskFromFS:
                 d, n = [_.strip() for _ in d.split('::') if len(_) >0]
                 n = n.split(' ')[-1]
                 d = datetime.datetime.strptime(d, '%Y-%b-%d %H:%M:%S')
+                d = set_datetime_timezone_to_utc(d)
                 m = '\n'.join((_ for _ in m))
                 return (n, d, m)
             except Exception as e:

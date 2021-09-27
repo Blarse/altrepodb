@@ -385,6 +385,8 @@ def cvt_datetime_local_to_utc(dt):
     dt = dt.replace(tzinfo=tz.tzlocal())
     return dt.astimezone(tz.tzutc())
 
+def set_datetime_timezone_to_utc(dt):
+    return dt.replace(tzinfo=tz.tzutc())
 
 def val_from_json_str(json_str, val_key):
     """Returns value from stringified JSON
