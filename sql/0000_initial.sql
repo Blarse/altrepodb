@@ -563,10 +563,7 @@ RIGHT JOIN
     FROM PackageSetName
     WHERE pkgset_depth = 0
     GROUP BY pkgset_name
-) AS RootPkgs USING (pkgset_ruuid)
-ORDER BY
-    pkgset_name ASC,
-    pkgset_depth ASC;
+) AS RootPkgs USING (pkgset_ruuid);
 
 
 CREATE
