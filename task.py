@@ -6,7 +6,7 @@ import os.path
 import sys
 import urllib.error
 import urllib.request
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from pathlib import Path
 import datetime
 import time
@@ -460,7 +460,8 @@ class Task:
         # 2 - proceed with TaskApprovals
         # 2.1 - collect task approvals from DB
         tapps = []
-        keywords = ('task_id', 'subtask_id', 'tapp_type', 'tapp_revoked', 'tapp_date', 'tapp_name', 'tapp_message')
+        # keywords = ('task_id', 'subtask_id', 'tapp_type', 'tapp_revoked', 'tapp_date', 'tapp_name', 'tapp_message')
+        TaskInfo = namedtuple("TaskInfo", ('task_id', 'subtask_id', 'tapp_type', 'tapp_revoked', 'tapp_date', 'tapp_name', 'tapp_message'))
         res = self.conn.execute(
             """SELECT argMax(tuple(*), ts) FROM TaskApprovals
             WHERE task_id = %(task_id)s GROUP BY (subtask_id, tapp_name)""",
@@ -469,7 +470,8 @@ class Task:
         res = [_[0] for _ in res]
         # 2.2 - collect previous approvals that are not rewoked
         for tapp in res:
-            d = dict(zip(keywords, tapp))
+            # d = dict(zip(keywords, tapp))
+            d = TaskInfo(*tapp)._asdict()
             if d['tapp_revoked'] == 0:
                 del d['tapp_revoked']
                 tapps.append(d)
