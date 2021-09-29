@@ -527,6 +527,24 @@ ENGINE = MergeTree
 ORDER BY (pkgset_name, rs_show) PRIMARY KEY (pkgset_name);
 
 
+-- Beehive build status table
+CREATE TABLE BeehiveStatus
+(
+    pkg_hash UInt64,
+    pkg_name String,
+    pkg_version String,
+    pkg_release String,
+    pkgset_name LowCardinality(String),
+    bh_arch LowCardinality(String),
+    bh_status Enum('error' = 0, 'success' = 1),
+    bh_build_time Float32,
+    bh_updated DateTime
+)
+ENGINE = MergeTree
+ORDER BY (pkgset_name, pkg_name, bh_updated, bh_arch, pkg_hash)
+PRIMARY KEY (pkgset_name, pkg_name);
+
+
 -- VIEW TABLES --
 CREATE
 OR REPLACE VIEW task_plan_hashes AS
