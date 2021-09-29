@@ -32,7 +32,6 @@ BEEHIVE_BRANCHES = (
     "p10",
     "p9",
 )
-# BEEHIVE_BRANCHES = ("p10",)
 BEEHIVE_ARCHS = ("i586", "x86_64")
 BEEHIVE_ENDPOINTS = (
     Endpoint("latest_dir_mtime", "dir", "", "latest"),
@@ -146,6 +145,7 @@ GROUP BY
 INSERT INTO BeehiveStatus (*) VALUES
 """
 
+
 def get_client(args: object) -> Client:
     """Get Clickhouse client instance."""
     client = Client(
@@ -170,6 +170,9 @@ def get_args() -> object:
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument(
         "-D", "--debug", action="store_true", help="Set logging level to debug"
+    )
+    parser.add_argument(
+        "--dumpjson", action="store_true", help="Dump parsed Beehive data to JSON file"
     )
     args = parser.parse_args()
 
@@ -219,6 +222,7 @@ class Beehive:
         endpoints: list[Endpoint],
         conn: Client,
         timeout: int,
+        dump_beehive: bool = False,
     ) -> None:
         self.base_url = base_url
         self.branches = branches
@@ -229,6 +233,7 @@ class Beehive:
         self.timeout = timeout
         self.targets = self._build_beehive_targets_list()
         self.beehive = {}
+        self.dump_beehive = dump_beehive
 
     @staticmethod
     def _parse_name_evr(pkg: str) -> Package:
@@ -344,26 +349,16 @@ class Beehive:
         return mtime
 
     def _get_last_beehive_status_from_db(self) -> dict:
-        # FIXME: use self.conn when production database ready
-        conn = Client(
-            "10.88.13.52",
-            port=9000,
-            database="repodb",
-            user='default',
-            password='',
-        )
-        conn.connection.connect()
-        res = conn.execute(self.sql.get_last_beehive_changed)
+        log.info("Fetching latest Beehive results loaded to DB")
+        res = self.conn.execute(self.sql.get_last_beehive_changed)
+        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
         last_bh_updated = {(el[0], el[1]): el[2] for el in res}
-        # FIXME: do not disconnect if use self.conn
-        conn.disconnect()
-
         return last_bh_updated
 
     def _get_packages_from_db(self, t_key: TargetKey) -> dict[Package]:
         modified = self._get_latest_mtime(t_key)
 
-        log.info(f"Query packages for {t_key.branch} on date {modified} from DB")
+        log.info(f"Fetching packages for {t_key.branch} on date {modified} from DB")
         sql_res = self.conn.execute(
             self.sql.get_pkgset_packages,
             params={"branch": t_key.branch, "date": modified},
@@ -375,18 +370,20 @@ class Beehive:
         if not packages_from_db:
             log.info(f"No data found in DB for {t_key.branch} on date {modified}")
             # try to find and load the latest repository state prior to Beehive date
-            log.info(f"Query recent loaded date for {t_key.branch} from DB")
+            log.info(f"Fetching recent loaded date for {t_key.branch} from DB")
             sql_res = self.conn.execute(
                 self.sql.get_recent_pkgset_date,
                 params={"branch": t_key.branch, "date": modified},
             )
             log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
             if not sql_res:
-                log.error(f"Failed to find recent lodaded date for {t_key.branch} in DB")
+                log.error(
+                    f"Failed to find recent lodaded date for {t_key.branch} in DB"
+                )
                 return {}
             modified = sql_res[0][0]
             # load packages from recent repository state
-            log.info(f"Query packages for {t_key.branch} on date {modified} from DB")
+            log.info(f"Fetching packages for {t_key.branch} on date {modified} from DB")
             sql_res = self.conn.execute(
                 self.sql.get_pkgset_packages,
                 params={"branch": t_key.branch, "date": modified},
@@ -403,7 +400,7 @@ class Beehive:
         branch = t_key.branch
         #  convert list of packages to set for fast searching
         packages = set(packages)
-        log.info(f"Query packages from DB")
+        log.info(f"Fetching packages info from DB")
         sql_res = self.conn.execute(
             self.sql.get_all_packages_versions,
             params={"packages": [pkg.name for pkg in packages], "branch": branch},
@@ -507,24 +504,13 @@ class Beehive:
 
             result.append(el_dict)
 
-        ### DEBUG BEGIN ###
-        # FIXME: remove from final version or use separate option to turn on
-        dump_to_json(result, f"{mtime.strftime('%Y-%m-%d')}_{t_key.branch}_{t_key.arch}")
-        # FIXME: use self.conn when production database ready
-        conn = Client(
-            "10.88.13.52",
-            port=9000,
-            database="repodb",
-            user='default',
-            password='',
-        )
-        conn.connection.connect()
-        conn.execute(self.sql.insert_into_beehive_status, result)
-        # FIXME: do not disconnect if use self.conn
-        conn.disconnect()
-        ### DEBUG END ###
-        log.info(f"Data for {t_key.branch}/{t_key.arch} inserted to DB")
-
+        if self.dump_beehive:
+            dump_to_json(
+                result, f"{mtime.strftime('%Y-%m-%d')}_{t_key.branch}_{t_key.arch}"
+            )
+        self.conn.execute(self.sql.insert_into_beehive_status, result)
+        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        log.info(f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB")
 
     def beehive_store(self) -> None:
         latest_beehive_from_db = self._get_last_beehive_status_from_db()
@@ -544,11 +530,15 @@ class Beehive:
                 mtime = self._get_latest_mtime(t_key)
                 mtime_from_db = latest_beehive_from_db.get((branch, arch), None)
                 if mtime == mtime_from_db:
-                    log.info(f"Data for {branch_}/{arch} on {mtime} already loaded to DB")
+                    log.info(
+                        f"Data for {branch_}/{arch} on {mtime} already loaded to DB"
+                    )
                     continue
 
                 if not pkgs_time:
-                    log.error(f"No package build time info found from Beehive for {branch_}/{arch}")
+                    log.error(
+                        f"No package build time info found from Beehive for {branch_}/{arch}"
+                    )
                     raise RuntimeError("No data found from beehive")
                     # continue
                 log.info(f"Found {len(pkgs_time)} packages from Beehive")
@@ -556,7 +546,9 @@ class Beehive:
                 pkgs_from_db = self._get_packages_from_db(t_key)
                 if not pkgs_from_db:
                     # error logged already in self._get_packages_from_db()
-                    # raise RuntimeError("No data found from beehive")
+                    log.error(
+                        f"No packages info loaded from DB. Skip processing data for {branch_}/{arch}"
+                    )
                     continue
                 log.info(f"Found {len(pkgs_from_db)} packages from DB")
 
@@ -585,9 +577,7 @@ class Beehive:
                 pkgs_status = pkgs_success | pkgs_error
 
                 if len(pkgs_time) != len(pkgs_status):
-                    log.error(
-                        f"Inconsistent data from Beehive for {branch_}/{arch}"
-                    )
+                    log.error(f"Inconsistent data from Beehive for {branch_}/{arch}")
                     break
 
                 self._store_beehive_results(
@@ -611,6 +601,7 @@ def load(args: object, conn: Client) -> None:
         endpoints=BEEHIVE_ENDPOINTS,
         conn=conn,
         timeout=30,
+        dump_beehive=args.dumpjson,
     )
     bh.beehive_load()
     bh.beehive_store()
