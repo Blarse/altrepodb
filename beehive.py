@@ -447,18 +447,18 @@ class Beehive:
         log.info(f"Check packages from beehive that are not in DB")
         for pkg in pkgs_from_beehive:
             if pkg not in pkgs_from_db:
-                log.info(f"Package {pkg} not found in DB")
+                log.debug(f"Package {pkg} not found in DB")
                 name_matched = False
                 for pkg2 in pkgs_from_db:
                     if pkg2.name == pkg.name:
-                        log.info(
+                        log.debug(
                             f"Missing package name matched: Beehive: {pkg} DB: {pkg2}"
                         )
                         mismatched_packages.append(pkg)
                         name_matched = True
                         break
                 if not name_matched:
-                    log.info(
+                    log.debug(
                         f"Package {pkg} from Beehive not found in packages from DB"
                     )
                     not_found_packages.append(pkg)
@@ -522,6 +522,7 @@ class Beehive:
                 if t_key not in self.beehive:
                     continue
 
+                log.info("=" * 60)
                 log.info(f"Processing data for {branch_}/{arch}")
 
                 pkgs_time = self._get_beehive_build_time(t_key)
@@ -615,6 +616,8 @@ def main():
         logger.setLevel(logging.DEBUG)
     conn = None
     try:
+        log.info("Start loading data from Beehive")
+        log.info("=" * 60)
         conn = get_client(args)
         conn.connection.connect()
         load(args, conn)
@@ -624,6 +627,8 @@ def main():
     finally:
         if conn is not None:
             conn.disconnect()
+    log.info("=" * 60)
+    log.info("Stop loading data from Beehive")
 
 
 if __name__ == "__main__":
