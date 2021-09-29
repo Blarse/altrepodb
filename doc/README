@@ -15,6 +15,7 @@
     task.py - Скрипт отвечающий за загрузку сборочного задания
     bugzilla.py - Скрипт загрузки информации о багах в БД
     repocop.py - Скрипт загрузки отчета Repocop в БД
+    beehive.py - Скрипт загрузка результатов пересборки из Beehive в БД
     sql/* - Sql файлы структуры базы данных
     config.ini.example - Пример файла конфигурации
 
@@ -69,3 +70,7 @@
     * repocop.py:
         python3 repocop.py -c config.ini
         python3 repocop.py --host 10.88.13.52 --dbname repodb --user test --password supersecret
+
+    * beehive.py:
+        python3 beehive.py -c config.ini
+        python3 beehive.py --host 10.128.7.72 --dbname repodb --user test --password supersecret
