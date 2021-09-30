@@ -520,7 +520,7 @@ CREATE TABLE RepositoryStatus
     rs_show             UInt8, -- 0 - hide branch, 1 - show branch
     rs_description_ru   String,
     rs_description_en   String,
-    rs_mirrors_json      String, -- package set mirror details as stringify JSON structure
+    rs_mirrors_json     String, -- package set mirror details as stringify JSON structure
     ts DateTime64 MATERIALIZED now64()
 )
 ENGINE = MergeTree
@@ -530,15 +530,16 @@ ORDER BY (pkgset_name, rs_show) PRIMARY KEY (pkgset_name);
 -- Beehive build status table
 CREATE TABLE BeehiveStatus
 (
-    pkg_hash UInt64,
-    pkg_name String,
-    pkg_version String,
-    pkg_release String,
-    pkgset_name LowCardinality(String),
-    bh_arch LowCardinality(String),
-    bh_status Enum('error' = 0, 'success' = 1),
-    bh_build_time Float32,
-    bh_updated DateTime
+    pkg_hash        UInt64,
+    pkg_name        String,
+    pkg_version     String,
+    pkg_release     String,
+    pkgset_name     LowCardinality(String),
+    bh_arch         LowCardinality(String),
+    bh_status       Enum('error' = 0, 'success' = 1),
+    bh_build_time   Float32,
+    bh_updated      DateTime,
+    bh_ftbfs_since  DateTime
 )
 ENGINE = MergeTree
 ORDER BY (pkgset_name, pkg_name, bh_updated, bh_arch, pkg_hash)

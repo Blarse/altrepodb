@@ -11,7 +11,7 @@ from clickhouse_driver import Client
 from pathlib import Path
 import json
 
-from utils import get_logger, cvt_datetime_local_to_utc
+from utils import get_logger, cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from htmllistparse import fetch_listing
 
 
@@ -19,14 +19,16 @@ NAME = "beehive"
 
 log = logging.getLogger(NAME)
 
-Endpoint = namedtuple("Endpoint", ["name", "type", "path", "destination"])
+Endpoint = namedtuple(
+    "Endpoint", ["name", "type", "path_prefix", "path_suffix", "destination"]
+)
 Target = namedtuple("Target", ["branch", "arch", "name", "type", "url", "destination"])
 Package = namedtuple("Package", ["name", "version", "release"])
 PackageInfo = namedtuple("PackageInfo", ["package", "modified", "size"])
 FileInfo = namedtuple("FileInfo", ["name", "modified", "size"])
 TargetKey = namedtuple("TargetKey", ["branch", "arch", "name"])
 
-BEEHIVE_BASE_URL = "http://git.altlinux.org/beehive/logs"
+BEEHIVE_BASE_URL = "http://git.altlinux.org/beehive"
 BEEHIVE_BRANCHES = (
     "Sisyphus",
     "p10",
@@ -34,11 +36,12 @@ BEEHIVE_BRANCHES = (
 )
 BEEHIVE_ARCHS = ("i586", "x86_64")
 BEEHIVE_ENDPOINTS = (
-    Endpoint("latest_dir_mtime", "dir", "", "latest"),
-    Endpoint("time_file_listing", "file", "latest/time.list", None),
-    Endpoint("error_dir_listing", "dir", "latest/error", None),
-    Endpoint("success_dir_listing", "dir", "latest/success", None),
+    Endpoint("latest_dir_mtime", "dir", "logs", "", "latest"),
+    Endpoint("time_file_listing", "file1", "logs", "latest/time.list", None),
+    Endpoint("error_dir_listing", "dir", "logs", "latest/error", None),
+    Endpoint("success_dir_listing", "dir", "logs", "latest/success", None),
     # Endpoint("latest_dir_listing", "dir", "latest", None),
+    Endpoint("ftbfs_since_file_listing", "file2", "stats", "ftbfs-since", None),
 )
 
 
@@ -259,7 +262,15 @@ class Beehive:
         for branch in self.branches:
             for arch in self.archs:
                 for endpoint in self.endpoints:
-                    url = "/".join((self.base_url, branch, arch, endpoint.path))
+                    url = "/".join(
+                        (
+                            self.base_url,
+                            endpoint.path_prefix,
+                            branch,
+                            arch,
+                            endpoint.path_suffix,
+                        )
+                    )
                     targets.append(
                         Target(
                             branch,
@@ -285,7 +296,7 @@ class Beehive:
 
         try:
             destination = target.destination
-            if target.type == "file":
+            if target.type == "file1":
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
@@ -296,7 +307,18 @@ class Beehive:
                         (self._parse_name_evr(line_context[0]), float(line_context[1]))
                     )
                 return target, lines
-            else:
+            if target.type == "file2":
+                response = requests.get(target.url, timeout=self.timeout)
+                response.raise_for_status()
+                # return parsed file contents
+                lines = []
+                for line in response.text.splitlines():
+                    line_context = line.split("\t")[:2]
+                    lines.append(
+                        (self._parse_name_evr(line_context[0]), int(line_context[1]))
+                    )
+                return target, lines
+            elif target.type == "dir":
                 _, listing = fetch_listing(target.url, timeout=self.timeout)
                 if destination:
                     matches = []
@@ -313,6 +335,8 @@ class Beehive:
                 else:
                     files = [process_package_listing_item(f) for f in listing]
                     return target, files
+            else:
+                raise ValueError(f"Unknown target type {target.type}")
         except Exception as e:
             if issubclass(e.__class__, HTTPError):
                 log.info(f"Failed to get url {target.url}")
@@ -341,10 +365,19 @@ class Beehive:
 
         return {el[0]: el[1] for el in self.beehive[t_key]}
 
+    def _get_beehive_ftbfs_since(self, t_key: TargetKey) -> dict:
+        t_key = t_key._replace(name="ftbfs_since_file_listing")
+
+        if t_key not in self.beehive:
+            log.error("Target not found in Beehive")
+            raise ValueError(f"Wrong target key {t_key}")
+
+        return {el[0]: el[1] for el in self.beehive[t_key]}
+
     def _get_latest_mtime(self, t_key: TargetKey) -> datetime.datetime:
         t_key = t_key._replace(name="latest_dir_mtime")
         mtime = self.beehive[t_key][0].modified.replace(
-            hour=0, minute=0, second=0, microsecond=0
+            hour=12, minute=0, second=0, microsecond=0
         )
         return mtime
 
@@ -472,6 +505,7 @@ class Beehive:
         pkgs_success: set,
         pkgs_error: set,
         pkgs_from_db: dict,
+        pkgs_ftbfs: dict,
     ) -> None:
         mtime = self._get_latest_mtime(t_key)
         result: list[dict] = []
@@ -490,8 +524,14 @@ class Beehive:
 
             if pkg in pkgs_success:
                 el_dict["bh_status"] = "success"
+                el_dict["bh_ftbfs_since"] = el_dict["bh_updated"]
             elif pkg in pkgs_error:
                 el_dict["bh_status"] = "error"
+                pkg_ = pkg._replace(version="", release="")
+                if pkg_ in pkgs_ftbfs:
+                    el_dict["bh_ftbfs_since"] = cvt_ts_to_datetime(pkgs_ftbfs[pkg_])
+                else:
+                    el_dict["bh_ftbfs_since"] = el_dict["bh_updated"]
             else:
                 log.error(f"Failed to get status for package {pkg}. Element: {el_dict}")
                 raise ValueError("Can't find package build status")
@@ -577,12 +617,14 @@ class Beehive:
                 )
                 pkgs_status = pkgs_success | pkgs_error
 
+                pkgs_ftbfs = self._get_beehive_ftbfs_since(t_key=t_key)
+
                 if len(pkgs_time) != len(pkgs_status):
                     log.error(f"Inconsistent data from Beehive for {branch_}/{arch}")
                     break
 
                 self._store_beehive_results(
-                    t_key, pkgs_time, pkgs_success, pkgs_error, pkgs_from_db
+                    t_key, pkgs_time, pkgs_success, pkgs_error, pkgs_from_db, pkgs_ftbfs
                 )
 
     def beehive_load(self) -> None:
