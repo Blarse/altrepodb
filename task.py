@@ -15,6 +15,7 @@ import threading
 import rpm
 import json
 import clickhouse_driver as chd
+from copy import deepcopy
 
 import extract
 
@@ -569,7 +570,6 @@ class Task:
         )
         # 2 - proceed with TaskApprovals
         # 2.1 - collect task approvals from DB
-        tapps = []
         TaskInfo = namedtuple(
             "TaskInfo",
             (
@@ -587,24 +587,37 @@ class Task:
             WHERE task_id = %(task_id)s GROUP BY (subtask_id, tapp_name)""",
             {"task_id": self.task["task_state"]["task_id"]},
         )
-        res = [_[0] for _ in res]
+        tapps_from_db = [TaskInfo(*_[0])._asdict() for _ in res]
+        for tapp in tapps_from_db:
+            tapp["tapp_date"] = cvt_datetime_local_to_utc(tapp["tapp_date"])
+
+        tapps_from_fs = deepcopy(self.task['task_approvals'])
+
         # 2.2 - collect previous approvals that are not rewoked
-        for tapp in res:
-            d = TaskInfo(*tapp)._asdict()
-            if d["tapp_revoked"] == 0:
-                del d["tapp_revoked"]
-                tapps.append(d)
+        tapps = []
+        for tapp in deepcopy(tapps_from_db):
+            if tapp["tapp_revoked"] == 0:
+                del tapp["tapp_revoked"]
+                tapps.append(tapp)
         # 2.3 - find rewoked by compare DB and actual task approvals
+        tapps_revoked = []
         for tapp in tapps:
             if tapp not in self.task["task_approvals"]:
                 tapp["tapp_revoked"] = 1
                 tapp["tapp_date"] = cvt_datetime_local_to_utc(datetime.datetime.now())
-                self.task["task_approvals"].append(tapp)
+                tapps_revoked.append(tapp)
         # 2.4 - set 'tapp_rewoked' flag for new and not revoked ones
-        for tapp in self.task["task_approvals"]:
+        for tapp in tapps_from_fs:
             if "tapp_revoked" not in tapp:
                 tapp["tapp_revoked"] = 0
-        # 2.5 - load new approvals state to DB
+        tapps_from_fs += tapps_revoked
+        # 2.5 - remove task approvals that already in database
+        new_task_approvals = []
+        for tapp in tapps_from_fs:
+            if tapp not in tapps_from_db:
+                new_task_approvals.append(tapp)
+        self.task["task_approvals"] = new_task_approvals
+        # 2.6 - load new approvals state to DB
         if self.task["task_approvals"]:
             self.conn.execute(
                 "INSERT INTO TaskApprovals (*) VALUES", self.task["task_approvals"]
