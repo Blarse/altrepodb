@@ -754,26 +754,31 @@ INNER JOIN
 
 CREATE
 OR REPLACE VIEW last_depends AS
-SELECT Depends_buffer.*,
-       pkg_name,
-       pkg_version,
-       pkgset_name,
-       pkgset_date,
-       pkg_sourcepackage,
-       pkg_arch,
-       pkg_filename,
-       pkg_sourcerpm
+SELECT 
+    Depends_buffer.*,
+    pkg_name,
+    pkg_version,
+    pkgset_name,
+    pkgset_date,
+    pkg_sourcepackage,
+    pkg_arch,
+    pkg_filename,
+    pkg_sourcerpm
 FROM Depends_buffer ALL
-         INNER JOIN (SELECT pkg_hash,
-                            pkg_name,
-                            pkg_version,
-                            pkgset_name,
-                            pkgset_date,
-                            pkg_sourcepackage,
-                            pkg_arch,
-                            pkg_filename,
-                            pkg_sourcerpm
-                     FROM last_packages) AS PkgSet USING (pkg_hash);
+INNER JOIN 
+(
+    SELECT
+        pkg_hash,
+        pkg_name,
+        pkg_version,
+        pkgset_name,
+        pkgset_date,
+        pkg_sourcepackage,
+        pkg_arch,
+        pkg_filename,
+        pkg_sourcerpm
+    FROM last_packages
+) AS PkgSet USING (pkg_hash);
 
 -- VIEW to JOIN binary and source package
 
