@@ -942,6 +942,9 @@ def init_task_structure_from_task(girar):
         task_plan_time = girar.get_file_mtime("plan")
         if task_plan_time > task_tryiter_time:
             load_plan = True
+    # always load plan if task in 'DONE' state
+    if task["task_state"]["task_state"] == "DONE":
+        load_plan = True
     if load_plan:
         # -1 - get binary packages add and delete from plan
         t = girar.get("plan/add-bin")
