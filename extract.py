@@ -645,7 +645,7 @@ def read_repo_structure(repo_name, repo_path):
     Returns:
         dict: repository structure and file's hashes
     """
-    ARCHS = ('src', 'aarch64', 'armh', 'i586', 'ppc64le', 'x86_64', 'x86_64-i586', 'noarch', 'mipsel', 'e2k', 'e2kv4')
+    ARCHS = ('src', 'aarch64', 'armh', 'i586', 'ppc64le', 'x86_64', 'x86_64-i586', 'noarch', 'mipsel', 'riscv64', 'e2k', 'e2kv4')
     repo = {
         'repo': {
             'name': repo_name,
