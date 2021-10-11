@@ -754,6 +754,38 @@ INNER JOIN
 ) AS SLP USING (pkg_hash);
 
 
+-- add live view table for fast package set statistics
+SET allow_experimental_live_view=1;
+
+CREATE LIVE VIEW lv_pkgset_stat AS
+SELECT *
+FROM
+(
+    SELECT
+        pkgset_name,
+        pkgset_date,
+        if(pkg_sourcepackage = 1, 'srpm', pkg_arch) AS pkg_arch,
+        countDistinct(src_pkg_name) AS cnt
+    FROM last_packages
+    LEFT JOIN
+    (
+        SELECT
+            pkg_hash,
+            pkg_name AS src_pkg_name
+        FROM Packages
+        WHERE pkg_sourcepackage = 1
+    ) AS P ON P.pkg_hash = last_packages.pkg_srcrpm_hash
+    WHERE pkg_arch != 'x86_64-i586'
+    GROUP BY
+        pkgset_name,
+        pkgset_date,
+        pkg_arch
+)
+ORDER BY
+    pkgset_name ASC,
+    cnt DESC;
+
+
 CREATE
 OR REPLACE VIEW last_depends AS
 SELECT 
