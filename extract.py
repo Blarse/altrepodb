@@ -451,10 +451,11 @@ def init_hash_temp_table(conn, hashes):
             sha256  FixedString(32)
         )"""
     )
-    for k, v in hashes.items():
+    for k in hashes:
         # workaround to a possible bug in the repository structure
         # if files/list/*.hash.* files contain missing packages
-        if hashes[k]['md5'] is None: continue
+        if hashes[k]['md5'] is None:
+            continue
         payload.append(
             {
                 'name':     k,
