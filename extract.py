@@ -211,12 +211,12 @@ def insert_pkg_hashes(conn, pkg_hashes):
         pkg_hashes (dict[dict]): dictionary of packages hashes
     """
     payload = []
-    for k, v in pkg_hashes:
+    for v in pkg_hashes.values():
         payload.append({
-            'pkgh_mmh': pkg_hashes[k]['mmh'],
-            'pkgh_md5': pkg_hashes[k]['md5'],
-            'pkgh_sha1': pkg_hashes[k]['sha1'],
-            'pkgh_sha256': pkg_hashes[k]['sha256']
+            'pkgh_mmh': v['mmh'],
+            'pkgh_md5': v['md5'],
+            'pkgh_sha1': v['sha1'],
+            'pkgh_sha256': v['sha256']
         })
     settings = {'strings_as_bytes': True}
     conn.execute("INSERT INTO PackageHash_buffer (*) VALUES",
@@ -761,6 +761,31 @@ def read_repo_structure(repo_name, repo_path):
                         pkg_name = c.split()[1]
                         pkg_sha256 = bytes.fromhex(c.split()[0])
                         repo['pkg_hashes'][pkg_name]['sha256'] = pkg_sha256
+        # find packages with sha256 hash missing and calculate it from file
+        # for source files
+        for k, v in repo['src_hashes'].items():
+            if v["sha256"] is None:
+                log.info(f"{k}'s SHA256 not found. Calculating it from file")
+                file_ = root.joinpath("files", "SRPMS", k)
+                if file_.is_file():
+                    repo['src_hashes'][k]['sha256'] = sha256_from_file(file_, as_bytes=True)
+                else:
+                    log.error(f"Cant find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    raise RuntimeError("File not found")
+        # for binary files
+        for k, v in repo['pkg_hashes'].items():
+            if v["sha256"] is None:
+                log.info(f"{k}'s SHA256 not found. Calculating it from file")
+                found_ = False
+                for arch in repo['arch']['kwargs']['all_archs']:
+                    file_ = root.joinpath("files", arch, "RPMS", k)
+                    if file_.is_file():
+                        repo['pkg_hashes'][k]['sha256'] = sha256_from_file(file_, as_bytes=True)
+                        found_ = True
+                        break
+                if not found_:
+                    log.error(f"Cant find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    raise RuntimeError("File not found")
     
     log.debug(f"Found {len(repo['src']['path'])} source directories")
     log.debug(f"Found {len(repo['comp']['comps'])} components for {len(repo['arch']['archs'])} architectures")
@@ -1036,8 +1061,10 @@ LIMIT 10
 
 
 def get_args():
-    parser = argparse.ArgumentParser(prog='extract',
-                                     description='Load repository structure from file system or ISO image to database')
+    parser = argparse.ArgumentParser(
+        prog='extract',
+        description='Load repository structure from file system or ISO image to database'
+    )
     parser.add_argument('pkgset', type=str, help='Repository name')
     parser.add_argument('path', type=str, help='Path to packages')
     parser.add_argument('-t', '--tag', type=str, help='Assignment tag', default='')
