@@ -758,32 +758,32 @@ INNER JOIN
 SET allow_experimental_live_view=1;
 
 CREATE LIVE VIEW lv_pkgset_stat AS
-SELECT *
-FROM
+SELECT
+    pkgset_name,
+    pkgset_date,
+    if(P.pkg_sourcepackage = 1, 'srpm', P.pkg_arch) AS pkg_arch,
+    countDistinct(src_pkg_name) AS cnt
+FROM StaticLastPackages
+LEFT JOIN
 (
     SELECT
-        pkgset_name,
-        pkgset_date,
-        if(pkg_sourcepackage = 1, 'srpm', pkg_arch) AS pkg_arch,
-        countDistinct(src_pkg_name) AS cnt
-    FROM last_packages
-    LEFT JOIN
-    (
-        SELECT
-            pkg_hash,
-            pkg_name AS src_pkg_name
-        FROM Packages
-        WHERE pkg_sourcepackage = 1
-    ) AS P ON P.pkg_hash = last_packages.pkg_srcrpm_hash
-    WHERE pkg_arch != 'x86_64-i586'
-    GROUP BY
-        pkgset_name,
-        pkgset_date,
-        pkg_arch
-)
-ORDER BY
-    pkgset_name ASC,
-    cnt DESC;
+        pkg_hash,
+        pkg_sourcepackage,
+        pkg_arch,
+        pkg_sourcerpm AS src_pkg_name
+    FROM Packages
+) AS P ON P.pkg_hash = StaticLastPackages.pkg_hash
+WHERE (P.pkg_arch != 'x86_64-i586') AND ((pkgset_name, pkgset_date) IN (
+    SELECT
+        argMax(pkgset_name, pkgset_date) AS pkgset_n,
+        max(pkgset_date) AS pkgset_d
+    FROM repodb.StaticLastPackages
+    GROUP BY pkgset_name
+))
+GROUP BY
+    pkgset_name,
+    pkgset_date,
+    pkg_arch;
 
 
 CREATE
