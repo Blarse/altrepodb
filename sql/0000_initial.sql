@@ -372,7 +372,7 @@ GROUP BY pkg_hash;
 
 -- Materialized view for source packages last changelog
 CREATE MATERIALIZED VIEW mv_src_packages_last_changelog
-ENGINE = MergeTree
+ENGINE = ReplacingMergeTree
 ORDER BY pkg_hash POPULATE AS
 SELECT DISTINCT
     pkg_hash,
