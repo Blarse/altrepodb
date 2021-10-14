@@ -337,8 +337,7 @@ CREATE TABLE Changelog
 
 CREATE TABLE Changelog_buffer AS Changelog ENGINE = Buffer(currentDatabase(), Changelog, 16, 10, 100, 1000, 1000000, 1000000, 10000000);
 
--- FIXME: using Packages_buffer cause table full scan
--- FIXME: join clause changed from 'USING (hash)' to 'ON Chg.hash = hash' for CH 21.8.3 version
+
 CREATE 
 OR REPLACE VIEW PackageChangelog_view AS
 SELECT
@@ -369,6 +368,28 @@ FROM
     ORDER BY pkg_changelog.date DESC, pkg_changelog.evr DESC
 )
 GROUP BY pkg_hash;
+
+
+-- Materialized view for source packages last changelog
+CREATE MATERIALIZED VIEW mv_src_packages_last_changelog
+ENGINE = MergeTree
+ORDER BY pkg_hash POPULATE AS
+SELECT DISTINCT
+    pkg_hash,
+    extract(replaceOne(extract(pkg_changelog.name[1], '<(.+@?.+)>+'), ' at ', '@'), '(.*)@') AS chlog_nick,
+    pkg_changelog.name[1] AS chlog_name,
+    pkg_changelog.date[1] AS chlog_date,
+    pkg_changelog.evr[1] AS chlog_evr,
+    CHG.chlog_text
+FROM Packages
+LEFT JOIN
+(
+    SELECT
+        chlog_hash,
+        chlog_text
+    FROM Changelog
+) AS CHG ON CHG.chlog_hash = (pkg_changelog.hash[1])
+WHERE pkg_sourcepackage = 1;
 
 
 CREATE 
