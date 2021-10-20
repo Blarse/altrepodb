@@ -1,0 +1,194 @@
+import os
+import sys
+import time
+import logging
+import argparse
+import configparser
+from pathlib import Path
+from clickhouse_driver import Client
+
+import extract
+
+import rpm
+import altrpm
+
+from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
+
+
+NAME = "package"
+
+os.environ["LANG"] = "C"
+
+log = logging.getLogger(NAME)
+
+def get_client(args: object) -> Client:
+    """Get Clickhouse client instance."""
+    client = Client(
+        args.host,
+        port=args.port,
+        database=args.dbname,
+        user=args.user,
+        password=args.password,
+    )
+    client.connection.connect()
+    return client
+
+def get_args() -> object:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("file", type=str, help="RPM package file")
+    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
+    parser.add_argument("-d", "--dbname", type=str, help="Database name")
+    parser.add_argument("-s", "--host", type=str, help="Database host")
+    parser.add_argument("-p", "--port", type=str, help="Database password")
+    parser.add_argument("-u", "--user", type=str, help="Database login")
+    parser.add_argument("-P", "--password", type=str, help="Database password")
+    parser.add_argument(
+        "-D", "--debug", action="store_true", help="Set logging level to debug"
+    )
+    parser.add_argument(
+        "-F",
+        "--force",
+        action="store_true",
+        help="Force to load packages from task to database",
+    )
+    parser.add_argument(
+        "-f",
+        "--flush-buffers",
+        action="store_true",
+        help="Force to flush buffer tables after task loaded",
+    )
+    args = parser.parse_args()
+
+    if args.config is not None:
+        cfg = configparser.ConfigParser()
+        with open(args.config) as f:
+            cfg.read_file(f)
+        if cfg.has_section('DATABASE'):
+            section_db = cfg['DATABASE']
+            args.dbname = args.dbname or section_db.get('dbname', 'default')
+            args.host = args.host or section_db.get('host', 'localhost')
+            args.port = args.port or section_db.get('port', None)
+            args.user = args.user or section_db.get('user', 'default')
+            args.password = args.password or section_db.get('password', '')
+    else:
+        args.dbname = args.dbname or "default"
+        args.host = args.host or "localhost"
+        args.port = args.port or None
+        args.user = args.user or "default"
+        args.password = args.password or ""
+
+    return args
+
+
+class PackageLoader:
+    def __init__(self, pkg_file, conn, logger) -> None:
+        self.pkg = Path(pkg_file)
+        self.conn = conn
+        self.logger = logger
+        self.cache = set()
+        self.ts = rpm.TransactionSet()
+
+    def _get_header(self):
+        log.debug(f"reading header for {self.pkg}")
+        return extract.get_header(self.ts, str(self.pkg))
+
+    def _get_file_size(self):
+        try:
+            file_size = self.pkg.stat().st_size
+        except FileNotFoundError:
+            return 0
+        return file_size
+
+    def _insert_package(self, srpm_hash, is_srpm):
+        st = time.time()
+        kw = {}
+        hdr = self._get_header()
+        pkg_name = self.pkg.name
+        # load only source packages for a now
+        if not int(bool(hdr[rpm.RPMTAG_SOURCEPACKAGE])):
+            raise ValueError("Binary package files loading not supported yet")
+
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
+        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+
+        self.logger.debug(f"calculate MD5 for {pkg_name} file")
+        hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
+
+        self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+        hashes["sha256"] = sha256_from_file(self.pkg, as_bytes=True)
+
+        kw["pkg_hash"] = hashes["mmh"]
+        kw["pkg_filename"] = pkg_name
+        kw["pkg_filesize"] = self._get_file_size()
+        if is_srpm:
+            kw["pkg_sourcerpm"] = pkg_name
+            kw["pkg_srcrpm_hash"] = hashes["mmh"]
+        else:
+            kw["pkg_srcrpm_hash"] = srpm_hash
+
+        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_pkg_hash_single(self.conn, hashes)
+            self.cache.add(hashes["mmh"])
+            self.logger.debug(
+                f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+            )
+        else:
+            self.logger.debug(
+                f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+            )
+
+        return hashes["mmh"]
+
+    def load_package(self):
+        self._insert_package(None, is_srpm=True)
+
+    def flush(self):
+        """Force flush bufeer tables using OPTIMIZE TABLE SQL requests."""
+        buffer_tables = (
+            "Files_buffer",
+            "Depends_buffer",
+            "Changelog_buffer",
+            "Packages_buffer",
+            "TaskIterations_buffer",
+            "Tasks_buffer",
+            "TaskStates_buffer",
+        )
+        self.logger.info("Flushing buffer tables")
+        for buffer in buffer_tables:
+            self.conn.execute(f"OPTIMIZE TABLE {buffer}")
+
+
+def load(args: object, conn: Client, logger: logging.Logger) -> None:
+    pkgl = PackageLoader(args.file, conn, logger)
+    pkgl.load_package()
+    if args.flush_buffers:
+        pkgl.flush()
+
+
+def main():
+    assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
+    args = get_args()
+    logger = get_logger(NAME, tag="load")
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    conn = None
+    try:
+        log.info("Start loading RPM package to database")
+        log.info("=" * 60)
+        conn = get_client(args)
+        if not Path(args.file).is_file():
+            raise ValueError("{args.file} not a file")
+        load(args, conn, logger)
+    except Exception as error:
+        logger.exception("Error occurred during package loading")
+        sys.exit(1)
+    finally:
+        if conn is not None:
+            conn.disconnect()
+    log.info("=" * 60)
+    log.info("Stop loading RPM package to database")
+
+
+if __name__ == "__main__":
+    main()
