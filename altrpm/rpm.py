@@ -86,6 +86,8 @@ def extract_int(reader, base, offset, count, width, rewind):
     reader.seek(base + offset)
     data = reader.read(count * width)
     values = [bytes2integer(data[i * width : (i + 1) * width]) for i in range(count)]
+    if count == 1:
+        values = values[0]
     if rewind:
         reader.seek(pos_)
     return values
@@ -334,6 +336,7 @@ class RPMCpio(RPMHeaderParser):
 
         return decompressor(self.reader)
 
+    @staticmethod
     def _copy_file_attrs(file_entry, dst_obj):
         attrs = (
             "filetype", "uid" , "gid", "isblk", "ischr", "isfifo", "islnk", "issym",
