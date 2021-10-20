@@ -1,10 +1,12 @@
 import os
 import sys
 import time
+import base64
 import logging
 import argparse
 import configparser
 from pathlib import Path
+from dataclasses import dataclass
 from clickhouse_driver import Client
 
 import extract
@@ -21,6 +23,7 @@ os.environ["LANG"] = "C"
 
 log = logging.getLogger(NAME)
 
+
 def get_client(args: object) -> Client:
     """Get Clickhouse client instance."""
     client = Client(
@@ -33,10 +36,11 @@ def get_client(args: object) -> Client:
     client.connection.connect()
     return client
 
+
 def get_args() -> object:
     parser = argparse.ArgumentParser()
     parser.add_argument("file", type=str, help="RPM package file")
-    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
+    parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
     parser.add_argument("-p", "--port", type=str, help="Database password")
@@ -63,13 +67,13 @@ def get_args() -> object:
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
             cfg.read_file(f)
-        if cfg.has_section('DATABASE'):
-            section_db = cfg['DATABASE']
-            args.dbname = args.dbname or section_db.get('dbname', 'default')
-            args.host = args.host or section_db.get('host', 'localhost')
-            args.port = args.port or section_db.get('port', None)
-            args.user = args.user or section_db.get('user', 'default')
-            args.password = args.password or section_db.get('password', '')
+        if cfg.has_section("DATABASE"):
+            section_db = cfg["DATABASE"]
+            args.dbname = args.dbname or section_db.get("dbname", "default")
+            args.host = args.host or section_db.get("host", "localhost")
+            args.port = args.port or section_db.get("port", None)
+            args.user = args.user or section_db.get("user", "default")
+            args.password = args.password or section_db.get("password", "")
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -80,13 +84,31 @@ def get_args() -> object:
     return args
 
 
+@dataclass
+class SQL:
+    get_pkg_hshs_by_filename = """
+SELECT pkg_hash FROM Packages_buffer WHERE pkg_filename = '{name}'
+"""
+
+    flush_tables_buffer = """
+OPTIMIZE TABLE {buffer}
+"""
+
 class PackageLoader:
-    def __init__(self, pkg_file, conn, logger) -> None:
+    def __init__(self, pkg_file, conn, logger, args) -> None:
+        self.sql = SQL()
         self.pkg = Path(pkg_file)
         self.conn = conn
         self.logger = logger
-        self.cache = set()
+        self.force = args.force
+        self.cache = self._init_cache()
         self.ts = rpm.TransactionSet()
+
+    def _init_cache(self):
+        result = self.conn.execute(
+            self.sql.get_pkg_hshs_by_filename.format(name=self.pkg.name)
+        )
+        return {i[0] for i in result}
 
     def _get_header(self):
         log.debug(f"reading header for {self.pkg}")
@@ -98,6 +120,12 @@ class PackageLoader:
         except FileNotFoundError:
             return 0
         return file_size
+
+    def _load_spec(self, ):
+        self.logger.debug(f"extracting spec file form {self.pkg.name}")
+        spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(self.pkg, raw=True)
+        self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
+        print(hdr)
 
     def _insert_package(self, srpm_hash, is_srpm):
         st = time.time()
@@ -126,9 +154,14 @@ class PackageLoader:
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        # DEBUG ONLY #
+        self._load_spec()
+        ##############
+        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             extract.insert_package(self.conn, hdr, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
+            # extract specfile and load to DB
+            pass
             self.cache.add(hashes["mmh"])
             self.logger.debug(
                 f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
@@ -156,11 +189,11 @@ class PackageLoader:
         )
         self.logger.info("Flushing buffer tables")
         for buffer in buffer_tables:
-            self.conn.execute(f"OPTIMIZE TABLE {buffer}")
+            self.conn.execute(self.sql.flush_tables_buffer.format(buffer=buffer))
 
 
 def load(args: object, conn: Client, logger: logging.Logger) -> None:
-    pkgl = PackageLoader(args.file, conn, logger)
+    pkgl = PackageLoader(args.file, conn, logger, args)
     pkgl.load_package()
     if args.flush_buffers:
         pkgl.flush()
