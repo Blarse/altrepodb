@@ -94,6 +94,10 @@ SELECT pkg_hash FROM Packages_buffer WHERE pkg_filename = '{name}'
 OPTIMIZE TABLE {buffer}
 """
 
+    insert_spec_file = """
+INSERT INTO Specfiles_insert (*) VALUES
+"""
+
 class PackageLoader:
     def __init__(self, pkg_file, conn, logger, args) -> None:
         self.sql = SQL()
@@ -123,9 +127,23 @@ class PackageLoader:
 
     def _load_spec(self, ):
         self.logger.debug(f"extracting spec file form {self.pkg.name}")
+        st = time.time()
         spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(self.pkg, raw=True)
+        self.logger.info(f"headers and spec file extracted in {(time.time() - st):.3f} seconds")
         self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
-        print(hdr)
+        st = time.time()
+        kw = {
+            "pkg_hash": mmhash(bytes.fromhex(cvt(hdr["RPMTAG_SHA1HEADER"]))),
+            "pkg_name": cvt(hdr["RPMTAG_NAME"]),
+            "pkg_epoch": cvt(hdr["RPMTAG_EPOCH"], int),
+            "pkg_version": cvt(hdr["RPMTAG_VERSION"]),
+            "pkg_release": cvt(hdr["RPMTAG_RELEASE"]),
+            "specfile_name": spec_file.name,
+            "specfile_date": spec_file.mtime,
+            "specfile_content_base64": base64.b64encode(spec_contents)
+        }
+        self.conn.execute(self.sql.insert_spec_file, [kw,])
+        self.logger.info(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
 
     def _insert_package(self, srpm_hash, is_srpm):
         st = time.time()
@@ -154,14 +172,9 @@ class PackageLoader:
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        # DEBUG ONLY #
-        self._load_spec()
-        ##############
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_package(self.conn, hdr, self.pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
-            # extract specfile and load to DB
-            pass
             self.cache.add(hashes["mmh"])
             self.logger.debug(
                 f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
