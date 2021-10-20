@@ -8,6 +8,7 @@ __all__ = [
     "readHeaderListFromFile",
     "readHeaderListFromXZFile",
     "extractSpecFromRPM",
+    "extractSpecAndHeadersFromRPM",
 ]
 
 
@@ -65,3 +66,16 @@ def extractSpecFromRPM(filename, raw):
     """
     rpm = RPMCpio(filename)
     return rpm.extract_spec_file(raw=raw)
+
+def extractSpecAndHeadersFromRPM(filename, raw):
+    """Extracts spec file and headers from RPM package.
+
+    Args:
+        filename (str|path): filename or path-like object
+        raw (bool): return spec file contents as raw bytes or decode to UTF-8
+
+    Returns:
+        tuple: spec file archive entry, spec file contents, headers dictionary
+    """
+    rpm = RPMCpio(filename)
+    return *rpm.extract_spec_file(raw=raw), rpm.hdr
