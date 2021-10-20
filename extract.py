@@ -1,30 +1,34 @@
-import argparse
 import os
-import sys
-import datetime
-import time
 import rpm
-import clickhouse_driver as chd
-import mapper
-import threading
-import logging
-import configparser
-import tempfile
-import pycdlib
-import itertools
-import fnmatch
-import re
-import iso as isopkg
-
-from uuid import uuid4
-from io import BufferedRandom, BytesIO
-from utils import cvt, get_logger, LockedIterator, Timing, Display, valid_date, \
-    mmhash, md5_from_file, sha256_from_file, join_dicts_with_as_string, FunctionalNotImplemented
-from manager import check_latest_version
-from collections import defaultdict
-from pathlib import Path
-import shutil
+import time
 import lzma
+import shutil
+import base64
+import logging
+import pycdlib
+import fnmatch
+import datetime
+import argparse
+import tempfile
+import itertools
+import threading
+import configparser
+import iso as isopkg
+import clickhouse_driver as chd
+from uuid import uuid4
+from pathlib import Path
+from collections import defaultdict
+from io import BufferedRandom, BytesIO
+
+import altrpm
+import mapper
+from manager import check_latest_version
+from utils import (
+    cvt, get_logger, valid_date,
+    LockedIterator, Timing, Display, 
+    mmhash, md5_from_file, sha256_from_file,
+    join_dicts_with_as_string, FunctionalNotImplemented
+)
 
 
 NAME = 'extract'
@@ -71,7 +75,7 @@ def get_partial_pkg_map(hdr, key_list):
 
 
 @Timing.timeit(NAME)
-def insert_package(conn, hdr, **kwargs):
+def insert_package(conn, hdr, pkg_file, **kwargs):
     """Insert information about package into database.
 
     Also:
@@ -119,12 +123,35 @@ def insert_package(conn, hdr, **kwargs):
 
     conn.execute(sql_insert, [map_package])
 
+    if map_package['pkg_sourcepackage'] == 1:
+        insert_specfile(conn, pkg_file, map_package)
+
     return pkghash
 
 
 def unpack_map(tagmap):
     return [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
 
+@Timing.timeit(NAME)
+def insert_specfile(conn, pkg_file, pkg_map):
+    log.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
+    st = time.time()
+    spec_file, spec_contents = altrpm.extractSpecFromRPM(pkg_file, raw=True)
+    log.debug(f"headers and spec file extracted in {(time.time() - st):.3f} seconds")
+    log.debug(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
+    st = time.time()
+    kw = {
+        "pkg_hash": pkg_map["pkg_hash"],
+        "pkg_name": pkg_map["pkg_name"],
+        "pkg_epoch": pkg_map["pkg_epoch"],
+        "pkg_version": pkg_map["pkg_version"],
+        "pkg_release": pkg_map["pkg_release"],
+        "specfile_name": spec_file.name,
+        "specfile_date": spec_file.mtime,
+        "specfile_content_base64": base64.b64encode(spec_contents)
+    }
+    conn.execute("INSERT INTO Specfiles_insert (*) VALUES", [kw,])
+    log.debug(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
 
 @Timing.timeit(NAME)
 def insert_file(conn, pkghash, hdr):
@@ -362,14 +389,12 @@ class Worker(threading.Thread):
                     package = package.iname
                 log.debug('process: {0}'.format(package))
                 pkghash = check_package_in_cache(self.cache, map_package['pkg_hash'])
-                # kw = {'filename': Path(package).name}
                 if self.repair is not None:
                     if pkghash is not None:
                         repair_package(self.connection, header, self.repair, **kw)
                     continue
                 if pkghash is None:
-                    # pkghash = map_package['pkg_hash']
-                    pkghash = insert_package(self.connection, header, **kw)
+                    pkghash = insert_package(self.connection, header, package, **kw)
                     self.cache.add(pkghash)
                     # insert package hashes to PackageHash_buffer
                     if self.is_src:
