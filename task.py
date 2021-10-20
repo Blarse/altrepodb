@@ -223,7 +223,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
         pkg_name = Path(pkg).name
 
@@ -437,7 +437,7 @@ class PackageLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
         pkg_name = Path(pkg).name
 

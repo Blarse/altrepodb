@@ -24,8 +24,8 @@ def get_package_map(hdr):
         pname, pemail = packager, ''
 
     map_package = {
-        'pkg_hash': mmhash(bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))),
-        'pkg_cs': bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER])),
+        'pkg_hash': mmhash(bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))),
+        'pkg_cs': bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER])),
         'pkg_packager': pname,
         'pkg_packager_email': pemail,
         'pkg_name': cvt(hdr[rpm.RPMTAG_NAME]),

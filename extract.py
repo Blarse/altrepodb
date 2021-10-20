@@ -44,7 +44,7 @@ def check_package(cache, hdr):
 
     return id of package from database or None
     """
-    sha1 = bytes.fromhex(cvt(hdr[rpm.RPMDBI_SHA1HEADER]))
+    sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
     pkghash = mmhash(sha1)
     log.debug('check package for sha1: {0}'.format(sha1.hex()))
     if pkghash in cache:
