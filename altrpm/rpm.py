@@ -8,7 +8,7 @@ import libarchive
 import subprocess
 from collections import namedtuple
 
-from .rpmtag import rpmh, rpms, rpmt
+from .rpmtag import rpmh, rpms, rpmt, RPMHeaderExtractor
 
 
 RPM_MAGIC = b"\xED\xAB\xEE\xDB"
@@ -26,7 +26,7 @@ RPMHeaderRecordS = namedtuple(
     "RPMHeaderRecordS", ["magic", "version", "reserved", "nindex", "hsize"]
 )
 RPMTagS = namedtuple("RPMTagS", ["tag", "type", "offset", "count"])
-
+File = namedtuple("File", ["attrs", "content"])
 
 def decompress_none(fileobj):
     return fileobj.read
@@ -149,16 +149,24 @@ def bytes2string(fileobj, encoding="utf-8"):
     return data.decode(encoding)
 
 
-class NoneDict(dict):
+class Object(object):
+            pass
+
+
+class RPMHeadersDict(dict):
+    def __init__(self):
+        self.he = RPMHeaderExtractor()
+        return super().__init__()
+
     def __getitem__(self, key):
-        return dict.get(self, key)
+        return self.he.get_tag_content(key, super())
 
 
 class RPMHeaderParser:
     def __init__(self, reader, from_headers_list=False):
         self.from_headers_list = from_headers_list
         self.reader = reader
-        self.hdr = NoneDict()
+        self.hdr = RPMHeadersDict()
         self.hdr_base = 0
         self.hdr_contents_base = 0
         self.sig_hdr_dict = {}
@@ -179,7 +187,7 @@ class RPMHeaderParser:
         tag_name = rpms[rpm_tag.tag] if is_sig_tag else rpmh[rpm_tag.tag]
 
         if tag_name is None:
-                tag_name = f"TAG_{str(rpm_tag.tag)}"
+            tag_name = f"TAG_{str(rpm_tag.tag)}"
 
         self.hdr[tag_name] = data
 
@@ -234,17 +242,25 @@ class RPMHeaderParser:
             self.extract_tag_content(rpm_tag, is_sig_tag=False)
 
 
-class RPMHeaderList:
+class RPMHeadersList:
     def __init__(self, rpm_file):
         self.hdrs = []
         self.rpm_file = rpm_file
-        self.reader = io.open(self.rpm_file, "rb")
+        self.reader = None
 
     def __del__(self):
+        self._close()
+
+    def _open(self):
+        if not self.reader:
+            self.reader = io.open(self.rpm_file, "rb")
+
+    def _close(self):
         if self.reader:
             self.reader.close()
 
     def parse_hdr_list(self):
+        self._open()
         while True:
             try:
                 parser = RPMHeaderParser(self.reader, from_headers_list=True)
@@ -252,48 +268,61 @@ class RPMHeaderList:
                 self.reader.seek(parser.compressed_payload_offset)
             except (ValueError, StructError):
                 break
-        self.reader.close()
+        self._close()
         return self.hdrs
 
 
 class RPMHeaders:
     def __init__(self, rpm_file):
-        self.hdrs = []
+        self.hdrs = RPMHeadersDict()
         self.rpm_file = rpm_file
-        self.reader = io.open(self.rpm_file, "rb")
+        self.reader = None
 
     def __del__(self):
+        self._close()
+
+    def _open(self):
+        if not self.reader:
+            self.reader = io.open(self.rpm_file, "rb")
+
+    def _close(self):
         if self.reader:
             self.reader.close()
 
     def parse_headers(self):
-        parser = RPMHeaderParser(self.reader)
+        self._open()
+        parser = RPMHeaderParser(self.reader, from_headers_list=False)
         self.hdrs = parser.hdr
-        self.reader.close
+        self._close()
         return self.hdrs
 
 
 class RPMCpio(RPMHeaderParser):
     def __init__(self, rpm_file):
         self.rpm_file = rpm_file
-        self.reader = io.open(self.rpm_file, "rb")
+        self.reader = None
         self.payload_compressor = None
         self.compressed_payload_offset = 0
+        self._open()
         super().__init__(self.reader)
 
     def __del__(self):
+        self._close()
+
+    def _open(self):
+        if not self.reader:
+            self.reader = io.open(self.rpm_file, "rb")
+
+    def _close(self):
         if self.reader:
             self.reader.close()
 
     def _extract_cpio(self):
-        # # get payload compressor form tag #1125
+        # get payload compressor form tag #1125
         self.payload_compressor = self.hdr["RPMTAG_PAYLOADCOMPRESSOR"]
-        # uncompressed cpio payload
+
         if self.payload_compressor is None:
             decompressor = decompress_none
-
-        # if self.reader is None:
-        #     self._open_rpm_file()
 
         self.reader.seek(self.compressed_payload_offset)
 
@@ -305,38 +334,58 @@ class RPMCpio(RPMHeaderParser):
 
         return decompressor(self.reader)
 
-    def get_spec(self, raw=True):
-        # read cpio content
-        spec_file = b""
+    def _copy_file_attrs(file_entry, dst_obj):
+        attrs = (
+            "filetype", "uid" , "gid", "isblk", "ischr", "isfifo", "islnk", "issym",
+            "linkpath", "linkname", "isreg", "isfile", "issock", "isdev", "atime",
+            "mtime", "ctime", "birthtime", "path", "name", "size", "mode", "strmode",
+            "rdevmajor", "rdevminor",
+        )
+        for attr in attrs:
+            setattr(dst_obj, attr, getattr(file_entry, attr, None))
+
+    def extract_spec_file(self, raw=True):
+        # read cpio content and search for '*.spec' file
+        self._open()
+
+        spec_file_contents = b""
+        spec_file = Object()
         with libarchive.memory_reader(self._extract_cpio()()) as archive:
             for entry in archive:
                 if entry.isfile and entry.name.endswith(".spec"):
+                    self._copy_file_attrs(entry, spec_file)
                     for block in entry.get_blocks():
-                        spec_file += block
+                        spec_file_contents += block
                     break
 
+        self._close()
+
         if raw:
-            return spec_file
+            return spec_file, spec_file_contents
         else:
-            return spec_file.decode("utf-8", errors="backslashreplace")
+            return spec_file, spec_file_contents.decode("utf-8", errors="backslashreplace")
 
-    def extract(self):
-        return self._extract_cpio()()
+    def extract_cpio_raw(self):
+        self._open()
+        data = self._extract_cpio()()
+        self._close()
+        return data
 
+    def extract_cpio_files(self):
+        files = []
+        self._open()
 
-def readHeaderFromRPM(filename):
-    rpm = RPMHeaders(filename)
-    return rpm.hdrs
+        file_contents_ = b""
+        file_ = Object()
+        with libarchive.memory_reader(self._extract_cpio()()) as archive:
+            for entry in archive:
+                file_contents_ = b""
+                file_ = Object()
+                self._copy_file_attrs(entry, file_)
+                for block in entry.get_blocks():
+                    file_contents_ += block
+                files.append(File(file_, file_contents_))
 
-def readHeaderListFromFile(filename):
-    rpm = RPMHeaderList(filename)
-    return rpm.parse_hdr_list()
+        self._close()
 
-def readHeaderListFromXZFile(filename):
-    # rpm = RPMHeaderList(filename)
-    # return rpm.parse_hdr_list()
-    return []
-
-def extractSpecFromRPM(filename, raw):
-    rpm = RPMCpio(filename)
-    return rpm.get_spec(raw=raw)
+        return files

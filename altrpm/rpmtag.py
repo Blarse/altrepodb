@@ -12,7 +12,7 @@ HEADER_TAGBASE = 1000
 RPMTAG_EXTERNAL_TAG = 1000000
 
 
-@dataclass
+@dataclass(frozen=True)
 class RPMTag:
     # RPM header tags
     RPMTAG_HEADERIMAGE = HEADER_IMAGE
@@ -373,7 +373,7 @@ class RPMTag:
         return None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RPMSigTag:
     # RPM signature tags
     RPMTAG_HEADERIMAGE = HEADER_IMAGE
@@ -415,7 +415,7 @@ class RPMSigTag:
         return None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RPMTagType:
     # RPM tag types
     RPM_NULL_TYPE = 0
@@ -428,6 +428,47 @@ class RPMTagType:
     RPM_BIN_TYPE = 7
     RPM_STRING_ARRAY_TYPE = 8
     RPM_I18NSTRING_TYPE = 9
+
+
+class RPMHeaderExtractor:
+    """Handles headers content extraction by tag name or tag id."""
+    def __init__(self):
+        self.tags_by_id = {}
+        self.tags_by_name = {}
+        # get tags from RPMTag
+        for k, v in vars(RPMTag).items():
+            if not k.startswith("_"):
+                self.tags_by_name[k] = v
+        # get tags from RPMTag
+        for k, v in vars(RPMSigTag).items():
+            if not k.startswith("_"):
+                self.tags_by_name[k] = v
+        # fill self.tags dictionary
+        for tag_name, tag_id in self.tags_by_name.items():
+            if tag_id not in self.tags_by_id:
+                self.tags_by_id[tag_id] = []
+            self.tags_by_id[tag_id].append(tag_name)
+
+    def get_tag_content(self, tag, hdr_dict):
+        if isinstance(tag, str):
+            if tag in hdr_dict.keys():
+                return hdr_dict.get(tag, None)
+            tag_id = self.tags_by_name.get(tag, None)
+            if tag_id is None:
+                return None
+        elif isinstance(tag, int):
+            if tag not in self.tags_by_id:
+                return None
+            tag_id = tag
+        else:
+            # unsupportet tag type
+            return None
+        data = None
+        for t_name in self.tags_by_id[tag_id]:
+            data = hdr_dict.get(t_name, None)
+            if data is not None:
+                return data
+        return data
 
 
 rpmh = RPMTag()
