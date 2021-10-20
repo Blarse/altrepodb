@@ -567,6 +567,55 @@ ORDER BY (pkgset_name, pkg_name, bh_updated, bh_arch, pkg_hash)
 PRIMARY KEY (pkgset_name, pkg_name);
 
 
+-- Source packages spec files tables
+CREATE TABLE Specfiles_insert
+(
+    pkg_hash UInt64,
+    pkg_name String,
+    pkg_epoch UInt32,
+    pkg_version String,
+    pkg_release String,
+    specfile_name String,
+    specfile_date DateTime,
+    specfile_content_base64 String
+)
+ENGINE = Null;
+
+
+CREATE TABLE Specfiles
+(
+    pkg_hash UInt64,
+    pkg_name String,
+    pkg_epoch UInt32,
+    pkg_version String,
+    pkg_release String,
+    specfile_name String,
+    specfile_date DateTime,
+    specfile_content String
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (pkg_hash, specfile_content);
+
+
+CREATE TABLE Specfiles_buffer AS Specfiles ENGINE = Buffer(currentDatabase(), Specfiles, 16, 10, 100, 1000, 100000, 100000, 1000000);
+
+
+CREATE MATERIALIZED VIEW mv_specfiles TO Specfiles_buffer
+(
+    pkg_hash UInt64,
+    pkg_name String,
+    pkg_epoch UInt32,
+    pkg_version String,
+    pkg_release String,
+    specfile_name String,
+    specfile_date DateTime,
+    specfile_content String
+)
+AS SELECT
+    pkg_hash, pkg_name, pkg_epoch, pkg_version, pkg_release,
+    specfile_name, specfile_date, base64Decode(specfile_content_base64) as specfile_content
+FROM Specfiles_insert;
+
 -- VIEW TABLES --
 CREATE
 OR REPLACE VIEW task_plan_hashes AS
