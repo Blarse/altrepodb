@@ -251,7 +251,7 @@ class TaskIterationLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, hdr, **kw)
+            extract.insert_package(self.conn, hdr, pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
