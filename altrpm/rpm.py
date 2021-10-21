@@ -201,6 +201,10 @@ class RPMHeaderParser:
             if rpm_lead[0] != RPM_MAGIC:
                 raise ValueError(f"File is not a RPM package")
 
+            # set 'RPMTAG_SOURCEPACKAGE'
+            if rpm_lead[3] != 0:
+                self.hdr[rpmh[rpmh.RPMTAG_SOURCEPACKAGE]] = 1
+
             # read signature Header Record
             sig_start = self.reader.tell()
             rpm_sig = RPMHeaderRecordS(
