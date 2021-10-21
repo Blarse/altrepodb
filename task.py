@@ -728,6 +728,7 @@ class Task:
             "TaskIterations_buffer",
             "Tasks_buffer",
             "TaskStates_buffer",
+            "Specfiles_buffer",
         )
         for buffer in buffer_tables:
             self.conn.execute(f"OPTIMIZE TABLE {buffer}")
