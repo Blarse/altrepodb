@@ -718,6 +718,48 @@ class Task:
         if payload:
             self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
 
+    def _update_dependencies_table(self):
+        sql = """
+INSERT INTO Depends SELECT * FROM
+(
+    WITH
+    unmet_file_depends AS
+    (
+        SELECT DISTINCT dp_name
+        FROM Depends
+        WHERE dp_type = 'require' AND dp_name NOT IN
+        (
+            SELECT dp_name
+            FROM Depends
+            WHERE dp_type = 'provide'
+        )
+            AND dp_name NOT LIKE 'rpmlib%'
+    ),
+    file_names_hash AS
+    (
+        SELECT DISTINCT
+            fn_hash,
+            fn_name
+        FROM FileNames
+        WHERE fn_name IN (SELECT * FROM unmet_file_depends)
+    )
+    SELECT
+        pkg_hash,
+        UDF.fn_name AS dp_name,
+        '' AS dp_version,
+        0  AS dp_flag,
+        'provide' AS dp_type
+    FROM Files
+    INNER JOIN
+    (
+        SELECT * FROM file_names_hash
+    ) AS UDF ON UDF.fn_hash = Files.file_hashname
+)
+"""
+        self.logger.info("Updating Depends table for missing file riquire dependencies")
+        self.conn.execute(sql)
+        self.logger.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+
     def _flush_buffer_tables(self):
         """Force flush bufeer tables using OPTIMIZE TABLE SQL requests."""
         buffer_tables = (
@@ -738,6 +780,9 @@ class Task:
 
     def save(self):
         self._save_task()
+
+    def update_depends(self):
+        self._update_dependencies_table()
 
 
 class Girar:
@@ -1396,6 +1441,8 @@ def load(args, conn):
         if args.flush_buffers:
             log.info("Flushing buffer tables")
             task.flush()
+        # update Depends table
+        task.update_depends()
         ts = time.time() - ts
         log.info(
             f"task {task_struct['task_state']['task_id']} loaded in {ts:.3f} seconds"
