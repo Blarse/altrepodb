@@ -432,6 +432,7 @@ class RPMTagType:
 
 class RPMHeaderExtractor:
     """Handles headers content extraction by tag name or tag id."""
+
     def __init__(self):
         self.tags_by_id = {}
         self.tags_by_name = {}

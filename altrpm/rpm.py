@@ -28,6 +28,7 @@ RPMHeaderRecordS = namedtuple(
 RPMTagS = namedtuple("RPMTagS", ["tag", "type", "offset", "count"])
 File = namedtuple("File", ["attrs", "content"])
 
+
 def decompress_none(fileobj):
     return fileobj.read
 
@@ -152,7 +153,7 @@ def bytes2string(fileobj, encoding="utf-8"):
 
 
 class Object(object):
-            pass
+    pass
 
 
 class RPMHeadersDict(dict):
@@ -249,32 +250,26 @@ class RPMHeaderParser:
 
 
 class RPMHeadersList:
-    def __init__(self, rpm_file):
+    def __init__(self):
         self.hdrs = []
-        self.rpm_file = rpm_file
-        self.reader = None
 
-    def __del__(self):
-        self._close()
-
-    def _open(self):
-        if not self.reader:
-            self.reader = io.open(self.rpm_file, "rb")
-
-    def _close(self):
-        if self.reader:
-            self.reader.close()
-
-    def parse_hdr_list(self):
-        self._open()
+    def _parse_hdrs_list(self, reader):
         while True:
             try:
-                parser = RPMHeaderParser(self.reader, from_headers_list=True)
+                parser = RPMHeaderParser(reader, from_headers_list=True)
                 self.hdrs.append(parser.hdr)
-                self.reader.seek(parser.compressed_payload_offset)
+                reader.seek(parser.compressed_payload_offset)
             except (ValueError, StructError):
                 break
-        self._close()
+
+    def parse_headers_list(self, hdr_list_file):
+        with io.open(hdr_list_file, "rb") as f:
+            self._parse_hdrs_list(f)
+        return self.hdrs
+
+    def parse_compressed_headers_list(self, xz_headers_file):
+        with lzma.open(xz_headers_file, 'rb') as f:
+            self._parse_hdrs_list(f)
         return self.hdrs
 
 
@@ -282,24 +277,11 @@ class RPMHeaders:
     def __init__(self, rpm_file):
         self.hdrs = RPMHeadersDict()
         self.rpm_file = rpm_file
-        self.reader = None
-
-    def __del__(self):
-        self._close()
-
-    def _open(self):
-        if not self.reader:
-            self.reader = io.open(self.rpm_file, "rb")
-
-    def _close(self):
-        if self.reader:
-            self.reader.close()
 
     def parse_headers(self):
-        self._open()
-        parser = RPMHeaderParser(self.reader, from_headers_list=False)
-        self.hdrs = parser.hdr
-        self._close()
+        with io.open(self.rpm_file, "rb") as f:
+            parser = RPMHeaderParser(f, from_headers_list=False)
+            self.hdrs = parser.hdr
         return self.hdrs
 
 
@@ -343,10 +325,31 @@ class RPMCpio(RPMHeaderParser):
     @staticmethod
     def _copy_file_attrs(file_entry, dst_obj):
         attrs = (
-            "filetype", "uid" , "gid", "isblk", "ischr", "isfifo", "islnk", "issym",
-            "linkpath", "linkname", "isreg", "isfile", "issock", "isdev", "atime",
-            "mtime", "ctime", "birthtime", "path", "name", "size", "mode", "strmode",
-            "rdevmajor", "rdevminor",
+            "filetype",
+            "uid",
+            "gid",
+            "isblk",
+            "ischr",
+            "isfifo",
+            "islnk",
+            "issym",
+            "linkpath",
+            "linkname",
+            "isreg",
+            "isfile",
+            "issock",
+            "isdev",
+            "atime",
+            "mtime",
+            "ctime",
+            "birthtime",
+            "path",
+            "name",
+            "size",
+            "mode",
+            "strmode",
+            "rdevmajor",
+            "rdevminor",
         )
         for attr in attrs:
             setattr(dst_obj, attr, getattr(file_entry, attr, None))
@@ -370,7 +373,9 @@ class RPMCpio(RPMHeaderParser):
         if raw:
             return spec_file, spec_file_contents
         else:
-            return spec_file, spec_file_contents.decode("utf-8", errors="backslashreplace")
+            return spec_file, spec_file_contents.decode(
+                "utf-8", errors="backslashreplace"
+            )
 
     def extract_cpio_raw(self):
         self._open()

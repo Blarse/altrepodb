@@ -34,8 +34,8 @@ def readHeaderListFromFile(filename):
     Returns:
         list: list of parsed headers dictionaries
     """
-    rpm = RPMHeadersList(filename)
-    return rpm.parse_hdr_list()
+    rpm = RPMHeadersList()
+    return rpm.parse_headers_list(filename)
 
 
 def readHeaderListFromXZFile(filename):
@@ -47,11 +47,8 @@ def readHeaderListFromXZFile(filename):
     Returns:
         list: list of parsed headers dictionaries
     """
-    # rpm = RPMHeaderList(filename)
-    # return rpm.parse_hdr_list()
-    raise NotImplementedError(
-        "support for read compressed headers list file not ipmlemented yet"
-    )
+    rpm = RPMHeadersList()
+    return rpm.parse_compressed_headers_list(filename)
 
 
 def extractSpecFromRPM(filename, raw):
@@ -66,6 +63,7 @@ def extractSpecFromRPM(filename, raw):
     """
     rpm = RPMCpio(filename)
     return rpm.extract_spec_file(raw=raw)
+
 
 def extractSpecAndHeadersFromRPM(filename, raw):
     """Extracts spec file and headers from RPM package.
