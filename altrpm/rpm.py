@@ -10,6 +10,7 @@ from collections import namedtuple
 
 from .rpmtag import rpmh, rpms, rpmt, RPMHeaderExtractor
 
+USE_COMPRESSOR_MAGIC = True
 
 RPM_MAGIC = b"\xED\xAB\xEE\xDB"
 RPM_HEADER_MAGIC = b"\x8E\xAD\xE8"
@@ -63,6 +64,14 @@ decompressors = {
     b"bzip2": decompress_bzip2,
 }
 
+compressors_magic = {
+    b"\x42\x5a": decompress_bzip2,
+    b"\x1f\x8b": decompress_gzip,
+    b"\xfd\x37": decompress_lzma,
+    b"\x5d\x00": decompress_lzma,
+    b"\x28\xb5": decompress_zstd,
+    b"\x30\x37": decompress_none,
+}
 
 def bytes2integer(data, order="big"):
     return int.from_bytes(data, order)
@@ -305,20 +314,33 @@ class RPMCpio(RPMHeaderParser):
         if self.reader:
             self.reader.close()
 
+    def _get_payload_compressor_by_magic(self):
+        pos_ = self.reader.tell()
+        magic = self.reader.read(2)
+        self.reader.seek(pos_)
+        return compressors_magic.get(magic, None), magic
+
     def _extract_cpio(self):
-        # get payload compressor form tag #1125
-        self.payload_compressor = self.hdr["RPMTAG_PAYLOADCOMPRESSOR"]
-
-        if self.payload_compressor is None:
-            decompressor = decompress_none
-
         self.reader.seek(self.compressed_payload_offset)
 
-        decompressor = decompressors.get(self.payload_compressor, None)
-        if decompressor is None:
-            raise NotImplementedError(
-                f"Decompressor not found for romat {self.payload_compressor}"
-            )
+        if not USE_COMPRESSOR_MAGIC:
+            # get payload compressor form tag #1125
+            self.payload_compressor = self.hdr["RPMTAG_PAYLOADCOMPRESSOR"]
+
+            if self.payload_compressor is None:
+                decompressor = decompress_none
+
+            decompressor = decompressors.get(self.payload_compressor, None)
+            if decompressor is None:
+                raise NotImplementedError(
+                    f"Decompressor not found for romat {self.payload_compressor}"
+                )
+        else:
+            decompressor, magic = self._get_payload_compressor_by_magic()
+            if decompressor is None:
+                raise NotImplementedError(
+                    f"Decompressor not found for signature {magic}"
+                )
 
         return decompressor(self.reader)
 
