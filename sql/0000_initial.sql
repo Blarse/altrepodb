@@ -841,7 +841,7 @@ LEFT JOIN
         pkg_sourcepackage,
         pkg_arch,
         pkg_sourcerpm AS src_pkg_name
-    FROM Packages
+    FROM Packages_buffer
 ) AS P ON P.pkg_hash = StaticLastPackages.pkg_hash
 WHERE (P.pkg_arch != 'x86_64-i586') AND ((pkgset_name, pkgset_date) IN (
     SELECT
