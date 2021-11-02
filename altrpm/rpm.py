@@ -2,11 +2,13 @@ import io
 import bz2
 import gzip
 import lzma
+from os import PathLike
 import struct
 from struct import error as StructError
 import libarchive
 import subprocess
 from collections import namedtuple
+from typing import Union, BinaryIO, Any
 
 from .rpmtag import rpmh, rpms, rpmt, RPMHeaderExtractor
 
@@ -30,7 +32,7 @@ RPMTagS = namedtuple("RPMTagS", ["tag", "type", "offset", "count"])
 File = namedtuple("File", ["attrs", "content"])
 
 
-def decompress_none(fileobj):
+def decompress_none(fileobj: BinaryIO):
     return fileobj.read
 
 
@@ -56,7 +58,7 @@ def decompress_zstd(fileobj):
     return io.BytesIO(decompressor.communicate(input=fileobj.read())[0]).read
 
 
-decompressors = {
+decompressors: dict = {
     b"gzip": decompress_gzip,
     b"lzma": decompress_lzma,
     b"xz": decompress_lzma,
@@ -64,7 +66,7 @@ decompressors = {
     b"bzip2": decompress_bzip2,
 }
 
-compressors_magic = {
+compressors_magic: dict = {
     b"\x42\x5a": decompress_bzip2,
     b"\x1f\x8b": decompress_gzip,
     b"\xfd\x37": decompress_lzma,
@@ -73,11 +75,14 @@ compressors_magic = {
     b"\x30\x37": decompress_none,
 }
 
-def bytes2integer(data, order="big"):
+
+def bytes2integer(data: bytes, order: str = "big") -> int:
     return int.from_bytes(data, order)
 
 
-def extract_bin(reader, base, offset, count, rewind=False):
+def extract_bin(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> bytes:
     pos_ = reader.tell()
     reader.seek(base + offset)
     data = reader.read(count)
@@ -86,40 +91,64 @@ def extract_bin(reader, base, offset, count, rewind=False):
     return data
 
 
-def extract_char(reader, base, offset, count, rewind=False):
+def extract_char(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> bytes:
     count = 1
     return extract_bin(reader, base, offset, count, rewind)
 
 
-def extract_int(reader, base, offset, count, width, rewind):
+def extract_int(
+    reader: BinaryIO, base: int, offset: int, count: int, width: int, rewind: bool
+) -> list[int]:
     pos_ = reader.tell()
     reader.seek(base + offset)
     data = reader.read(count * width)
     values = [bytes2integer(data[i * width : (i + 1) * width]) for i in range(count)]
-    if count == 1:
-        values = values[0]
     if rewind:
         reader.seek(pos_)
     return values
 
 
-def extract_int8(reader, base, offset, count, rewind=False):
-    return extract_int(reader, base, offset, count, 1, rewind)
+def extract_int8(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> Union[int, list[int]]:
+    data = extract_int(reader, base, offset, count, 1, rewind)
+    if count == 1:
+        return data[0]
+    return data
 
 
-def extract_int16(reader, base, offset, count, rewind=False):
-    return extract_int(reader, base, offset, count, 2, rewind)
+def extract_int16(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> Union[int, list[int]]:
+    data = extract_int(reader, base, offset, count, 2, rewind)
+    if count == 1:
+        return data[0]
+    return data
 
 
-def extract_int32(reader, base, offset, count, rewind=False):
-    return extract_int(reader, base, offset, count, 4, rewind)
+def extract_int32(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> Union[int, list[int]]:
+    data = extract_int(reader, base, offset, count, 4, rewind)
+    if count == 1:
+        return data[0]
+    return data
 
 
-def extract_int64(reader, base, offset, count, rewind=False):
-    return extract_int(reader, base, offset, count, 8, rewind)
+def extract_int64(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> Union[int, list[int]]:
+    data = extract_int(reader, base, offset, count, 8, rewind)
+    if count == 1:
+        return data[0]
+    return data
 
 
-def extract_array(reader, base, offset, count, rewind=False):
+def extract_array(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> list[bytes]:
     pos_ = reader.tell()
     reader.seek(base + offset)
     data = []
@@ -131,16 +160,16 @@ def extract_array(reader, base, offset, count, rewind=False):
                 data.append(chars)
                 break
             chars += c
-    if count == 1:
-        data = data[0]
     if rewind:
         reader.seek(pos_)
     return data
 
 
-def extract_string(reader, base, offset, count, rewind=False):
+def extract_string(
+    reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
+) -> bytes:
     count = 1
-    return extract_array(reader, base, offset, count, rewind)
+    return extract_array(reader, base, offset, count, rewind)[0]
 
 
 extractors = {
@@ -157,7 +186,7 @@ extractors = {
 
 
 def bytes2string(fileobj, encoding="utf-8"):
-    data = extract_string(fileobj, 0, 1, rewind=False)
+    data = extract_string(fileobj, 0, 1, 1, rewind=False)
     return data.decode(encoding)
 
 
@@ -175,7 +204,7 @@ class RPMHeadersDict(dict):
 
 
 class RPMHeaderParser:
-    def __init__(self, reader, from_headers_list=False):
+    def __init__(self, reader: BinaryIO, from_headers_list=False):
         self.from_headers_list = from_headers_list
         self.reader = reader
         self.hdr = RPMHeadersDict()
@@ -262,7 +291,7 @@ class RPMHeadersList:
     def __init__(self):
         self.hdrs = []
 
-    def _parse_hdrs_list(self, reader):
+    def _parse_hdrs_list(self, reader: Union[BinaryIO, Any]):
         while True:
             try:
                 parser = RPMHeaderParser(reader, from_headers_list=True)
@@ -277,13 +306,16 @@ class RPMHeadersList:
         return self.hdrs
 
     def parse_compressed_headers_list(self, xz_headers_file):
-        with lzma.open(xz_headers_file, 'rb') as f:
+        with lzma.open(xz_headers_file, "rb") as f:
             self._parse_hdrs_list(f)
         return self.hdrs
 
 
+_FileOrPath = Union[str, bytes, PathLike]
+
+
 class RPMHeaders:
-    def __init__(self, rpm_file):
+    def __init__(self, rpm_file: _FileOrPath):
         self.hdrs = RPMHeadersDict()
         self.rpm_file = rpm_file
 
@@ -295,9 +327,9 @@ class RPMHeaders:
 
 
 class RPMCpio(RPMHeaderParser):
-    def __init__(self, rpm_file):
+    def __init__(self, rpm_file: _FileOrPath):
         self.rpm_file = rpm_file
-        self.reader = None
+        self.reader: Any = None
         self.payload_compressor = None
         self.compressed_payload_offset = 0
         self._open()
