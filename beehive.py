@@ -1,15 +1,15 @@
 import sys
+import json
 import logging
 import argparse
 import requests
 import datetime
-from requests import HTTPError
 import configparser
+from pathlib import Path
+from requests import HTTPError
 from collections import namedtuple
 from dataclasses import dataclass
 from clickhouse_driver import Client
-from pathlib import Path
-import json
 
 from utils import get_logger, cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from htmllistparse import fetch_listing
@@ -17,7 +17,6 @@ from htmllistparse import fetch_listing
 
 NAME = "beehive"
 
-log = logging.getLogger(NAME)
 
 Endpoint = namedtuple(
     "Endpoint", ["name", "type", "path_prefix", "path_suffix", "destination"]
@@ -40,7 +39,6 @@ BEEHIVE_ENDPOINTS = (
     Endpoint("time_file_listing", "file1", "logs", "latest/time.list", None),
     Endpoint("error_dir_listing", "dir", "logs", "latest/error", None),
     Endpoint("success_dir_listing", "dir", "logs", "latest/success", None),
-    # Endpoint("latest_dir_listing", "dir", "latest", None),
     Endpoint("ftbfs_since_file_listing", "file2", "stats", "ftbfs-since", None),
 )
 
@@ -149,7 +147,7 @@ INSERT INTO BeehiveStatus (*) VALUES
 """
 
 
-def get_client(args: object) -> Client:
+def get_client(args) -> Client:
     """Get Clickhouse client instance."""
     client = Client(
         args.host,
@@ -163,7 +161,7 @@ def get_client(args: object) -> Client:
     return client
 
 
-def get_args() -> object:
+def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
@@ -208,7 +206,7 @@ def tuples_list_to_dict(x: list) -> dict:
     return res
 
 
-def dump_to_json(content: dict, prefix: str) -> None:
+def dump_to_json(content, prefix: str) -> None:
     p = Path.joinpath(Path.cwd(), "JSON")
     p.mkdir(exist_ok=True)
     Path.joinpath(p, f"dump-{prefix}.json").write_text(
@@ -222,8 +220,9 @@ class Beehive:
         base_url: str,
         branches: tuple,
         archs: tuple,
-        endpoints: list[Endpoint],
+        endpoints: tuple,
         conn: Client,
+        logger: logging.Logger,
         timeout: int,
         dump_beehive: bool = False,
     ) -> None:
@@ -233,6 +232,7 @@ class Beehive:
         self.endpoints = endpoints
         self.sql = SQL()
         self.conn = conn
+        self.logger = logger
         self.timeout = timeout
         self.targets = self._build_beehive_targets_list()
         self.beehive = {}
@@ -257,7 +257,7 @@ class Beehive:
         name = pkg.replace(f"-{version}-{release}", "")
         return Package(name, version_, release)
 
-    def _build_beehive_targets_list(self) -> list[Target]:
+    def _build_beehive_targets_list(self) -> list:
         targets = []
         for branch in self.branches:
             for arch in self.archs:
@@ -283,7 +283,7 @@ class Beehive:
                     )
         return targets
 
-    def _get_content(self, target: Target) -> list:
+    def _get_content(self, target: Target) -> tuple:
         def process_package_listing_item(x):
             return PackageInfo(
                 self._parse_name_evr(x.name),
@@ -339,7 +339,7 @@ class Beehive:
                 raise ValueError(f"Unknown target type {target.type}")
         except Exception as e:
             if issubclass(e.__class__, HTTPError):
-                log.info(f"Failed to get url {target.url}")
+                self.logger.info(f"Failed to get url {target.url}")
                 return target, []
             else:
                 raise e
@@ -353,14 +353,14 @@ class Beehive:
             raise ValueError(f"Unknown result_type {result_type}")
 
         if t_key not in self.beehive:
-            log.error("Target not found in Beehive")
+            self.logger.error("Target not found in Beehive")
             raise ValueError(f"Wrong target key {t_key}")
 
         return {el[0] for el in self.beehive[t_key]}
 
     def _get_beehive_build_time(self, t_key: TargetKey) -> dict:
         if t_key not in self.beehive:
-            log.error("Target not found in Beehive")
+            self.logger.error("Target not found in Beehive")
             raise ValueError(f"Wrong target key {t_key}")
 
         return {el[0]: el[1] for el in self.beehive[t_key]}
@@ -369,7 +369,7 @@ class Beehive:
         t_key = t_key._replace(name="ftbfs_since_file_listing")
 
         if t_key not in self.beehive:
-            log.error("Target not found in Beehive")
+            self.logger.error("Target not found in Beehive")
             raise ValueError(f"Wrong target key {t_key}")
 
         return {el[0]: el[1] for el in self.beehive[t_key]}
@@ -382,116 +382,134 @@ class Beehive:
         return mtime
 
     def _get_last_beehive_status_from_db(self) -> dict:
-        log.info("Fetching latest Beehive results loaded to DB")
+        self.logger.info("Fetching latest Beehive results loaded to DB")
         res = self.conn.execute(self.sql.get_last_beehive_changed)
-        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        self.logger.debug(
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+        )
         last_bh_updated = {(el[0], el[1]): el[2] for el in res}
         return last_bh_updated
 
-    def _get_packages_from_db(self, t_key: TargetKey) -> dict[Package]:
+    def _get_packages_from_db(self, t_key: TargetKey) -> dict:
         modified = self._get_latest_mtime(t_key)
 
-        log.info(f"Fetching packages for {t_key.branch} on date {modified} from DB")
+        self.logger.info(
+            f"Fetching packages for {t_key.branch} on date {modified} from DB"
+        )
         sql_res = self.conn.execute(
             self.sql.get_pkgset_packages,
             params={"branch": t_key.branch, "date": modified},
         )
-        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        self.logger.debug(
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+        )
 
         packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}
 
         if not packages_from_db:
-            log.info(f"No data found in DB for {t_key.branch} on date {modified}")
+            self.logger.info(
+                f"No data found in DB for {t_key.branch} on date {modified}"
+            )
             # try to find and load the latest repository state prior to Beehive date
-            log.info(f"Fetching recent loaded date for {t_key.branch} from DB")
+            self.logger.info(f"Fetching recent loaded date for {t_key.branch} from DB")
             sql_res = self.conn.execute(
                 self.sql.get_recent_pkgset_date,
                 params={"branch": t_key.branch, "date": modified},
             )
-            log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+            self.logger.debug(
+                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            )
             if not sql_res:
-                log.error(
+                self.logger.error(
                     f"Failed to find recent lodaded date for {t_key.branch} in DB"
                 )
                 return {}
             modified = sql_res[0][0]
             # load packages from recent repository state
-            log.info(f"Fetching packages for {t_key.branch} on date {modified} from DB")
+            self.logger.info(
+                f"Fetching packages for {t_key.branch} on date {modified} from DB"
+            )
             sql_res = self.conn.execute(
                 self.sql.get_pkgset_packages,
                 params={"branch": t_key.branch, "date": modified},
             )
-            log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+            self.logger.debug(
+                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            )
 
             packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}
 
         return packages_from_db
 
     def _get_missing_packages_infor_from_db(
-        self, t_key: TargetKey, packages: list[Package]
-    ) -> dict[Package]:
+        self, t_key: TargetKey, packages: list
+    ) -> dict:
         branch = t_key.branch
         #  convert list of packages to set for fast searching
-        packages = set(packages)
-        log.info(f"Fetching packages info from DB")
+        packages_ = set(packages)
+        self.logger.info(f"Fetching packages info from DB")
         sql_res = self.conn.execute(
             self.sql.get_all_packages_versions,
-            params={"packages": [pkg.name for pkg in packages], "branch": branch},
+            params={"packages": [pkg.name for pkg in packages_], "branch": branch},
         )
-        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        self.logger.debug(
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+        )
 
         if not sql_res:
-            log.error(f"No data found in DB for {packages}")
+            self.logger.error(f"No data found in DB for {packages_}")
             return {}
-        log.info(f"Found {len(sql_res)} packages from DB")
+        self.logger.info(f"Found {len(sql_res)} packages from DB")
 
         res = {}
         for hsh, pkg in {(int(el[3]), Package(*el[4:])) for el in sql_res}:
-            if pkg in packages:
+            if pkg in packages_:
                 res[pkg] = hsh
 
         return res
 
-    @staticmethod
     def _compare_beehive_with_db(
-        t_key: TargetKey, packages_from_beehive: dict, packages_from_db: dict
-    ) -> tuple[list, list]:
+        self,
+        t_key: TargetKey,
+        packages_from_beehive: dict,
+        packages_from_db: dict,
+    ) -> tuple:
         pkgs_from_db = set(packages_from_db.keys())
         pkgs_from_beehive = set(packages_from_beehive.keys())
 
         if not packages_from_db:
-            log.info(f"Empty 'packages_from_db' list. Exiting..")
+            self.logger.info(f"Empty 'packages_from_db' list. Exiting..")
             return [], []
 
         if not pkgs_from_beehive:
-            log.info(f"Empty 'pkgs_from_beehive' list. Exiting..")
+            self.logger.info(f"Empty 'pkgs_from_beehive' list. Exiting..")
             return [], []
 
         pkgs_missing = []
         for pkg in pkgs_from_db:
             if pkg not in pkgs_from_beehive:
                 pkgs_missing.append(pkg)
-        log.info(
+        self.logger.info(
             f"{len(pkgs_missing)} packages from DB are not in {t_key.branch}/{t_key.arch} files from Beehive"
         )
 
         mismatched_packages = []
         not_found_packages = []
-        log.info(f"Check packages from beehive that are not in DB")
+        self.logger.info(f"Check packages from beehive that are not in DB")
         for pkg in pkgs_from_beehive:
             if pkg not in pkgs_from_db:
-                log.debug(f"Package {pkg} not found in DB")
+                self.logger.debug(f"Package {pkg} not found in DB")
                 name_matched = False
                 for pkg2 in pkgs_from_db:
                     if pkg2.name == pkg.name:
-                        log.debug(
+                        self.logger.debug(
                             f"Missing package name matched: Beehive: {pkg} DB: {pkg2}"
                         )
                         mismatched_packages.append(pkg)
                         name_matched = True
                         break
                 if not name_matched:
-                    log.debug(
+                    self.logger.debug(
                         f"Package {pkg} from Beehive not found in packages from DB"
                     )
                     not_found_packages.append(pkg)
@@ -508,7 +526,7 @@ class Beehive:
         pkgs_ftbfs: dict,
     ) -> None:
         mtime = self._get_latest_mtime(t_key)
-        result: list[dict] = []
+        result = []
         for pkg, b_time in pkgs_time.items():
             el_dict = {
                 "pkg_hash": None,
@@ -533,13 +551,13 @@ class Beehive:
                 else:
                     el_dict["bh_ftbfs_since"] = el_dict["bh_updated"]
             else:
-                log.error(f"Failed to get status for package {pkg}. Element: {el_dict}")
+                self.logger.error(f"Failed to get status for package {pkg}. Element: {el_dict}")
                 raise ValueError("Can't find package build status")
 
             try:
                 el_dict["pkg_hash"] = pkgs_from_db[pkg]
             except KeyError:
-                log.error(f"Failed to get hash for package {pkg}. Element: {el_dict}")
+                self.logger.error(f"Failed to get hash for package {pkg}. Element: {el_dict}")
                 raise ValueError("Can't find package hash")
 
             result.append(el_dict)
@@ -549,8 +567,8 @@ class Beehive:
                 result, f"{mtime.strftime('%Y-%m-%d')}_{t_key.branch}_{t_key.arch}"
             )
         self.conn.execute(self.sql.insert_into_beehive_status, result)
-        log.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
-        log.info(f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB")
+        self.logger.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        self.logger.info(f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB")
 
     def beehive_store(self) -> None:
         latest_beehive_from_db = self._get_last_beehive_status_from_db()
@@ -562,8 +580,8 @@ class Beehive:
                 if t_key not in self.beehive:
                     continue
 
-                log.info("=" * 60)
-                log.info(f"Processing data for {branch_}/{arch}")
+                self.logger.info("=" * 60)
+                self.logger.info(f"Processing data for {branch_}/{arch}")
 
                 pkgs_time = self._get_beehive_build_time(t_key)
 
@@ -571,31 +589,31 @@ class Beehive:
                 mtime = self._get_latest_mtime(t_key)
                 mtime_from_db = latest_beehive_from_db.get((branch, arch), None)
                 if mtime == mtime_from_db:
-                    log.info(
+                    self.logger.info(
                         f"Data for {branch_}/{arch} on {mtime} already loaded to DB"
                     )
                     continue
 
                 if not pkgs_time:
-                    log.error(
+                    self.logger.error(
                         f"No package build time info found from Beehive for {branch_}/{arch}"
                     )
                     raise RuntimeError("No data found from beehive")
                     # continue
-                log.info(f"Found {len(pkgs_time)} packages from Beehive")
+                self.logger.info(f"Found {len(pkgs_time)} packages from Beehive")
 
                 pkgs_from_db = self._get_packages_from_db(t_key)
                 if not pkgs_from_db:
                     # error logged already in self._get_packages_from_db()
-                    log.error(
+                    self.logger.error(
                         f"No packages info loaded from DB. Skip processing data for {branch_}/{arch}"
                     )
                     continue
-                log.info(f"Found {len(pkgs_from_db)} packages from DB")
+                self.logger.info(f"Found {len(pkgs_from_db)} packages from DB")
 
                 miss, nf = self._compare_beehive_with_db(t_key, pkgs_time, pkgs_from_db)
-                log.debug(f"Missmatched packages: {miss}")
-                log.debug(f"Not found packages: {nf}")
+                self.logger.debug(f"Missmatched packages: {miss}")
+                self.logger.debug(f"Not found packages: {nf}")
 
                 if miss + nf:
                     res = self._get_missing_packages_infor_from_db(
@@ -604,7 +622,7 @@ class Beehive:
                     pkgs_from_db.update(res)
 
                 if len(pkgs_time) > len(pkgs_from_db):
-                    log.error(
+                    self.logger.error(
                         f"Inconsistent data from Beehive and form DB for {branch_}/{arch}"
                     )
                     break
@@ -620,7 +638,7 @@ class Beehive:
                 pkgs_ftbfs = self._get_beehive_ftbfs_since(t_key=t_key)
 
                 if len(pkgs_time) != len(pkgs_status):
-                    log.error(f"Inconsistent data from Beehive for {branch_}/{arch}")
+                    self.logger.error(f"Inconsistent data from Beehive for {branch_}/{arch}")
                     break
 
                 self._store_beehive_results(
@@ -629,20 +647,21 @@ class Beehive:
 
     def beehive_load(self) -> None:
         for target in self.targets:
-            log.info(f"Fetching data from {target.url}")
+            self.logger.info(f"Fetching data from {target.url}")
             target, result = self._get_content(target)
             key = TargetKey(target.branch.lower(), target.arch, target.name)
             if result:
                 self.beehive[key] = result
 
 
-def load(args: object, conn: Client) -> None:
+def load(args, conn, logger) -> None:
     bh = Beehive(
         base_url=BEEHIVE_BASE_URL,
         branches=BEEHIVE_BRANCHES,
         archs=BEEHIVE_ARCHS,
         endpoints=BEEHIVE_ENDPOINTS,
         conn=conn,
+        logger=logger,
         timeout=30,
         dump_beehive=args.dumpjson,
     )
@@ -658,19 +677,19 @@ def main():
         logger.setLevel(logging.DEBUG)
     conn = None
     try:
-        log.info("Start loading data from Beehive")
-        log.info("=" * 60)
+        logger.info("Start loading data from Beehive")
+        logger.info("=" * 60)
         conn = get_client(args)
         conn.connection.connect()
-        load(args, conn)
+        load(args, conn, logger)
     except Exception as error:
         logger.exception("Error occurred during Beehive information loading.")
         sys.exit(1)
     finally:
         if conn is not None:
             conn.disconnect()
-    log.info("=" * 60)
-    log.info("Stop loading data from Beehive")
+    logger.info("=" * 60)
+    logger.info("Stop loading data from Beehive")
 
 
 if __name__ == "__main__":
