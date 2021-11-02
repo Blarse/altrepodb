@@ -226,7 +226,7 @@ def main():
         logger.info("=" * 60)
         conn = get_client(args)
         if not Path(args.file).is_file():
-            raise ValueError("{args.file} not a file")
+            raise ValueError(f"{args.file} not a file")
         load(args, conn, logger)
     except Exception as error:
         logger.exception("Error occurred during package loading")
