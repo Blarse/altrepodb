@@ -1,5 +1,6 @@
 import os
 import sys
+import rpm
 import time
 import base64
 import logging
@@ -9,10 +10,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-import extract
-
-import rpm
 import altrpm
+import extract
 
 from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
 
@@ -21,10 +20,8 @@ NAME = "package"
 
 os.environ["LANG"] = "C"
 
-log = logging.getLogger(NAME)
 
-
-def get_client(args: object) -> Client:
+def get_client(args) -> Client:
     """Get Clickhouse client instance."""
     client = Client(
         args.host,
@@ -37,7 +34,7 @@ def get_client(args: object) -> Client:
     return client
 
 
-def get_args() -> object:
+def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", type=str, help="RPM package file")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
@@ -98,6 +95,7 @@ OPTIMIZE TABLE {buffer}
 INSERT INTO Specfiles_insert (*) VALUES
 """
 
+
 class PackageLoader:
     def __init__(self, pkg_file, conn, logger, args) -> None:
         self.sql = SQL()
@@ -108,28 +106,32 @@ class PackageLoader:
         self.cache = self._init_cache()
         self.ts = rpm.TransactionSet()
 
-    def _init_cache(self):
+    def _init_cache(self) -> set:
         result = self.conn.execute(
             self.sql.get_pkg_hshs_by_filename.format(name=self.pkg.name)
         )
         return {i[0] for i in result}
 
-    def _get_header(self):
-        log.debug(f"reading header for {self.pkg}")
+    def _get_header(self): # return rpm header object
+        self.logger.debug(f"reading header for {self.pkg}")
         return extract.get_header(self.ts, str(self.pkg))
 
-    def _get_file_size(self):
+    def _get_file_size(self) -> int:
         try:
             file_size = self.pkg.stat().st_size
         except FileNotFoundError:
             return 0
         return file_size
 
-    def _load_spec(self, ):
+    def _load_spec(self) -> None:
         self.logger.debug(f"extracting spec file form {self.pkg.name}")
         st = time.time()
-        spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(self.pkg, raw=True)
-        self.logger.info(f"headers and spec file extracted in {(time.time() - st):.3f} seconds")
+        spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(
+            self.pkg, raw=True
+        )
+        self.logger.info(
+            f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
+        )
         self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
         st = time.time()
         kw = {
@@ -140,7 +142,7 @@ class PackageLoader:
             "pkg_release": cvt(hdr["RPMTAG_RELEASE"]),
             "specfile_name": spec_file.name,
             "specfile_date": spec_file.mtime,
-            "specfile_content_base64": base64.b64encode(spec_contents)
+            "specfile_content_base64": base64.b64encode(spec_contents),
         }
         self.conn.execute(self.sql.insert_spec_file, [kw,])
         self.logger.info(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
@@ -205,7 +207,7 @@ class PackageLoader:
             self.conn.execute(self.sql.flush_tables_buffer.format(buffer=buffer))
 
 
-def load(args: object, conn: Client, logger: logging.Logger) -> None:
+def load(args, conn: Client, logger: logging.Logger) -> None:
     pkgl = PackageLoader(args.file, conn, logger, args)
     pkgl.load_package()
     if args.flush_buffers:
@@ -220,8 +222,8 @@ def main():
         logger.setLevel(logging.DEBUG)
     conn = None
     try:
-        log.info("Start loading RPM package to database")
-        log.info("=" * 60)
+        logger.info("Start loading RPM package to database")
+        logger.info("=" * 60)
         conn = get_client(args)
         if not Path(args.file).is_file():
             raise ValueError("{args.file} not a file")
@@ -232,8 +234,8 @@ def main():
     finally:
         if conn is not None:
             conn.disconnect()
-    log.info("=" * 60)
-    log.info("Stop loading RPM package to database")
+    logger.info("=" * 60)
+    logger.info("Stop loading RPM package to database")
 
 
 if __name__ == "__main__":
