@@ -19,10 +19,8 @@ BUGZILLA_URL_PARAMS = {
     # "api_key": ""
 }
 
-log = logging.getLogger(NAME)
 
-
-def get_client(args: object) -> Client:
+def get_client(args) -> Client:
     """Get Clickhouse client instance."""
     client = Client(
         args.host,
@@ -36,7 +34,7 @@ def get_client(args: object) -> Client:
     return client
 
 
-def get_args() -> object:
+def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
@@ -78,11 +76,11 @@ def tuples_list_to_dict(x: list) -> dict:
     return res
 
 
-def load(args: object, conn: Client) -> None:
+def load(args, conn: Client, logger: logging.Logger) -> None:
     # get bugs CSV from Bugzilla
-    log.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
+    logger.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
-    log.info(f"URL request elapsed {response.elapsed.total_seconds():.3f}")
+    logger.info(f"URL request elapsed {response.elapsed.total_seconds():.3f}")
 
     bz_from_url = {}
 
@@ -92,10 +90,10 @@ def load(args: object, conn: Client) -> None:
     contents = csv.reader(response.text.splitlines())
     _ = next(contents, [])  # skip CSV headers
     bz_from_url = tuples_list_to_dict(contents)
-    log.info(f"Found {len(bz_from_url)} bug records")
+    logger.info(f"Found {len(bz_from_url)} bug records")
 
     #  read latest data from DB
-    log.info("Fetching last Bugzilla data from database...")
+    logger.info("Fetching last Bugzilla data from database...")
 
     sql = """
 SELECT
@@ -107,9 +105,9 @@ GROUP BY bz_id"""
     bz_from_db = {}
 
     sql_res = conn.execute(sql)
-    log.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
+    logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
     bz_from_db = {int(el[0]): el[1] for el in sql_res}
-    log.info(f"Found {len(bz_from_db)} bug records")
+    logger.info(f"Found {len(bz_from_db)} bug records")
     # find updated bugs
     bz_diff = {}
 
@@ -117,9 +115,9 @@ GROUP BY bz_id"""
         if k not in bz_from_db or v != bz_from_db[k]:
             bz_diff[k] = v
     if not bz_diff:
-        log.info(f"No bug updates found. Exiting...")
+        logger.info(f"No bug updates found. Exiting...")
     else:
-        log.info(f"{len(bz_diff)} records updated. Saving to database...")
+        logger.info(f"{len(bz_diff)} records updated. Saving to database...")
         # store updated bugs to database
         BugzillaRecord = namedtuple(
             "BugzillaRecord",
@@ -138,8 +136,8 @@ GROUP BY bz_id"""
         payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
         sql_res = conn.execute("INSERT INTO Bugzilla (*) VALUES", payload_gen)
 
-        log.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
-        log.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
+        logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
+        logger.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
 
 
 def main():
@@ -151,7 +149,7 @@ def main():
     conn = None
     try:
         conn = get_client(args)
-        load(args, conn)
+        load(args, conn, logger)
     except Exception as error:
         logger.exception("Error occurred during Bugzilla information loading.")
         sys.exit(1)
