@@ -85,9 +85,9 @@ class TaskCleaner:
                     "task_failearly": 0,
                     "task_shared": 0,
                     "task_message": "task found as deleted by task_cleaner",
-                    "task_version": 0,
+                    "task_version": "",
                     "task_prev": 0,
-                    "task_eventlog_hash": 0,
+                    "task_eventlog_hash": [],
                 }
                 payload.append(task_state)
             else:
@@ -110,10 +110,10 @@ class TaskCleaner:
                     self.logger.info(
                         f"Task {task} state difference found:\t@DB\t{state_db}\t@FS\t{state_fs}"
                     )
-                    unclear_state_tasks.append((state_db, state_fs))
+                    unclear_state_tasks.append((task, state_db, state_fs))
 
         self.logger.info(f"Found {len(payload)} tasks that seems to be deleted")
-        if not self.dry_run:
+        if not self.dry_run and len(payload):
             # load deleted task statuses to DB
             self.logger.info("Saving new task states to DB...")
             self.conn.execute(self.sql.insert_task_states, payload)
@@ -125,8 +125,8 @@ class TaskCleaner:
             )
             # save tasks with unclear state to TSV file
             with open(Path.cwd().joinpath(UNCLEAR_STATES_FILE), "wt") as f:
-                for task in unclear_state_tasks:
-                    f.write(f"@DB\t{task[0]}\t@FS\t{task[1]}\n")
+                for t in unclear_state_tasks:
+                    f.write(f"{t[0]}\t@DB\t{t[1]}\t@FS\t{t[2]}\n")
 
     def flush(self):
         """Force flush buffer tables using OPTIMIZE TABLE SQL requests."""
