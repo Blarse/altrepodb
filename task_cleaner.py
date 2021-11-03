@@ -12,6 +12,7 @@ from utils import get_logger, cvt_datetime_local_to_utc
 
 
 NAME = "task_cleaner"
+UNCLEAR_STATES_FILE = "unclear_state_tasks.log"
 
 os.environ["LANG"] = "C"
 
@@ -19,7 +20,9 @@ os.environ["LANG"] = "C"
 @dataclass
 class SQL:
     get_tasks_not_done = """
-SELECT DISTINCT task_id
+SELECT DISTINCT
+    task_id,
+    state
 FROM
 (
     SELECT task_id, argMax(task_state, task_changed) AS state
@@ -48,21 +51,23 @@ class TaskCleaner:
         self.logger = logger
         self.path = Path(args.path)
         self.task_id = args.task_id
+        self.dry_run = args.dry_run
 
     def process_tasks(self):
         # get not 'DONE' state tasks list from DB
         res = self.conn.execute(self.sql.get_tasks_not_done)
-        tasks = {r[0] for r in res}
+        tasks = {r[0]: r[1] for r in res}
         if self.task_id:
             if self.task_id not in tasks:
                 self.logger.info(f"Task {self.task_id} not found in DB. Exiting...")
                 return
-        else:
-            tasks = set((self.task_id,))
+            else:
+                tasks = {self.task_id: tasks[self.task_id]}
 
         payload = []
+        unclear_state_tasks = []
 
-        for task in tasks:
+        for task in tasks.keys():
             # check if task exists on FS
             if not self.path.joinpath(str(task)).is_dir():
                 # add task data with state 'DELETED' to payload
@@ -85,11 +90,43 @@ class TaskCleaner:
                     "task_eventlog_hash": 0,
                 }
                 payload.append(task_state)
-        self.logger.info(
-            f"Found {len(payload)} tasks that seems to be deleted. Saving new states to DB..."
-        )
-        # load deleted task statuses to DB
-        self.conn.execute(self.sql.insert_task_states, payload)
+            else:
+                # check actual task state and compare to DB
+                state_db = tasks[task]
+                state_fs = ""
+                try:
+                    state_fs = (
+                        self.path.joinpath(str(task), "task/state")
+                        .read_text(encoding="latin-1")
+                        .strip()
+                    )
+                except FileNotFoundError as e:
+                    self.logger.debug(f"State file not found for task {task}")
+                except Exception as e:
+                    self.logger.error(
+                        f"{e} exception occured while reading task {task} state file"
+                    )
+                if state_db != state_fs:
+                    self.logger.info(
+                        f"Task {task} state difference found:\t@DB\t{state_db}\t@FS\t{state_fs}"
+                    )
+                    unclear_state_tasks.append((state_db, state_fs))
+
+        self.logger.info(f"Found {len(payload)} tasks that seems to be deleted")
+        if not self.dry_run:
+            # load deleted task statuses to DB
+            self.logger.info("Saving new task states to DB...")
+            self.conn.execute(self.sql.insert_task_states, payload)
+
+        self.logger.info(f"Found {len(unclear_state_tasks)} tasks with unclear state")
+        if len(unclear_state_tasks):
+            self.logger.info(
+                f"Saving tasks with unclear state to '{UNCLEAR_STATES_FILE}' file..."
+            )
+            # save tasks with unclear state to TSV file
+            with open(Path.cwd().joinpath(UNCLEAR_STATES_FILE), "wt") as f:
+                for task in unclear_state_tasks:
+                    f.write(f"@DB\t{task[0]}\t@FS\t{task[1]}\n")
 
     def flush(self):
         """Force flush buffer tables using OPTIMIZE TABLE SQL requests."""
@@ -122,6 +159,12 @@ def get_args():
     parser.add_argument("-u", "--user", type=str, help="Database login")
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument(
+        "-x",
+        "--dry-run",
+        action="store_true",
+        help="Dry run without recording changes to DB",
+    )
+    parser.add_argument(
         "-D", "--debug", action="store_true", help="Set logging level to debug"
     )
     args = parser.parse_args()
@@ -150,7 +193,8 @@ def get_args():
 def load(args, conn: Client, logger: logging.Logger) -> None:
     tc = TaskCleaner(args, conn, logger)
     tc.process_tasks()
-    tc.flush()
+    if not args.dry_run:
+        tc.flush()
 
 
 def main():
