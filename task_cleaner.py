@@ -29,7 +29,7 @@ FROM
     FROM TaskStates
     GROUP BY task_id
 )
-WHERE state != 'DONE'
+WHERE state NOT IN ('DONE', 'DELETED')
 ORDER BY task_id
 """
 
