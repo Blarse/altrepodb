@@ -640,6 +640,23 @@ def read_release_components(f):
                 return [x.strip() for x in ls[1].split()]
 
 
+def check_release_for_blake2b(f) -> bool:
+    """Search blake2b hashes mentioned in release file in reposiory tree.
+
+    Args:
+        f (path-like object): path to 'release' file
+
+    Returns:
+        bool: is BLAKE2b hashes section found in release file
+    """
+    with f.open(mode='r') as fd:
+        for line in fd.readlines():
+            ls = line.split(':')
+            if ls[0] == 'BLAKE2b':
+                return True
+    return False
+
+
 def read_headers_from_xz_pkglist(fname):
     """Read headers from apt hash file
 
@@ -707,7 +724,8 @@ def read_repo_structure(repo_name, repo_path):
             'kwargs': defaultdict(lambda: None, key=None)
         },
         'src_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None)),
-        'pkg_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None))
+        'pkg_hashes': defaultdict(lambda: defaultdict(lambda: None, key=None)),
+        'use_blake2b': False
     }
 
     repo['src']['puuid'] = repo['repo']['uuid']
@@ -735,7 +753,8 @@ def read_repo_structure(repo_name, repo_path):
         base_subdir = arch_dir.joinpath('base')
         if base_subdir.is_dir():
             # store components and paths to it
-            for comp_name in read_release_components(base_subdir.joinpath('release')):
+            release_file = base_subdir.joinpath('release')
+            for comp_name in read_release_components(release_file):
                 repo['comp']['comps'].append({'name': comp_name,
                                               'uuid': str(uuid4()),
                                               'puuid': repo['arch']['archs'][-1]['uuid'],
@@ -758,6 +777,9 @@ def read_repo_structure(repo_name, repo_path):
                             else:
                                 repo['pkg_hashes'][pkg_name]['md5'] = pkg_md5
                                 repo['pkg_hashes'][pkg_name]['blake2b'] = pkg_blake2b
+            # check if blake2b hashes used by release file contents
+            if not repo['use_blake2b']:
+                repo['use_blake2b'] = check_release_for_blake2b(release_file)
 
     # check if '%root%/files/list' exists and load all data from it
     p = root.joinpath('files/list')
@@ -810,7 +832,7 @@ def read_repo_structure(repo_name, repo_path):
                 else:
                     log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
-            if v["blake2b"] is None:
+            if v["blake2b"] is None and repo["use_blake2b"]:
                 log.info(f"{k}'s blake2b not found. Calculating it from file")
                 file_ = root.joinpath("files", "SRPMS", k)
                 if file_.is_file():
@@ -832,7 +854,7 @@ def read_repo_structure(repo_name, repo_path):
                 if not found_:
                     log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
-            if v["blake2b"] is None:
+            if v["blake2b"] is None and repo["use_blake2b"]:
                 log.info(f"{k}'s blake2b not found. Calculating it from file")
                 found_ = False
                 for arch in repo['arch']['kwargs']['all_archs']:
