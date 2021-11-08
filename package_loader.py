@@ -124,12 +124,12 @@ class PackageLoader:
         return file_size
 
     def _load_spec(self) -> None:
-        self.logger.debug(f"extracting spec file form {self.pkg.name}")
+        self.logger.info(f"extracting spec file form {self.pkg.name}")
         st = time.time()
         spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(
             self.pkg, raw=True
         )
-        self.logger.info(
+        self.logger.debug(
             f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
         self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
@@ -178,11 +178,11 @@ class PackageLoader:
             extract.insert_package(self.conn, hdr, self.pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
-            self.logger.debug(
+            self.logger.info(
                 f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
             )
         else:
-            self.logger.debug(
+            self.logger.info(
                 f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
             )
 
@@ -201,6 +201,7 @@ class PackageLoader:
             "TaskIterations_buffer",
             "Tasks_buffer",
             "TaskStates_buffer",
+            "Specfiles_buffer",
         )
         self.logger.info("Flushing buffer tables")
         for buffer in buffer_tables:
