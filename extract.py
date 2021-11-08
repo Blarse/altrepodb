@@ -461,9 +461,16 @@ def iso_get_info(iso, args):
         log.error(error, exc_info=True)
 
 
-def init_cache(conn):
-    result = conn.execute('SELECT pkgh_mmh FROM PackageHash_buffer')
-    return {i[0] for i in result}
+def init_cache(src_hashes, bin_hashes):
+    cache = set()
+    for v in src_hashes.values():
+        if v["mmh"] != 0:
+            cache.add(v["mmh"])
+    for v in bin_hashes.values():
+        if v["mmh"] != 0:
+            cache.add(v["mmh"])
+
+    return cache
 
 
 @Timing.timeit('PkgHashTmp')
@@ -857,11 +864,11 @@ def load(args):
         repo = read_repo_structure(args.pkgset, args.path)
         repo['repo']['kwargs']['class'] = 'repository'
         # init hash caches
-        cache = init_cache(conn)
         init_hash_temp_table(conn, repo['src_hashes'])
         init_hash_temp_table(conn, repo['pkg_hashes'])
         update_hases_from_db(conn, repo['src_hashes'])
         update_hases_from_db(conn, repo['pkg_hashes'])
+        cache = init_cache(repo['src_hashes'], repo['pkg_hashes'])
         ts = time.time() - ts
         log.info(f"Repository structure loaded, caches initialized in {ts:.3f} sec.")
         if args.verbose and args.repair is None:
