@@ -416,13 +416,16 @@ class RPMCpio(RPMHeaderParser):
         spec_file = Object()
         with libarchive.memory_reader(self._extract_cpio()()) as archive:
             for entry in archive:
-                if entry.isfile and entry.name.endswith(".spec"):
+                if entry.isfile and (entry.name.endswith(".spec") or entry.name == "spec"):
                     self._copy_file_attrs(entry, spec_file)
                     for block in entry.get_blocks():
                         spec_file_contents += block
                     break
 
         self._close()
+
+        if not hasattr(spec_file, "name"):
+            raise KeyError("Spec file entry not found in CPIO contents")
 
         if raw:
             return spec_file, spec_file_contents
