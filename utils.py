@@ -12,7 +12,7 @@ from pathlib import Path
 from collections import namedtuple
 from dataclasses import dataclass
 import mmh3
-from hashlib import sha256, md5
+from hashlib import sha256, md5, blake2b
 
 
 def mmhash(val):
@@ -285,16 +285,16 @@ def sha256_from_file(fname, as_bytes=False, capitalized=False):
     Returns:
         string or bytes: file's SHA256 hash
     """
-    sha256_hash = sha256()
+    hash = sha256()
     with open(fname, 'rb') as f:
         for byte_block in iter(lambda: f.read(8192),b""):
-            sha256_hash.update(byte_block)
+            hash.update(byte_block)
     if as_bytes:
-        return sha256_hash.digest()
+        return hash.digest()
     if capitalized:
-        return sha256_hash.hexdigest().upper()
+        return hash.hexdigest().upper()
     else:
-        return sha256_hash.hexdigest()
+        return hash.hexdigest()
 
 
 def md5_from_file(fname, as_bytes=False, capitalized=False):
@@ -308,16 +308,39 @@ def md5_from_file(fname, as_bytes=False, capitalized=False):
     Returns:
         string or bytes: file's MD5 hash
     """
-    md5_hash = md5()
+    hash = md5()
     with open(fname, 'rb') as f:
         for byte_block in iter(lambda: f.read(8192),b""):
-            md5_hash.update(byte_block)
+            hash.update(byte_block)
     if as_bytes:
-        return md5_hash.digest()
+        return hash.digest()
     if capitalized:
-        return md5_hash.hexdigest().upper()
+        return hash.hexdigest().upper()
     else:
-        return md5_hash.hexdigest()
+        return hash.hexdigest()
+
+
+def blake2b_from_file(fname, as_bytes=False, capitalized=False):
+    """Calculates blake2b hash from file
+
+    Args:
+        fname (path-like object or string): path to file
+        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
+        capitalized (bool, optional): capitalize blake2b hash string. Defaults to False.
+
+    Returns:
+        string or bytes: file's blake2b hash
+    """
+    hash = blake2b()
+    with open(fname, 'rb') as f:
+        for byte_block in iter(lambda: f.read(8192),b""):
+            hash.update(byte_block)
+    if as_bytes:
+        return hash.digest()
+    if capitalized:
+        return hash.hexdigest().upper()
+    else:
+        return hash.hexdigest()
 
 
 def join_dicts_with_as_string(d1, d2, key):

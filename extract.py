@@ -26,7 +26,7 @@ from manager import check_latest_version
 from utils import (
     cvt, get_logger, valid_date,
     LockedIterator, Timing, Display, 
-    mmhash, md5_from_file, sha256_from_file,
+    mmhash, md5_from_file, sha256_from_file, blake2b_from_file,
     join_dicts_with_as_string, FunctionalNotImplemented
 )
 
@@ -266,7 +266,8 @@ def insert_pkg_hash_single(conn, pkg_hash):
                     'pkgh_mmh': pkg_hash['mmh'],
                     'pkgh_md5': pkg_hash['md5'],
                     'pkgh_sha1': pkg_hash['sha1'],
-                    'pkgh_sha256': pkg_hash['sha256']
+                    'pkgh_sha256': pkg_hash['sha256'],
+                    'pkgh_blake2b': pkg_hash['blake2b']
                  }],
                  settings=settings)
 
@@ -750,10 +751,13 @@ def read_repo_structure(repo_name, repo_path):
                         for hdr in hdrs:
                             pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
                             pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+                            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
                             if pkglist_name.startswith('srclist'):
                                 repo['src_hashes'][pkg_name]['md5'] = pkg_md5
+                                repo['src_hashes'][pkg_name]['blake2b'] = pkg_blake2b
                             else:
                                 repo['pkg_hashes'][pkg_name]['md5'] = pkg_md5
+                                repo['pkg_hashes'][pkg_name]['blake2b'] = pkg_blake2b
 
     # check if '%root%/files/list' exists and load all data from it
     p = root.joinpath('files/list')
@@ -794,7 +798,7 @@ def read_repo_structure(repo_name, repo_path):
                         pkg_name = c.split()[1]
                         pkg_sha256 = bytes.fromhex(c.split()[0])
                         repo['pkg_hashes'][pkg_name]['sha256'] = pkg_sha256
-        # find packages with sha256 hash missing and calculate it from file
+        # find packages with SHA256 or blake2b hash missing and calculate it from file
         # for source files
         for k, v in repo['src_hashes'].items():
             if v["sha256"] is None:
@@ -803,7 +807,15 @@ def read_repo_structure(repo_name, repo_path):
                 if file_.is_file():
                     repo['src_hashes'][k]['sha256'] = sha256_from_file(file_, as_bytes=True)
                 else:
-                    log.error(f"Cant find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    raise RuntimeError("File not found")
+            if v["blake2b"] is None:
+                log.info(f"{k}'s blake2b not found. Calculating it from file")
+                file_ = root.joinpath("files", "SRPMS", k)
+                if file_.is_file():
+                    repo['src_hashes'][k]['blake2b'] = blake2b_from_file(file_, as_bytes=True)
+                else:
+                    log.error(f"Can't find file to calculate blake2b for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
         # for binary files
         for k, v in repo['pkg_hashes'].items():
@@ -817,7 +829,19 @@ def read_repo_structure(repo_name, repo_path):
                         found_ = True
                         break
                 if not found_:
-                    log.error(f"Cant find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
+                    raise RuntimeError("File not found")
+            if v["blake2b"] is None:
+                log.info(f"{k}'s blake2b not found. Calculating it from file")
+                found_ = False
+                for arch in repo['arch']['kwargs']['all_archs']:
+                    file_ = root.joinpath("files", arch, "RPMS", k)
+                    if file_.is_file():
+                        repo['pkg_hashes'][k]['blake2b'] = blake2b_from_file(file_, as_bytes=True)
+                        found_ = True
+                        break
+                if not found_:
+                    log.error(f"Can't find file to calculate blake2b for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
     
     log.debug(f"Found {len(repo['src']['path'])} source directories")
