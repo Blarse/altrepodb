@@ -875,45 +875,34 @@ def load(args):
             # load source RPMs first
             # generate 'src.rpm' packages list
             packages_list = []
-            src_pkg_set = set()
             pkgset_cached = set()
             ts = time.time()
             pkg_count = 0
+            pkg_count2 = 0
             log.info("Start checking SRC packages")
-            for src_dir in repo['src']['path']:
-                src_dir = Path.joinpath(repo_root, src_dir)
-                if not src_dir.is_dir():
-                    continue
-                pkg_count_0 = 0
-                pkg_count_1 = 0
-                pkg_count_2 = 0
-                pkg_count_3 = 0
-                log.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
-                for rpm_file in src_dir.iterdir():
-                    if rpm_file.suffix == '.rpm':
-                        pkg_count_0 += 1
-                        if rpm_file.name in src_pkg_set:
-                            pkg_count_2 += 1
-                            continue
-                        else:
-                            src_pkg_set.add(rpm_file.name)
-                            pkg_count_1 += 1
-                            pkg_count += 1
-                        if repo['src_hashes'][rpm_file.name]['sha1'] is None:
-                            packages_list.append(str(rpm_file))
-                        else:
-                            pkgh = repo['src_hashes'][rpm_file.name]['mmh']
-                            if not pkgh:
-                                msg = f"No hash found in cache for {rpm_file.name}"
-                                raise ValueError(msg)
-                            pkgset_cached.add(pkgh)
-                            pkg_count_3 += 1
-                log.info(f"Found {pkg_count_0} '.rpm' packages in '{'/'.join(src_dir.parts[-2:])}': "
-                         f"{pkg_count_1} unique packages, {pkg_count_2} duplicated packages, "
-                         f"{pkg_count_3} packages in cache")
-            log.info(f"Checked {pkg_count} SRC packages. "
-                     f"{len(packages_list)} packages for load. "
-                     f"Time elapsed {(time.time() - ts):.3f} sec.")
+            # load source packages fom 'files/SRPMS'
+            src_dir = Path.joinpath(repo_root, "files/SRPMS")
+            if not src_dir.is_dir():
+                raise RuntimeError("'files/SRPMS directory not found'")
+            log.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
+            for rpm_file in src_dir.iterdir():
+                if rpm_file.suffix == '.rpm':
+                    pkg_count += 1
+                    if repo['src_hashes'][rpm_file.name]['sha1'] is None:
+                        packages_list.append(str(rpm_file))
+                    else:
+                        pkgh = repo['src_hashes'][rpm_file.name]['mmh']
+                        if not pkgh:
+                            msg = f"No hash found in cache for {rpm_file.name}"
+                            raise ValueError(msg)
+                        pkgset_cached.add(pkgh)
+                        pkg_count2 += 1
+            log.info(
+                f"Checked {pkg_count} SRC packages. "
+                f"{pkg_count2} packages in cache, "
+                f"{len(packages_list)} packages for load. "
+                f"Time elapsed {(time.time() - ts):.3f} sec."
+            )
             # load 'src.rpm' packages
             worker_pool(cache, repo['src_hashes'], repo['pkg_hashes'], packages_list, pkgset, display, True, args)
             # build pkgset for PackageSet record
