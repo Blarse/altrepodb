@@ -1,17 +1,16 @@
-import datetime
-import logging
 import re
+import json
+import mmh3
+import logging
+import argparse
+import datetime
 import threading
-from functools import wraps
-from logging import handlers
 from time import time
 from dateutil import tz
-import json
-import argparse
 from pathlib import Path
-from collections import namedtuple
+from functools import wraps
+from logging import handlers
 from dataclasses import dataclass
-import mmh3
 from hashlib import sha256, md5, blake2b
 
 
@@ -36,17 +35,18 @@ def get_logger(name, tag=None, date=None):
     if date is None:
         date = datetime.date.today()
     file_handler = handlers.RotatingFileHandler(
-        filename='{0}-{1}-{2}.log'.format(name, tag, date.strftime('%Y-%m-%d')),
+        filename="{0}-{1}-{2}.log".format(name, tag, date.strftime("%Y-%m-%d")),
         maxBytes=2 ** 26,
-        backupCount=10
+        backupCount=10,
     )
     fmt = logging.Formatter(
-        '%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s')
+        "%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s"
+    )
     file_handler.setFormatter(fmt)
     file_handler.setLevel(logging.DEBUG)
 
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter('%(asctime)s\t%(message)s'))
+    stream_handler.setFormatter(logging.Formatter("%(asctime)s\t%(message)s"))
     stream_handler.setLevel(logging.INFO)
 
     logger.addHandler(file_handler)
@@ -55,7 +55,7 @@ def get_logger(name, tag=None, date=None):
 
 
 class Display:
-    MSG = 'Processed {0} packages in {1:.3f} sec. {2:.3f} sec. per package on average.'
+    MSG = "Processed {0} packages in {1:.3f} sec. {2:.3f} sec. per package on average."
 
     """Show information about progress."""
 
@@ -73,7 +73,7 @@ class Display:
     def _showmsg(self):
         t = time() - self.timer
         self.log.info(self.MSG.format(self.step, t, t / self.step))
-        self.log.info('Total: {0}'.format(self.counter))
+        self.log.info("Total: {0}".format(self.counter))
 
     def _update(self):
         self.counter += 1
@@ -97,8 +97,13 @@ class Display:
         if self.timesum_short > self.timesum:
             self.timesum = self.timesum_short
         self.timesum += self.timer_init_delta
-        self.log.info(self.MSG.format(self.counter, self.timesum,
-                                      self.timesum / (self.counter if self.counter else 1)))
+        self.log.info(
+            self.MSG.format(
+                self.counter,
+                self.timesum,
+                self.timesum / (self.counter if self.counter else 1),
+            )
+        )
 
 
 class Timing:
@@ -116,7 +121,7 @@ class Timing:
                 result = f(*args, **kw)
                 te = time()
                 if cls.timing:
-                    log.debug('F:{0} T:{1:.5f}'.format(f.__name__, te - ts))
+                    log.debug("F:{0} T:{1:.5f}".format(f.__name__, te - ts))
                 return result
 
             return wrap
@@ -129,24 +134,21 @@ def cvt(b, t=str):
     or list strings.
     """
     if isinstance(b, bytes) and t is str:
-        return b.decode('latin-1')
+        return b.decode("latin-1")
     if isinstance(b, list):
         return [cvt(i) for i in b]
     if b is None:
-        if t is bytes: return ''
-        if t is str: return ''
-        if t is int: return 0
+        if t is bytes:
+            return b""
+        if t is str:
+            return ""
+        if t is int:
+            return 0
     return b
 
 
-def changelog_date_format(ts):
-    """Convert timestamp to the changelog date format."""
-    dt = datetime.date.fromtimestamp(ts)
-    return dt.strftime("%a %b %d %Y")
-
-
 def cvt_ts(ts):
-    """Convert timestamp or list of timestamps to datetime object or list 
+    """Convert timestamp or list of timestamps to datetime object or list
     of datetime objects.
     """
     if isinstance(ts, int):
@@ -156,16 +158,6 @@ def cvt_ts(ts):
     return ts
 
 
-def changelog_to_text(dates, names, texts):
-    """Compile changelog records to plain text."""
-    if not len(dates) == len(names) == len(texts):
-        raise ValueError
-    text = ""
-    for d, n, t in zip(dates, names, texts):
-        text += "* {0} {1}\n{2}\n\n".format(changelog_date_format(d), cvt(n),
-                                            cvt(t))
-    return text
-
 def changelog_to_list(dates, names, texts):
     """Compile changelog records to dict of elements"""
     if not len(dates) == len(names) == len(texts):
@@ -173,35 +165,35 @@ def changelog_to_list(dates, names, texts):
     chlog = []
     for date_, name_, text_ in zip(dates, names, texts):
         tmp = cvt(name_)
-        if len(tmp.split('>')) == 2:
-            name = tmp.split('>')[0] + '>'
-            evr = tmp.split('>')[1].strip()
+        if len(tmp.split(">")) == 2:
+            name = tmp.split(">")[0] + ">"
+            evr = tmp.split(">")[1].strip()
         else:
             name = tmp
-            evr = ''
-        chlog.append(
-            (int(date_), name, evr, cvt(text_), mmhash(cvt(text_)))
-        )
+            evr = ""
+        chlog.append((int(date_), name, evr, cvt(text_), mmhash(cvt(text_))))
     return chlog
+
 
 def convert_file_class(fc: str):
     """Converts file class value from RPM header to CH Enum"""
     lut = {
-        'directory': 'directory',
-        'symbolic link to': 'symlink',
-        'socket': 'socket',
-        'character special': 'char',
-        'block special': 'block',
-        'fifo (named pipe)': 'fifo',
-        'file': 'file',
+        "directory": "directory",
+        "symbolic link to": "symlink",
+        "socket": "socket",
+        "character special": "char",
+        "block special": "block",
+        "fifo (named pipe)": "fifo",
+        "file": "file",
     }
-    if fc == '':
-        return lut['file']
+    if fc == "":
+        return lut["file"]
     else:
         for k, v in lut.items():
             if fc.startswith(k):
                 return v
-    return ''
+    return ""
+
 
 # packager parsing regex
 packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")
@@ -232,48 +224,6 @@ class LockedIterator:
             return next(self.it)
 
 
-def strip_end(text, suffix):
-    if text.endswith(suffix):
-        return text[:-len(suffix)]
-    return text
-
-
-def symbolic(text):
-    if text.startswith('symbolic'):
-        return 'symbolic'
-    return text
-
-
-class Cache:
-    def __init__(self, callback):
-        self.__data = {}
-        self.callback = callback
-
-    def get(self, key):
-        value = self.__data.get(key, None)
-        if value is None:
-            value = self.callback(key)
-            self.__data[key] = value
-        return value
-
-    def load(self, it):
-        for k, v in it:
-            self.__data[k] = v
-
-
-def chunks(data, size):
-    it = iter(data)
-    while True:
-        acc = []
-        try:
-            for _ in range(size):
-                acc.append(next(it))
-        except StopIteration:
-            break
-        finally:
-            yield acc
-
-
 def sha256_from_file(fname, as_bytes=False, capitalized=False):
     """Calculates SHA256 hash from file
 
@@ -286,8 +236,8 @@ def sha256_from_file(fname, as_bytes=False, capitalized=False):
         string or bytes: file's SHA256 hash
     """
     hash = sha256()
-    with open(fname, 'rb') as f:
-        for byte_block in iter(lambda: f.read(8192),b""):
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
     if as_bytes:
         return hash.digest()
@@ -309,8 +259,8 @@ def md5_from_file(fname, as_bytes=False, capitalized=False):
         string or bytes: file's MD5 hash
     """
     hash = md5()
-    with open(fname, 'rb') as f:
-        for byte_block in iter(lambda: f.read(8192),b""):
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
     if as_bytes:
         return hash.digest()
@@ -332,8 +282,8 @@ def blake2b_from_file(fname, as_bytes=False, capitalized=False):
         string or bytes: file's blake2b hash
     """
     hash = blake2b()
-    with open(fname, 'rb') as f:
-        for byte_block in iter(lambda: f.read(8192),b""):
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
     if as_bytes:
         return hash.digest()
@@ -367,7 +317,7 @@ def join_dicts_with_as_string(d1, d2, key):
     elif isinstance(d2, list) or isinstance(d2, tuple):
         if key is None:
             return d1
-        res.update({key: ', '.join([str(v) for v in d2])})
+        res.update({key: ", ".join([str(v) for v in d2])})
     else:
         if key is None:
             return d1
@@ -408,8 +358,10 @@ def cvt_datetime_local_to_utc(dt):
     dt = dt.replace(tzinfo=tz.tzlocal())
     return dt.astimezone(tz.tzutc())
 
+
 def set_datetime_timezone_to_utc(dt):
     return dt.replace(tzinfo=tz.tzutc())
+
 
 def val_from_json_str(json_str, val_key):
     """Returns value from stringified JSON
@@ -421,7 +373,7 @@ def val_from_json_str(json_str, val_key):
     Returns:
         any: value found in JSON or None
     """
-    if json_str is None or json_str == '':
+    if json_str is None or json_str == "":
         return None
     else:
         try:
@@ -429,14 +381,14 @@ def val_from_json_str(json_str, val_key):
             if val_key in json_dict:
                 return json_dict[val_key]
             else:
-                return None 
+                return None
         except json.JSONDecodeError:
             return None
 
 
 class GeneratorWrapper:
-    """Wraps generator function and allow to test it's emptyness at any time 
-    """
+    """Wraps generator function and allow to test it's emptyness at any time"""
+
     def __init__(self, iter):
         self.source = iter
         self.stored = False
@@ -474,59 +426,69 @@ def log_parser(logger, log_file, log_type, log_start_time):
         generator(tuple(tuple(int, datetime, str),)): return parsed log as generator of tuples of line number, timestamp and message
     """
     # matches with '2020-May-15 10:30:00 '
-    events_pattern = re.compile('^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}')
+    events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")
     # matches with '<13>Sep 13 17:53:14 '
-    srpm_pattern = re.compile('^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}')
+    srpm_pattern = re.compile("^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")
     # matches with '[00:03:15] '
-    build_pattern = re.compile('^\[\d{2}:\d{2}:\d{2}\]')
+    build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")
 
     if not Path(log_file).is_file():
         logger.error(f"File '{log_file}' not found")
         return ()
     else:
-        with Path(log_file).open('r', encoding='utf-8', errors='backslashreplace') as f:
+        with Path(log_file).open("r", encoding="utf-8", errors="backslashreplace") as f:
             first_line = True
             line_cnt = 0
             for line in f:
                 if len(line) > 0:
-                    if log_type == 'events':
+                    if log_type == "events":
                         line_cnt += 1
                         if first_line:
                             dt = events_pattern.findall(line)
                             if not dt:
-                                logger.error(f"File '{log_file}' first line doesn't contain valid datetime."
-                                            f" Log file parsing aborted.")
+                                logger.error(
+                                    f"File '{log_file}' first line doesn't contain valid datetime."
+                                    f" Log file parsing aborted."
+                                )
                                 return tuple()
                             dt = dt[0]
-                            msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
+                            msg = (
+                                events_pattern.split(line)[-1].split(" :: ")[-1].strip()
+                            )
                             last_dt = dt
                             first_line = False
                             yield (
                                 line_cnt,
-                                datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
+                                datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
                                 msg,
                             )
                         else:
                             dt = events_pattern.findall(line)
-                            msg = events_pattern.split(line)[-1].split(' :: ')[-1].strip()
+                            msg = (
+                                events_pattern.split(line)[-1].split(" :: ")[-1].strip()
+                            )
                             if dt:
                                 dt = dt[0]
                                 last_dt = dt
                                 yield (
                                     line_cnt,
-                                    datetime.datetime.strptime(dt, '%Y-%b-%d %H:%M:%S'),
+                                    datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
                                     msg,
                                 )
                             else:
                                 yield (
                                     line_cnt,
-                                    datetime.datetime.strptime(last_dt, '%Y-%b-%d %H:%M:%S'),
+                                    datetime.datetime.strptime(
+                                        last_dt, "%Y-%b-%d %H:%M:%S"
+                                    ),
                                     msg,
                                 )
-                    elif log_type == 'srpm':
+                    elif log_type == "srpm":
                         if not isinstance(log_start_time, datetime.datetime):
-                            logger.error(f"Valid 'log_start_time' value is required to parse 'srpm.log'" 
-                                        f" type file {log_file}. Log file parsing aborted.")
+                            logger.error(
+                                f"Valid 'log_start_time' value is required to parse 'srpm.log'"
+                                f" type file {log_file}. Log file parsing aborted."
+                            )
                             return ()
                         line_cnt += 1
                         dt = srpm_pattern.findall(line)
@@ -536,35 +498,54 @@ def log_parser(logger, log_file, log_type, log_start_time):
                             last_dt = dt
                             first_line = False
                             # FIXME: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
-                            ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in dt[4:].split(' ') if len(_) > 0])
-                            ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
-                            yield (line_cnt, ts, msg,)
+                            ts_str = f"{str(log_start_time.year)} " + " ".join(
+                                [x for x in dt[4:].split(" ") if len(x) > 0]
+                            )
+                            ts = datetime.datetime.strptime(ts_str, "%Y %b %d %H:%M:%S")
+                            yield (
+                                line_cnt,
+                                ts,
+                                msg,
+                            )
                         else:
                             if first_line:
-                                logger.debug(f"File '{log_file}' first line doesn't contain valid datetime."
-                                            f" Using 'log_start_time' as timestamp.")
+                                logger.debug(
+                                    f"File '{log_file}' first line doesn't contain valid datetime."
+                                    f" Using 'log_start_time' as timestamp."
+                                )
                                 ts = log_start_time
                             else:
-                                ts_str = f"{str(log_start_time.year)} " + ' '.join([_ for _ in last_dt[4:].split(' ') if len(_) > 0])
-                                ts = datetime.datetime.strptime(ts_str, '%Y %b %d %H:%M:%S')
-                            yield (line_cnt, ts, msg,)
-                    elif log_type == 'build':
+                                ts_str = f"{str(log_start_time.year)} " + " ".join(
+                                    [x for x in last_dt[4:].split(" ") if len(x) > 0]
+                                )
+                                ts = datetime.datetime.strptime(
+                                    ts_str, "%Y %b %d %H:%M:%S"
+                                )
+                            yield (
+                                line_cnt,
+                                ts,
+                                msg,
+                            )
+                    elif log_type == "build":
                         line_cnt += 1
                         ts = build_pattern.findall(line)
                         msg = build_pattern.split(line)[-1].strip()
                         if ts:
-                            ts = ts[0][1:-1].split(':')
-                            ts = log_start_time \
-                                + datetime.timedelta(
-                                    hours=int(ts[0]),
-                                    minutes=int(ts[1]),
-                                    seconds=int(ts[2])
-                                    )
+                            ts = ts[0][1:-1].split(":")
+                            ts = log_start_time + datetime.timedelta(
+                                hours=int(ts[0]), minutes=int(ts[1]), seconds=int(ts[2])
+                            )
                         else:
                             ts = log_start_time
-                        yield (line_cnt, ts, msg,)
+                        yield (
+                            line_cnt,
+                            ts,
+                            msg,
+                        )
                     else:
-                        logger.error(f"Unknown log format specifier '{log_type}'.  Log file parsing aborted.")
+                        logger.error(
+                            f"Unknown log format specifier '{log_type}'.  Log file parsing aborted."
+                        )
                         return tuple()
 
 
@@ -578,12 +559,12 @@ def parse_hash_diff(hash_file):
     Returns:
         (dict, dict): added hashses, deleted hashes
     """
-    hash_pattern = re.compile('^[+-]+[0-9a-f]{64}\s+')
+    hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")
     h_added = {}
     h_deleted = {}
     try:
         contents = Path(hash_file).read_text()
-        contents = (_ for _ in contents.split('\n') if len(_) > 0)
+        contents = (x for x in contents.split("\n") if len(x) > 0)
     except FileNotFoundError:
         return {}, {}
     for line in contents:
@@ -592,11 +573,12 @@ def parse_hash_diff(hash_file):
             sign = h[0][0]
             sha256 = h[0][1:].strip()
             pkg_name = hash_pattern.split(line)[-1].strip()
-            if sign == '+':
+            if sign == "+":
                 h_added[pkg_name] = bytes.fromhex(sha256)
             else:
                 h_deleted[pkg_name] = bytes.fromhex(sha256)
     return h_added, h_deleted
+
 
 def parse_pkglist_diff(diff_file, is_src_list):
     """Parse package list diff file.
@@ -611,22 +593,22 @@ def parse_pkglist_diff(diff_file, is_src_list):
         PkgInfo attributes: ['name', 'evr', 'file', 'srpm', 'arch']
     """
 
-    # PkgInfo = namedtuple('PkgInfo', ('name', 'evr', 'file', 'srpm', 'arch'))
     @dataclass(frozen=True)
     class PkgInfo:
         """Represents package info from task plan"""
+
         name: str
         evr: str
         file: str
         srpm: str
         arch: str
 
-    diff_pattern = re.compile('^[+-]+[a-zA-Z0-9]+\S+')
+    diff_pattern = re.compile("^[+-]+[a-zA-Z0-9]+\S+")
     p_added: list[PkgInfo] = []
     p_deleted: list[PkgInfo] = []
     try:
         contents = Path(diff_file).read_text()
-        contents = (_ for _ in contents.split('\n') if len(_) > 0)
+        contents = (x for x in contents.split("\n") if len(x) > 0)
     except FileNotFoundError:
         return [], []
     for line in contents:
@@ -635,14 +617,24 @@ def parse_pkglist_diff(diff_file, is_src_list):
             sign = p[0][0]
             if is_src_list:
                 pkg_name = p[0][1:].strip()
-                pkg_evr, pkg_file = [_.strip() for _ in diff_pattern.split(line)[-1].split('\t') if len(_) > 0]
+                pkg_evr, pkg_file = [
+                    x.strip()
+                    for x in diff_pattern.split(line)[-1].split("\t")
+                    if len(x) > 0
+                ]
                 pkg_src = pkg_file
-                pkg_arch = 'src'
+                pkg_arch = "src"
             else:
                 pkg_name = p[0][1:].strip()
-                pkg_evr, pkg_arch, pkg_file, pkg_src = [_.strip() for _ in diff_pattern.split(line)[-1].split('\t') if len(_) > 0]
-            if sign == '+':
+                pkg_evr, pkg_arch, pkg_file, pkg_src = [
+                    x.strip()
+                    for x in diff_pattern.split(line)[-1].split("\t")
+                    if len(x) > 0
+                ]
+            if sign == "+":
                 p_added.append(PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
             else:
-                p_deleted.append(PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
+                p_deleted.append(
+                    PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch)
+                )
     return p_added, p_deleted
