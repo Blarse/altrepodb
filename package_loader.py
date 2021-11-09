@@ -13,7 +13,14 @@ from clickhouse_driver import Client
 import altrpm
 import extract
 
-from utils import get_logger, cvt, mmhash, md5_from_file, sha256_from_file
+from utils import (
+    get_logger,
+    cvt,
+    mmhash,
+    md5_from_file,
+    sha256_from_file,
+    blake2b_from_file,
+)
 
 
 NAME = "package"
@@ -112,7 +119,7 @@ class PackageLoader:
         )
         return {i[0] for i in result}
 
-    def _get_header(self): # return rpm header object
+    def _get_header(self):  # return rpm header object
         self.logger.debug(f"reading header for {self.pkg}")
         return extract.get_header(self.ts, str(self.pkg))
 
@@ -164,6 +171,9 @@ class PackageLoader:
 
         self.logger.debug(f"calculate SHA256 for {pkg_name} file")
         hashes["sha256"] = sha256_from_file(self.pkg, as_bytes=True)
+
+        self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+        hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
