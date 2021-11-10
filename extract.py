@@ -24,10 +24,18 @@ import altrpm
 import mapper
 from manager import check_latest_version
 from utils import (
-    cvt, get_logger, valid_date,
-    LockedIterator, Timing, Display, 
-    mmhash, md5_from_file, sha256_from_file, blake2b_from_file,
-    join_dicts_with_as_string, FunctionalNotImplemented
+    cvt,
+    mmhash,
+    get_logger,
+    valid_date,
+    md5_from_file,
+    sha256_from_file,
+    blake2b_from_file,
+    join_dicts_with_as_string,
+    Timing,
+    Display,
+    LockedIterator,
+    FunctionalNotImplemented
 )
 
 
@@ -314,7 +322,7 @@ def check_iso(path):
     fp = open(path, 'rb')
     try:
         iso.open_fp(fp)
-    except pycdlib.pycdlibexception.PyCdlibInvalidInput:
+    except pycdlib.pycdlib.pycdlibexception.PyCdlibInvalidInput:
         log.error('error open iso: {0}'.format(path))
         return None
     return iso
