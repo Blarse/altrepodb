@@ -1234,7 +1234,11 @@ def init_task_structure_from_task(girar):
         _.name for _ in girar.get_file_path("build").glob("[0-7]*") if _.is_dir()
     ):
         subtask_dir = "/".join(("build", subtask))
-        archs = set((_.name for _ in girar.get(subtask_dir) if _.is_dir()))
+        # follow order of architectures from ARCHS list to prefer
+        # source package from 'x86_64' and 'i586' architectures if there is no plan
+        archs_fs = set((x.name for x in girar.get(subtask_dir) if x.is_dir()))
+        archs = [x for x in ('x86_64', 'i586') if x in archs_fs]
+        archs += [x for x in archs_fs if x not in archs]
         for arch in archs:
             arch_dir = "/".join((subtask_dir, arch))
             build_dict = {
