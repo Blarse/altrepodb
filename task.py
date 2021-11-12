@@ -236,21 +236,21 @@ class TaskIterationLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["md5"]:
             hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
         else:
-            self.logger.debug(f"calculate MD5 for {pkg_name} file")
+            self.logger.info(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         if self.pkg_hashes[pkg_name]["sha256"]:
             hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
         else:
-            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+            self.logger.info(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
 
-        if self.pkg_hashes[pkg_name]["blake2b"]:
+        if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
             hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
         else:
-            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+            self.logger.info(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
@@ -458,21 +458,21 @@ class PackageLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["md5"]:
             hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
         else:
-            self.logger.debug(f"calculate MD5 for {pkg_name} file")
+            self.logger.info(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         if self.pkg_hashes[pkg_name]["sha256"]:
             hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
         else:
-            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+            self.logger.info(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
 
-        if self.pkg_hashes[pkg_name]["blake2b"]:
+        if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
             hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
         else:
-            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+            self.logger.info(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
@@ -1373,8 +1373,9 @@ def get_args():
     parser.add_argument("-u", "--user", type=str, help="Database login")
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument("-w", "--workers", type=int, help="Workers count (default: 4)")
+    parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
     parser.add_argument(
-        "-D",
+        "-J",
         "--dumpjson",
         action="store_true",
         help="Dump parsed task structure to JSON file",
@@ -1451,7 +1452,8 @@ def main():
     if args.url.endswith("/"):
         args.url = args.url[:-1]
     logger = get_logger(NAME, tag=(args.url.split("/")[-1]))
-    logger.setLevel(logging.INFO)
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
     logger.info(f"run with args: {args}")
     conn = None
     try:
