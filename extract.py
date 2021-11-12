@@ -252,7 +252,8 @@ def insert_pkg_hashes(conn, pkg_hashes):
             'pkgh_mmh': v['mmh'],
             'pkgh_md5': v['md5'],
             'pkgh_sha1': v['sha1'],
-            'pkgh_sha256': v['sha256']
+            'pkgh_sha256': v['sha256'],
+            'pkgh_blake2b': v['blake2b']
         })
     settings = {'strings_as_bytes': True}
     conn.execute("INSERT INTO PackageHash_buffer (*) VALUES",
@@ -361,7 +362,7 @@ class Worker(threading.Thread):
         # count = 0
         for package in self.packages:
             try:
-                # count += 1
+                pkg_filename = Path(package).name
                 header = get_header(ts, package)
                 map_package = get_partial_pkg_map(header, (
                     'pkg_sourcepackage',
@@ -371,24 +372,32 @@ class Worker(threading.Thread):
                     'pkg_cs'
                     ))
                 kw = {
-                    'pkg_filename': Path(package).name,
+                    'pkg_filename': pkg_filename,
                     'pkg_filesize': Path(package).stat().st_size
                     }
                 # add thread safety lock here
                 with self.lock:
                     if self.is_src:
                         #  store pkg mmh and sha1
-                        self.src_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
-                        self.src_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
+                        self.src_repo_cache[pkg_filename]['mmh'] = map_package['pkg_hash']
+                        self.src_repo_cache[pkg_filename]['sha1'] = map_package['pkg_cs']
                         # set source rpm name and hash to self
-                        kw['pkg_sourcerpm'] = kw['pkg_filename']
+                        kw['pkg_sourcerpm'] = pkg_filename
                         kw['pkg_srcrpm_hash'] = map_package['pkg_hash']
+                        # check if BLAKE2b hash found and if not, calculate it from file
+                        if self.src_repo_cache[pkg_filename]['blake2b'] not in (b'', None):
+                            log.debug(f"calculate BLAKE2b for {pkg_filename} file")
+                            self.src_repo_cache[pkg_filename]['blake2b'] = blake2b_from_file(package, as_bytes=True)
                     else:
                         #  store pkg mmh and sha1
-                        self.pkg_repo_cache[kw['pkg_filename']]['mmh'] = map_package['pkg_hash']
-                        self.pkg_repo_cache[kw['pkg_filename']]['sha1'] = map_package['pkg_cs']
+                        self.pkg_repo_cache[pkg_filename]['mmh'] = map_package['pkg_hash']
+                        self.pkg_repo_cache[pkg_filename]['sha1'] = map_package['pkg_cs']
                         # set source rpm name and hash
                         kw['pkg_srcrpm_hash'] = self.src_repo_cache[map_package['pkg_sourcerpm']]['mmh']
+                        # check if BLAKE2b hash found and if not, calculate it from file
+                        if self.pkg_repo_cache[pkg_filename]['blake2b'] not in (b'', None):
+                            log.debug(f"calculate BLAKE2b for {pkg_filename} file")
+                            self.pkg_repo_cache[pkg_filename]['blake2b'] = blake2b_from_file(package, as_bytes=True)
 
                 # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
                 if map_package['pkg_arch'] == 'x86_64-i586' and kw['pkg_srcrpm_hash'] is None:
@@ -408,9 +417,9 @@ class Worker(threading.Thread):
                     self.cache.add(pkghash)
                     # insert package hashes to PackageHash_buffer
                     if self.is_src:
-                        insert_pkg_hash_single(self.connection, self.src_repo_cache[kw['pkg_filename']])
+                        insert_pkg_hash_single(self.connection, self.src_repo_cache[pkg_filename])
                     else:
-                        insert_pkg_hash_single(self.connection, self.pkg_repo_cache[kw['pkg_filename']])
+                        insert_pkg_hash_single(self.connection, self.pkg_repo_cache[pkg_filename])
                 if pkghash is None:
                     raise PackageLoadError(f"No hash for {package} from 'insert_package()'")
                 self.aname.add(pkghash)
@@ -840,7 +849,7 @@ def read_repo_structure(repo_name, repo_path):
                 else:
                     log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
-            if v["blake2b"] is None and repo["use_blake2b"]:
+            if v["blake2b"] in (b'', None) and repo["use_blake2b"]:
                 log.info(f"{k}'s blake2b not found. Calculating it from file")
                 file_ = root.joinpath("files", "SRPMS", k)
                 if file_.is_file():
@@ -862,7 +871,7 @@ def read_repo_structure(repo_name, repo_path):
                 if not found_:
                     log.error(f"Can't find file to calculate SHA256 for {file_.name} from {file_.parent}")
                     raise RuntimeError("File not found")
-            if v["blake2b"] is None and repo["use_blake2b"]:
+            if v["blake2b"] in (b'', None) and repo["use_blake2b"]:
                 log.info(f"{k}'s blake2b not found. Calculating it from file")
                 found_ = False
                 for arch in repo['arch']['kwargs']['all_archs']:
