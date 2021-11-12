@@ -25,14 +25,20 @@ CREATE TABLE PackageHash
     pkgh_mmh        UInt64,
     pkgh_md5        FixedString(16),
     pkgh_sha1       FixedString(20),
-    pkgh_sha256     FixedString(32)
+    pkgh_sha256     FixedString(32),
+    pkgh_blake2b    FixedString(64)
 ) ENGINE ReplacingMergeTree ORDER BY (pkgh_mmh, pkgh_md5, pkgh_sha256) PRIMARY KEY pkgh_mmh;
 
 CREATE TABLE PackageHash_buffer AS PackageHash ENGINE = Buffer(currentDatabase(), PackageHash, 16, 10, 100, 10000, 1000000, 1000000, 10000000);
 
 CREATE 
 OR REPLACE VIEW PackageHash_view AS
-SELECT pkgh_mmh, lower(hex(pkgh_md5)) as pkgh_md5, lower(hex(pkgh_sha1)) as pkgh_sha1, lower(hex(pkgh_sha256)) as pkgh_sha256
+SELECT
+    pkgh_mmh,
+    lower(hex(pkgh_md5)) as pkgh_md5,
+    lower(hex(pkgh_sha1)) as pkgh_sha1,
+    lower(hex(pkgh_sha256)) as pkgh_sha256,
+    lower(hex(pkgh_blake2b)) as pkgh_blake2b
 FROM  PackageHash_buffer;
 
 
