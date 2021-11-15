@@ -156,7 +156,7 @@ class LogLoaderWorker(RaisingTread):
                 self.exc_message = f"Exception in thread {self.name} for log {log_name}"
                 self.exc_traceback = traceback.format_exc()
                 break
-        self.logger.debug("thread {self.ident} stop")
+        self.logger.debug(f"thread {self.ident} stop")
         self.count_list.append(count)
 
 
