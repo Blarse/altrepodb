@@ -121,7 +121,7 @@ class PackageLoader:
 
     def _get_header(self):  # return rpm header object
         self.logger.debug(f"reading header for {self.pkg}")
-        return extract.get_header(self.ts, str(self.pkg))
+        return extract.get_header(self.ts, str(self.pkg), self.logger)
 
     def _get_file_size(self) -> int:
         try:
@@ -185,7 +185,7 @@ class PackageLoader:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, hdr, self.pkg, **kw)
+            extract.insert_package(self.conn, self.logger, hdr, self.pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.logger.info(

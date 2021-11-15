@@ -265,7 +265,7 @@ class TaskIterationLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, hdr, self.girar.get_file_path(pkg), **kw)
+            extract.insert_package(self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -487,7 +487,7 @@ class PackageLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, hdr, self.girar.get_file_path(pkg), **kw)
+            extract.insert_package(self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -868,7 +868,7 @@ class TaskFromFS:
 
     def get_header(self, path):
         self.logger.debug(f"reading header for {path}")
-        return extract.get_header(self.ts, str(Path.joinpath(self.path, path)))
+        return extract.get_header(self.ts, str(Path.joinpath(self.path, path)), self.logger)
 
     def get_file_path(self, path):
         return Path.joinpath(self.path, path)
@@ -1040,7 +1040,7 @@ def init_task_structure_from_task(girar, logger):
     for pkglist in (
         x for x in girar.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
     ):
-        hdrs = extract.read_headers_from_xz_pkglist(pkglist)
+        hdrs = extract.read_headers_from_xz_pkglist(pkglist, logger)
         for hdr in hdrs:
             pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
             pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
