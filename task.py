@@ -265,7 +265,9 @@ class TaskIterationLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw)
+            extract.insert_package(
+                self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
+            )
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -486,7 +488,9 @@ class PackageLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw)
+            extract.insert_package(
+                self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
+            )
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -612,7 +616,7 @@ class Task:
         for tapp in tapps_from_db:
             tapp["tapp_date"] = cvt_datetime_local_to_utc(tapp["tapp_date"])
 
-        tapps_from_fs = deepcopy(self.task['task_approvals'])
+        tapps_from_fs = deepcopy(self.task["task_approvals"])
 
         # 2.2 - collect previous approvals that are not rewoked
         tapps = []
@@ -867,7 +871,9 @@ class TaskFromFS:
 
     def get_header(self, path):
         self.logger.debug(f"reading header for {path}")
-        return extract.get_header(self.ts, str(Path.joinpath(self.path, path)), self.logger)
+        return extract.get_header(
+            self.ts, str(Path.joinpath(self.path, path)), self.logger
+        )
 
     def get_file_path(self, path):
         return Path.joinpath(self.path, path)
@@ -1227,7 +1233,7 @@ def init_task_structure_from_task(girar, logger):
         # follow order of architectures from ARCHS list to prefer
         # source package from 'x86_64' and 'i586' architectures if there is no plan
         archs_fs = set((x.name for x in girar.get(subtask_dir) if x.is_dir()))
-        archs = [x for x in ('x86_64', 'i586') if x in archs_fs]
+        archs = [x for x in ("x86_64", "i586") if x in archs_fs]
         archs += [x for x in archs_fs if x not in archs]
         for arch in archs:
             arch_dir = "/".join((subtask_dir, arch))
@@ -1372,7 +1378,12 @@ def get_args():
     parser.add_argument("-u", "--user", type=str, help="Database login")
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument("-w", "--workers", type=int, help="Workers count (default: 4)")
-    parser.add_argument('-D', '--debug', action='store_true', help='Set logging level to debug')
+    parser.add_argument(
+        "-D",
+        "--debug",
+        action="store_true",
+        help="Set logging level to debug"
+    )
     parser.add_argument(
         "-J",
         "--dumpjson",
