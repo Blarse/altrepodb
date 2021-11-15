@@ -635,10 +635,10 @@ FROM
         argMax(task_try, task_changed) AS task_try,
         argMax(task_iter, task_changed) AS task_iter,
         arrayConcat(groupUniqArray(subtask_arch), ['src', 'noarch', 'x86_64-i586']) AS archs
-    FROM repodb.TaskIterations
+    FROM TaskIterations
     WHERE task_id IN (
         SELECT task_id
-        FROM repodb.TaskStates
+        FROM TaskStates
         WHERE task_state = 'DONE'
     )
     GROUP BY task_id
@@ -853,7 +853,7 @@ WHERE (P.pkg_arch != 'x86_64-i586') AND ((pkgset_name, pkgset_date) IN (
     SELECT
         argMax(pkgset_name, pkgset_date) AS pkgset_n,
         max(pkgset_date) AS pkgset_d
-    FROM repodb.StaticLastPackages
+    FROM StaticLastPackages
     GROUP BY pkgset_name
 ))
 GROUP BY
