@@ -385,7 +385,7 @@ class Worker(threading.Thread):
                         kw['pkg_sourcerpm'] = pkg_filename
                         kw['pkg_srcrpm_hash'] = map_package['pkg_hash']
                         # check if BLAKE2b hash found and if not, calculate it from file
-                        if self.src_repo_cache[pkg_filename]['blake2b'] not in (b'', None):
+                        if self.src_repo_cache[pkg_filename]['blake2b'] in (b'', None):
                             log.debug(f"calculate BLAKE2b for {pkg_filename} file")
                             self.src_repo_cache[pkg_filename]['blake2b'] = blake2b_from_file(package, as_bytes=True)
                     else:
@@ -395,7 +395,7 @@ class Worker(threading.Thread):
                         # set source rpm name and hash
                         kw['pkg_srcrpm_hash'] = self.src_repo_cache[map_package['pkg_sourcerpm']]['mmh']
                         # check if BLAKE2b hash found and if not, calculate it from file
-                        if self.pkg_repo_cache[pkg_filename]['blake2b'] not in (b'', None):
+                        if self.pkg_repo_cache[pkg_filename]['blake2b'] in (b'', None):
                             log.debug(f"calculate BLAKE2b for {pkg_filename} file")
                             self.pkg_repo_cache[pkg_filename]['blake2b'] = blake2b_from_file(package, as_bytes=True)
 
