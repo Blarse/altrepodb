@@ -830,7 +830,8 @@ def read_repo_structure(repo_name, repo_path, logger):
                                 repo['src_hashes'][pkg_name]['md5'] = pkg_md5
                             else:
                                 logger.error(f"Cant find file to calculate MD5 for {pkg_name} from {root.joinpath('files, ''SRPMS')}")
-                                raise RuntimeError("File not found")
+                                # raise RuntimeError("File not found")
+                                pass    # FIXME: workaround for mipsel branches 
                         repo['src_hashes'][pkg_name]['sha256'] = pkg_sha256
                 else:
                     # load to pkg_hashes
