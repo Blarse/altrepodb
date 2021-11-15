@@ -236,13 +236,13 @@ class TaskIterationLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["md5"]:
             hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
         else:
-            self.logger.info(f"calculate MD5 for {pkg_name} file")
+            self.logger.debug(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         if self.pkg_hashes[pkg_name]["sha256"]:
             hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
         else:
-            self.logger.info(f"calculate SHA256 for {pkg_name} file")
+            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
@@ -250,7 +250,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
             hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
         else:
-            self.logger.info(f"calculate BLAKE2b for {pkg_name} file")
+            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
@@ -457,13 +457,13 @@ class PackageLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["md5"]:
             hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
         else:
-            self.logger.info(f"calculate MD5 for {pkg_name} file")
+            self.logger.debug(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
 
         if self.pkg_hashes[pkg_name]["sha256"]:
             hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
         else:
-            self.logger.info(f"calculate SHA256 for {pkg_name} file")
+            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
@@ -471,7 +471,7 @@ class PackageLoaderWorker(RaisingTread):
         if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
             hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
         else:
-            self.logger.info(f"calculate BLAKE2b for {pkg_name} file")
+            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
                 self.girar.get_file_path(pkg), as_bytes=True
             )
