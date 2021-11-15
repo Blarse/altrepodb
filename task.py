@@ -351,10 +351,9 @@ class TaskIterationLoaderWorker(RaisingTread):
                 self.exc_message = f"Exception in thread {self.name} for task iteration {titer['task_id']} {titer['subtask_id']}"
                 self.exc_traceback = traceback.format_exc()
                 break
-        if self.count:
-            self.logger.info(
-                f"{self.count} packages loaded from /build/{subtask}/{arch}"
-            )
+            self.logger.info(f"{self.count} packages loaded from /build/{subtask}/{arch}")
+            if self.count:
+                self.count = 0
         self.logger.debug(f"thread {self.ident} stop")
         self.count_list.append(count)
 
