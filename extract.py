@@ -695,7 +695,7 @@ def read_headers_from_xz_pkglist(fname, logger):
     else:  # Decompressor
         r.close()
         fdno = lzma.open(fname, 'rb')
-        logger.debug(f"[DEBUG] Decompressing {fname}")
+        logger.debug(f"Decompressing {fname} headers list")
         shutil.copyfileobj(fdno, w)
         os._exit(0)
 
