@@ -256,7 +256,7 @@ class RPMHeaderParser:
             self.sig_hdr_contents_base = sig_start + 16 + rpm_sig.nindex * 16
 
             # processing rpm signature header tags here
-            for _ in range(rpm_sig.nindex - 1):
+            for _ in range(rpm_sig.nindex):
                 rpm_tag = RPMTagS(*tag_struct.unpack(self.reader.read(tag_struct.size)))
                 self.extract_tag_content(rpm_tag, is_sig_tag=True)
 
@@ -282,7 +282,7 @@ class RPMHeaderParser:
         self.compressed_payload_offset = hdr_data_offset_base + rpm_header.hsize
 
         # processing rpm header tags here
-        for _ in range(rpm_header.nindex - 1):
+        for _ in range(rpm_header.nindex):
             rpm_tag = RPMTagS(*tag_struct.unpack(self.reader.read(tag_struct.size)))
             self.extract_tag_content(rpm_tag, is_sig_tag=False)
 
