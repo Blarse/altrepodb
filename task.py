@@ -792,6 +792,7 @@ INSERT INTO Depends SELECT * FROM
             "Depends_buffer",
             "Changelog_buffer",
             "Packages_buffer",
+            "PackageHash_buffer",
             "TaskIterations_buffer",
             "Tasks_buffer",
             "TaskStates_buffer",
