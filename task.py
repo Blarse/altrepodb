@@ -1,30 +1,25 @@
-import argparse
-import configparser
-import logging
 import os
-import os.path
 import sys
-import urllib.error
-import urllib.request
-from collections import defaultdict, namedtuple
-from pathlib import Path
-import datetime
-import time
-import traceback
-import threading
-import rpm
 import json
+import time
+import logging
+import argparse
+import datetime
+import threading
+import traceback
+import configparser
 import clickhouse_driver as chd
 from copy import deepcopy
+from pathlib import Path
+from collections import defaultdict, namedtuple
 
 import extract
-
-# from extract import get_header, insert_package, init_cache, check_package
 from utils import (
     cvt,
     mmhash,
     get_logger,
     log_parser,
+    snowflake_id,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
@@ -229,8 +224,8 @@ class TaskIterationLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
         if self.pkg_hashes[pkg_name]["md5"]:
@@ -452,8 +447,8 @@ class PackageLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
         if self.pkg_hashes[pkg_name]["md5"]:
@@ -815,7 +810,6 @@ class TaskFromFS:
     def __init__(self, path, logger):
         self.logger = logger
         self.path = Path(path)
-        self.ts = rpm.TransactionSet()
 
     def _get_content(self, path, status=False):
         r = None
@@ -872,9 +866,7 @@ class TaskFromFS:
 
     def get_header(self, path):
         self.logger.debug(f"reading header for {path}")
-        return extract.get_header(
-            self.ts, str(Path.joinpath(self.path, path)), self.logger
-        )
+        return extract.get_header(Path.joinpath(self.path, path), self.logger)
 
     def get_file_path(self, path):
         return Path.joinpath(self.path, path)
@@ -1048,9 +1040,9 @@ def init_task_structure_from_task(girar, logger):
     ):
         hdrs = extract.read_headers_from_xz_pkglist(pkglist, logger)
         for hdr in hdrs:
-            pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
+            pkg_name = cvt(hdr["RPMTAG_APTINDEXLEGACYFILENAME"])
+            pkg_md5 = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYMD5"]))
+            pkg_blake2b = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYBLAKE2B"]))
             task["pkg_hashes"][pkg_name]["blake2b"] = pkg_blake2b
             # FIXME: workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
             if task["pkg_hashes"][pkg_name]["md5"]:

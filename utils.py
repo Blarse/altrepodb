@@ -12,11 +12,49 @@ from functools import wraps
 from logging import handlers
 from dataclasses import dataclass
 from hashlib import sha256, md5, blake2b
+from typing import Any
 
 
 def mmhash(val):
     a, b = mmh3.hash64(val, signed=False)
     return a ^ b
+
+
+def snowflake_id(hdr: dict[str, Any], epoch: int = 1_000_000_000) -> int:
+    """Genarates showflake-like ID using data from RPM package header object.
+    Returns 64 bit wide unsigned integer:
+        - most significant 32 bits package build time delta from epoch
+        - less significant bits are mutmurHash from package sign header (SHA1 + MD5 + GPG)
+
+    Args:
+        hdr (dict): RPM package header object
+        epoch (int, optional): Base epoch for timestamp part calculation. Defaults to 1_000_000_000.
+
+    Returns:
+        int: [description]
+    """
+    buildtime: int = cvt(hdr["RPMTAG_BUILDTIME"], int)
+    sha1: bytes = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"])) # hex string in bytes
+    md5: bytes = hdr["RPMSIGTAG_MD5"] # bytes
+    gpg: bytes = hdr["RPMSIGTAG_GPG"] # bytes
+
+    if md5 is None:
+        md5 = b""
+    if gpg is None:
+        gpg = b""
+    # combine multiple GPG signs in one
+    if isinstance(gpg, list):
+        gpg_ = b""
+        for k in gpg:
+            gpg_ += k
+        gpg = gpg_
+
+    data = sha1 + md5 + gpg
+    sf_hash = mmh3.hash(data, signed=False)
+    sf_ts = buildtime - epoch
+    sf_id = (sf_ts << 32) | (sf_hash & 0xFFFFFFFF)
+
+    return sf_id
 
 
 def valid_date(s):

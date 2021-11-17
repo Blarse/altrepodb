@@ -1,8 +1,6 @@
 import os
-import rpm
 import time
 import lzma
-import shutil
 import base64
 import logging
 import pycdlib
@@ -22,7 +20,6 @@ from io import BufferedRandom, BytesIO
 
 import altrpm
 import mapper
-from manager import check_latest_version
 from utils import (
     cvt,
     mmhash,
@@ -63,20 +60,6 @@ class PackageLoadError(Exception):
     def __init__(self, message=None):
         self.message = message
         super().__init__()
-
-
-@Timing.timeit(NAME)
-def check_package(cache, hdr, logger):
-    """Check whether the package is in the database.
-
-    return id of package from database or None
-    """
-    sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-    pkghash = mmhash(sha1)
-    logger.debug("check package for sha1: {0}".format(sha1.hex()))
-    if pkghash in cache:
-        return pkghash
-    return None
 
 
 def check_package_in_cache(cache, pkghash):
@@ -348,9 +331,9 @@ def iso_find_packages(iso):
 
 
 @Timing.timeit(NAME)
-def get_header(ts, rpmfile, logger):
+def get_header(rpmfile, logger):
     logger.debug("read header {0}".format(rpmfile))
-    return ts.hdrFromFdno(rpmfile)
+    return altrpm.readHeaderFromRPM(rpmfile)
 
 
 def check_iso(path, logger):
@@ -408,13 +391,12 @@ class Worker(threading.Thread):
         super().__init__(*args, **kwargs)
 
     def run(self):
-        ts = rpm.TransactionSet()
         self.logger.debug("thread start")
         # count = 0
         for package in self.packages:
             try:
                 pkg_filename = Path(package).name
-                header = get_header(ts, package, self.logger)
+                header = get_header(package, self.logger)
                 map_package = get_partial_pkg_map(
                     header,
                     (
@@ -779,7 +761,7 @@ def unxz(fname, mode_binary=False):
         return res
 
 
-def read_release_components(f):
+def read_release_components(f) -> list[str]:
     """Read components from 'release' file in reposiory tree
 
     Args:
@@ -788,11 +770,14 @@ def read_release_components(f):
     Returns:
         list(string): list of components
     """
+    comps = []
     with f.open(mode="r") as fd:
         for line in fd.readlines():
             ls = line.split(":")
             if ls[0] == "Components":
-                return [x.strip() for x in ls[1].split()]
+                comps = [x.strip() for x in ls[1].split()]
+                break
+    return comps
 
 
 def check_release_for_blake2b(f) -> bool:
@@ -810,32 +795,6 @@ def check_release_for_blake2b(f) -> bool:
             if ls[0] == "BLAKE2b":
                 return True
     return False
-
-
-def read_headers_from_xz_pkglist(fname, logger):
-    """Read headers from apt hash file
-
-    Args:
-        fname (path-like object): path to 'pkglist.xz' file
-
-    Returns:
-        list(rpm header): list of RPM headers objects
-    """
-    # uncompress and read headers from list
-    r, w = os.pipe()
-    r, w = os.fdopen(r, "rb", 0), os.fdopen(w, "wb", 0)
-    pid = os.fork()
-    if pid:  # Parser
-        w.close()
-        logger.debug(f"Parsing headers from {fname}")
-        hdrs = rpm.readHeaderListFromFD(r)
-        return hdrs
-    else:  # Decompressor
-        r.close()
-        fdno = lzma.open(fname, "rb")
-        logger.debug(f"Decompressing {fname} headers list")
-        shutil.copyfileobj(fdno, w)
-        os._exit(0)
 
 
 def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
@@ -926,15 +885,11 @@ def read_repo_structure(repo_name, repo_path, logger):
             for pkglist_name in pkglist_names:
                 f = base_subdir.joinpath(pkglist_name + ".xz")
                 if f.is_file():
-                    hdrs = read_headers_from_xz_pkglist(f, logger)
+                    hdrs = altrpm.readHeaderListFromXZFile(f)
                     for hdr in hdrs:
-                        pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-                        pkg_md5 = bytes.fromhex(
-                            cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5])
-                        )
-                        pkg_blake2b = bytes.fromhex(
-                            cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B])
-                        )
+                        pkg_name = cvt(hdr["RPMTAG_APTINDEXLEGACYFILENAME"])
+                        pkg_md5 = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYMD5"]))
+                        pkg_blake2b = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYBLAKE2B"]))
                         if pkglist_name.startswith("srclist"):
                             repo["src_hashes"][pkg_name]["md5"] = pkg_md5
                             repo["src_hashes"][pkg_name]["blake2b"] = pkg_blake2b

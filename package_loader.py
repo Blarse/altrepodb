@@ -1,6 +1,5 @@
 import os
 import sys
-import rpm
 import time
 import base64
 import logging
@@ -12,11 +11,10 @@ from clickhouse_driver import Client
 
 import altrpm
 import extract
-
 from utils import (
-    get_logger,
     cvt,
-    mmhash,
+    get_logger,
+    snowflake_id,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
@@ -111,7 +109,6 @@ class PackageLoader:
         self.logger = logger
         self.force = args.force
         self.cache = self._init_cache()
-        self.ts = rpm.TransactionSet()
 
     def _init_cache(self) -> set:
         result = self.conn.execute(
@@ -121,7 +118,7 @@ class PackageLoader:
 
     def _get_header(self):  # return rpm header object
         self.logger.debug(f"reading header for {self.pkg}")
-        return extract.get_header(self.ts, str(self.pkg), self.logger)
+        return extract.get_header(self.pkg, self.logger)
 
     def _get_file_size(self) -> int:
         try:
@@ -142,7 +139,7 @@ class PackageLoader:
         self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
         st = time.time()
         kw = {
-            "pkg_hash": mmhash(bytes.fromhex(cvt(hdr["RPMTAG_SHA1HEADER"]))),
+            "pkg_hash": snowflake_id(hdr),
             "pkg_name": cvt(hdr["RPMTAG_NAME"]),
             "pkg_epoch": cvt(hdr["RPMTAG_EPOCH"], int),
             "pkg_version": cvt(hdr["RPMTAG_VERSION"]),
@@ -160,11 +157,11 @@ class PackageLoader:
         hdr = self._get_header()
         pkg_name = self.pkg.name
         # load only source packages for a now
-        if not int(bool(hdr[rpm.RPMTAG_SOURCEPACKAGE])):
+        if not int(bool(hdr["RPMTAG_SOURCEPACKAGE"])):
             raise ValueError("Binary package files loading not supported yet")
 
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
 
         self.logger.debug(f"calculate MD5 for {pkg_name} file")
         hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
