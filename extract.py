@@ -18,7 +18,12 @@ from pathlib import Path
 from collections import defaultdict
 from io import BufferedRandom, BytesIO
 
-import altrpm
+from altrpm import (
+    rpm,
+    readHeaderFromRPM,
+    extractSpecFromRPM,
+    readHeaderListFromXZFile,
+)
 import mapper
 from utils import (
     cvt,
@@ -146,7 +151,7 @@ def unpack_map(tagmap):
 def insert_specfile(conn, logger, pkg_file, pkg_map):
     logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
     st = time.time()
-    spec_file, spec_contents = altrpm.extractSpecFromRPM(pkg_file, raw=True)
+    spec_file, spec_contents = extractSpecFromRPM(pkg_file, raw=True)
     logger.debug(f"headers and spec file extracted in {(time.time() - st):.3f} seconds")
     logger.debug(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
     st = time.time()
@@ -333,7 +338,7 @@ def iso_find_packages(iso):
 @Timing.timeit(NAME)
 def get_header(rpmfile, logger):
     logger.debug("read header {0}".format(rpmfile))
-    return altrpm.readHeaderFromRPM(rpmfile)
+    return readHeaderFromRPM(rpmfile)
 
 
 def check_iso(path, logger):
@@ -415,12 +420,8 @@ class Worker(threading.Thread):
                 with self.lock:
                     if self.is_src:
                         #  store pkg mmh and sha1
-                        self.src_repo_cache[pkg_filename]["mmh"] = map_package[
-                            "pkg_hash"
-                        ]
-                        self.src_repo_cache[pkg_filename]["sha1"] = map_package[
-                            "pkg_cs"
-                        ]
+                        self.src_repo_cache[pkg_filename]["mmh"] = map_package["pkg_hash"]
+                        self.src_repo_cache[pkg_filename]["sha1"] = map_package["pkg_cs"]
                         # set source rpm name and hash to self
                         kw["pkg_sourcerpm"] = pkg_filename
                         kw["pkg_srcrpm_hash"] = map_package["pkg_hash"]
@@ -434,24 +435,18 @@ class Worker(threading.Thread):
                             ] = blake2b_from_file(package, as_bytes=True)
                     else:
                         #  store pkg mmh and sha1
-                        self.pkg_repo_cache[pkg_filename]["mmh"] = map_package[
-                            "pkg_hash"
-                        ]
-                        self.pkg_repo_cache[pkg_filename]["sha1"] = map_package[
-                            "pkg_cs"
-                        ]
+                        self.pkg_repo_cache[pkg_filename]["mmh"] = map_package["pkg_hash"]
+                        self.pkg_repo_cache[pkg_filename]["sha1"] = map_package["pkg_cs"]
                         # set source rpm name and hash
-                        kw["pkg_srcrpm_hash"] = self.src_repo_cache[
-                            map_package["pkg_sourcerpm"]
-                        ]["mmh"]
+                        kw["pkg_srcrpm_hash"] = self.src_repo_cache[map_package["pkg_sourcerpm"]]["mmh"]
                         # check if BLAKE2b hash found and if not, calculate it from file
                         if self.pkg_repo_cache[pkg_filename]["blake2b"] in (b"", None):
                             self.logger.debug(
                                 f"calculate BLAKE2b for {pkg_filename} file"
                             )
-                            self.pkg_repo_cache[pkg_filename][
-                                "blake2b"
-                            ] = blake2b_from_file(package, as_bytes=True)
+                            self.pkg_repo_cache[pkg_filename]["blake2b"] = blake2b_from_file(
+                                package, as_bytes=True
+                            )
 
                 # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
                 if (
@@ -885,11 +880,12 @@ def read_repo_structure(repo_name, repo_path, logger):
             for pkglist_name in pkglist_names:
                 f = base_subdir.joinpath(pkglist_name + ".xz")
                 if f.is_file():
-                    hdrs = altrpm.readHeaderListFromXZFile(f)
+                    print(f"DEBUG: read headers list from {f}")
+                    hdrs = readHeaderListFromXZFile(f)
                     for hdr in hdrs:
-                        pkg_name = cvt(hdr["RPMTAG_APTINDEXLEGACYFILENAME"])
-                        pkg_md5 = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYMD5"]))
-                        pkg_blake2b = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYBLAKE2B"]))
+                        pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+                        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+                        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
                         if pkglist_name.startswith("srclist"):
                             repo["src_hashes"][pkg_name]["md5"] = pkg_md5
                             repo["src_hashes"][pkg_name]["blake2b"] = pkg_blake2b
