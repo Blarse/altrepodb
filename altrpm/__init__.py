@@ -1,6 +1,8 @@
-from .rpm import RPMHeaders, RPMHeadersList, RPMCpio
+from .rpm import RPMHeaders, RPMCpio
+from .rpm import parse_headers_list, parse_xz_headers_list
+from .rpmtag import rpmh as rpm
 
-VERSION = (0, 1, 0)
+VERSION = (0, 2, 0)
 __version__ = ".".join(str(x) for x in VERSION)
 
 __all__ = [
@@ -9,6 +11,7 @@ __all__ = [
     "readHeaderListFromXZFile",
     "extractSpecFromRPM",
     "extractSpecAndHeadersFromRPM",
+    "rpm",
 ]
 
 
@@ -34,8 +37,8 @@ def readHeaderListFromFile(filename):
     Returns:
         list: list of parsed headers dictionaries
     """
-    rpm = RPMHeadersList()
-    return rpm.parse_headers_list(filename)
+
+    return parse_headers_list(filename)
 
 
 def readHeaderListFromXZFile(filename):
@@ -47,8 +50,8 @@ def readHeaderListFromXZFile(filename):
     Returns:
         list: list of parsed headers dictionaries
     """
-    rpm = RPMHeadersList()
-    return rpm.parse_compressed_headers_list(filename)
+
+    return parse_xz_headers_list(filename)
 
 
 def extractSpecFromRPM(filename, raw):
