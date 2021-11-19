@@ -17,12 +17,14 @@ from uuid import uuid4
 from pathlib import Path
 from collections import defaultdict
 from io import BufferedRandom, BytesIO
+from rpm import TransactionSet
+from typing import Any
 
 from altrpm import (
     rpm,
     readHeaderFromRPM,
     extractSpecFromRPM,
-    readHeaderListFromXZFile,
+    readHeaderListFromXZFile
 )
 import mapper
 from utils import (
@@ -331,14 +333,16 @@ def iso_find_packages(iso):
                 tmp_file = tempfile.TemporaryFile()
                 iso.get_file_from_iso_fp(tmp_file, rr_path=f)
                 tmp_file.seek(0)
-                tmp_file.iname = f
+                tmp_file.iname = f  # type: ignore
                 yield tmp_file
 
 
 @Timing.timeit(NAME)
 def get_header(rpmfile, logger):
-    logger.debug("read header {0}".format(rpmfile))
-    return readHeaderFromRPM(rpmfile)
+    logger.debug(f"read header from {rpmfile}")
+    # return readHeaderFromRPM(rpmfile)
+    ts = TransactionSet()
+    return ts.hdrFromFdno(rpmfile)
 
 
 def check_iso(path, logger):
@@ -457,7 +461,7 @@ class Worker(threading.Thread):
 
                 if isinstance(package, BufferedRandom):
                     package.close()
-                    package = package.iname
+                    package = package.iname  # type: ignore
                 self.logger.debug("process: {0}".format(package))
                 pkghash = check_package_in_cache(self.cache, map_package["pkg_hash"])
                 if self.repair is not None:
@@ -488,7 +492,7 @@ class Worker(threading.Thread):
             except Exception as error:
                 self.logger.error(error, exc_info=True)
                 self.exc = error
-                self.exc_args = {"package": package, "hash": pkghash}
+                self.exc_args = {"package": package, "hash": pkghash}  # type: ignore
                 break
             else:
                 if self.display is not None:
@@ -500,7 +504,7 @@ class Worker(threading.Thread):
         if self.exc:
             msg = (
                 f"Exception occured in {self.name} for package "
-                f"{self.exc_args['package']} with {self.exc_args['hash']}"
+                f"{self.exc_args['package']} with {self.exc_args['hash']}"  # type: ignore
             )
             raise PackageLoadError(msg) from self.exc
 
@@ -884,8 +888,8 @@ def read_repo_structure(repo_name, repo_path, logger):
                     hdrs = readHeaderListFromXZFile(f)
                     for hdr in hdrs:
                         pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-                        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-                        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
+                        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
+                        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
                         if pkglist_name.startswith("srclist"):
                             repo["src_hashes"][pkg_name]["md5"] = pkg_md5
                             repo["src_hashes"][pkg_name]["blake2b"] = pkg_blake2b
@@ -911,12 +915,12 @@ def read_repo_structure(repo_name, repo_path, logger):
         for arch in ARCHS:
             f = p.joinpath(arch + ".hash.xz")
             if f.is_file():
-                contents = (_ for _ in unxz(f, mode_binary=False).split("\n") if len(_))
+                contents = (_ for _ in unxz(f, mode_binary=False).split("\n") if len(_))  # type: ignore
                 if arch == "src":
                     # load to src_hashes
                     for c in contents:
                         pkg_name = c.split()[1]
-                        pkg_sha256 = bytes.fromhex(c.split()[0])
+                        pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
                         # calculate and store missing MD5 hashes for 'src.rpm'
                         # TODO: workaround for missing/unhandled src.gostcrypto.xz
                         if pkg_name not in repo["src_hashes"]:
@@ -924,7 +928,7 @@ def read_repo_structure(repo_name, repo_path, logger):
                                 f"{pkg_name}'s MD5 not found. Calculating it from file"
                             )
                             # calculate missing MD5 from file here
-                            f = root.joinpath("files", "SRPMS", pkg_name)
+                            f = root.joinpath("files", "SRPMS", pkg_name)  # type: ignore
                             if f.is_file():
                                 pkg_md5 = md5_from_file(f, as_bytes=True)
                                 repo["src_hashes"][pkg_name]["md5"] = pkg_md5
@@ -940,7 +944,7 @@ def read_repo_structure(repo_name, repo_path, logger):
                     # load to pkg_hashes
                     for c in contents:
                         pkg_name = c.split()[1]
-                        pkg_sha256 = bytes.fromhex(c.split()[0])
+                        pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
                         repo["pkg_hashes"][pkg_name]["sha256"] = pkg_sha256
         # find packages with SHA256 or blake2b hash missing and calculate it from file
         # for source files
@@ -1019,7 +1023,7 @@ def read_repo_structure(repo_name, repo_path, logger):
     return repo
 
 
-def load(args, logger):
+def load(args: Any, logger: logging.Logger):
     conn = get_client(args)
     # if not check_latest_version(conn):
     #     conn.disconnect()
@@ -1294,12 +1298,12 @@ def load(args, logger):
             isopkg.process_iso(conn, iso, args, constraint_name)
         iso.close()
 
-    for c in connections:
+    for c in connections:  # type: ignore
         if c is not None:
             c.disconnect()
 
-    if display is not None:
-        display.conclusion()
+    if display is not None:  # type: ignore
+        display.conclusion()  # type: ignore
 
 
 def detect_assignment_name(conn, uuid):
