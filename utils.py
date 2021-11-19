@@ -34,8 +34,8 @@ def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
     Returns:
         int: [description]
     """
-    buildtime: int = cvt(hdr[rpm.RPMTAG_BUILDTIME], int)
-    sha1: bytes = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER])) # hex string in bytes
+    buildtime: int = cvt(hdr[rpm.RPMTAG_BUILDTIME], int)  # type: ignore
+    sha1: bytes = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
     md5: bytes = hdr[rpm.RPMTAG_SIGMD5] # bytes
     gpg: bytes = hdr[rpm.RPMTAG_SIGGPG] # bytes
 
@@ -110,19 +110,19 @@ class Display:
         self.timer_init_delta = timer_init_delta
 
     def _showmsg(self):
-        t = time() - self.timer
+        t = time() - self.timer  # type: ignore
         self.log.info(self.MSG.format(self.step, t, t / self.step))
         self.log.info("Total: {0}".format(self.counter))
 
     def _update(self):
         self.counter += 1
         t = time()
-        self.timesum_short += t - self.timer_short
+        self.timesum_short += t - self.timer_short  # type: ignore
         self.timer_short = time()
         if self.counter % self.step == 0:
             self._showmsg()
             t = time()
-            self.timesum += t - self.timer
+            self.timesum += t - self.timer  # type: ignore
             self.timer = time()
 
     def inc(self):
@@ -204,9 +204,9 @@ def changelog_to_list(dates, names, texts):
     chlog = []
     for date_, name_, text_ in zip(dates, names, texts):
         tmp = cvt(name_)
-        if len(tmp.split(">")) == 2:
-            name = tmp.split(">")[0] + ">"
-            evr = tmp.split(">")[1].strip()
+        if len(tmp.split(">")) == 2:  # type: ignore
+            name = tmp.split(">")[0] + ">"  # type: ignore
+            evr = tmp.split(">")[1].strip()  # type: ignore
         else:
             name = tmp
             evr = ""
@@ -235,7 +235,7 @@ def convert_file_class(fc: str):
 
 
 # packager parsing regex
-packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")
+packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")  # type: ignore
 
 
 def packager_parse(packager):
@@ -465,11 +465,11 @@ def log_parser(logger, log_file, log_type, log_start_time):
         generator(tuple(tuple(int, datetime, str),)): return parsed log as generator of tuples of line number, timestamp and message
     """
     # matches with '2020-May-15 10:30:00 '
-    events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")
+    events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")  # type: ignore
     # matches with '<13>Sep 13 17:53:14 '
-    srpm_pattern = re.compile("^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")
+    srpm_pattern = re.compile("^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")  # type: ignore
     # matches with '[00:03:15] '
-    build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")
+    build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
 
     if not Path(log_file).is_file():
         logger.error(f"File '{log_file}' not found")
@@ -518,7 +518,7 @@ def log_parser(logger, log_file, log_type, log_start_time):
                                 yield (
                                     line_cnt,
                                     datetime.datetime.strptime(
-                                        last_dt, "%Y-%b-%d %H:%M:%S"
+                                        last_dt, "%Y-%b-%d %H:%M:%S"  # type: ignore
                                     ),
                                     msg,
                                 )
@@ -555,7 +555,7 @@ def log_parser(logger, log_file, log_type, log_start_time):
                                 ts = log_start_time
                             else:
                                 ts_str = f"{str(log_start_time.year)} " + " ".join(
-                                    [x for x in last_dt[4:].split(" ") if len(x) > 0]
+                                    [x for x in last_dt[4:].split(" ") if len(x) > 0]  # type: ignore
                                 )
                                 ts = datetime.datetime.strptime(
                                     ts_str, "%Y %b %d %H:%M:%S"
@@ -598,7 +598,7 @@ def parse_hash_diff(hash_file):
     Returns:
         (dict, dict): added hashses, deleted hashes
     """
-    hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")
+    hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")  # type: ignore
     h_added = {}
     h_deleted = {}
     try:
@@ -642,7 +642,7 @@ def parse_pkglist_diff(diff_file, is_src_list):
         srpm: str
         arch: str
 
-    diff_pattern = re.compile("^[+-]+[a-zA-Z0-9]+\S+")
+    diff_pattern = re.compile("^[+-]+[a-zA-Z0-9]+\S+")  # type: ignore
     p_added: list[PkgInfo] = []
     p_deleted: list[PkgInfo] = []
     try:
