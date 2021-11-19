@@ -14,13 +14,14 @@ from dataclasses import dataclass
 from hashlib import sha256, md5, blake2b
 from typing import Any
 
+from altrpm import rpm
 
 def mmhash(val):
     a, b = mmh3.hash64(val, signed=False)
     return a ^ b
 
 
-def snowflake_id(hdr: dict[str, Any], epoch: int = 1_000_000_000) -> int:
+def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
     """Genarates showflake-like ID using data from RPM package header object.
     Returns 64 bit wide unsigned integer:
         - most significant 32 bits package build time delta from epoch
@@ -33,10 +34,10 @@ def snowflake_id(hdr: dict[str, Any], epoch: int = 1_000_000_000) -> int:
     Returns:
         int: [description]
     """
-    buildtime: int = cvt(hdr["RPMTAG_BUILDTIME"], int)
-    sha1: bytes = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"])) # hex string in bytes
-    md5: bytes = hdr["RPMSIGTAG_MD5"] # bytes
-    gpg: bytes = hdr["RPMSIGTAG_GPG"] # bytes
+    buildtime: int = cvt(hdr[rpm.RPMTAG_BUILDTIME], int)
+    sha1: bytes = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER])) # hex string in bytes
+    md5: bytes = hdr[rpm.RPMTAG_SIGMD5] # bytes
+    gpg: bytes = hdr[rpm.RPMTAG_SIGGPG] # bytes
 
     if md5 is None:
         md5 = b""
