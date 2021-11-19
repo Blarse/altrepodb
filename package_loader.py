@@ -116,8 +116,7 @@ class PackageLoader:
         return {i[0] for i in result}
 
     def _get_header(self):  # return rpm header object
-        self.logger.debug(f"reading header for {self.pkg}")
-        return extract.get_header(self.pkg, self.logger)
+        return extract.get_header(str(self.pkg), self.logger)
 
     def _get_file_size(self) -> int:
         try:
@@ -135,7 +134,7 @@ class PackageLoader:
         self.logger.debug(
             f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
-        self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
+        self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")  # type: ignore
         st = time.time()
         kw = {
             "pkg_hash": snowflake_id(hdr),
@@ -143,9 +142,9 @@ class PackageLoader:
             "pkg_epoch": cvt(hdr[rpm.RPMTAG_EPOCH], int),
             "pkg_version": cvt(hdr[rpm.RPMTAG_VERSION]),
             "pkg_release": cvt(hdr[rpm.RPMTAG_RELEASE]),
-            "specfile_name": spec_file.name,
-            "specfile_date": spec_file.mtime,
-            "specfile_content_base64": base64.b64encode(spec_contents),
+            "specfile_name": spec_file.name,  # type: ignore
+            "specfile_date": spec_file.mtime,  # type: ignore
+            "specfile_content_base64": base64.b64encode(spec_contents),  # type: ignore
         }
         self.conn.execute(self.sql.insert_spec_file, [kw,])
         self.logger.info(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
@@ -159,7 +158,7 @@ class PackageLoader:
         if not int(bool(hdr["RPMTAG_SOURCEPACKAGE"])):
             raise ValueError("Binary package files loading not supported yet")
 
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
 
         self.logger.debug(f"calculate MD5 for {pkg_name} file")
