@@ -880,7 +880,7 @@ def read_repo_structure(repo_name, repo_path, logger):
             for pkglist_name in pkglist_names:
                 f = base_subdir.joinpath(pkglist_name + ".xz")
                 if f.is_file():
-                    print(f"DEBUG: read headers list from {f}")
+                    logger.info(f"Reading headers list from {f}")
                     hdrs = readHeaderListFromXZFile(f)
                     for hdr in hdrs:
                         pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
