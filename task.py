@@ -14,6 +14,7 @@ from pathlib import Path
 from collections import defaultdict, namedtuple
 
 import extract
+from altrpm import rpm, readHeaderListFromXZFile
 from utils import (
     cvt,
     mmhash,
@@ -224,7 +225,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
@@ -447,7 +448,7 @@ class PackageLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
@@ -1038,11 +1039,11 @@ def init_task_structure_from_task(girar, logger):
     for pkglist in (
         x for x in girar.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
     ):
-        hdrs = extract.read_headers_from_xz_pkglist(pkglist, logger)
+        hdrs = readHeaderListFromXZFile(pkglist)
         for hdr in hdrs:
-            pkg_name = cvt(hdr["RPMTAG_APTINDEXLEGACYFILENAME"])
-            pkg_md5 = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYMD5"]))
-            pkg_blake2b = bytes.fromhex(cvt(hdr["RPMTAG_APTINDEXLEGACYBLAKE2B"]))
+            pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
             task["pkg_hashes"][pkg_name]["blake2b"] = pkg_blake2b
             # FIXME: workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
             if task["pkg_hashes"][pkg_name]["md5"]:
