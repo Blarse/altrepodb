@@ -9,8 +9,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-import altrpm
 import extract
+from altrpm import rpm, extractSpecAndHeadersFromRPM
 from utils import (
     cvt,
     get_logger,
@@ -19,7 +19,6 @@ from utils import (
     sha256_from_file,
     blake2b_from_file,
 )
-
 
 NAME = "package"
 
@@ -130,7 +129,7 @@ class PackageLoader:
     def _load_spec(self) -> None:
         self.logger.info(f"extracting spec file form {self.pkg.name}")
         st = time.time()
-        spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(
+        spec_file, spec_contents, hdr = extractSpecAndHeadersFromRPM(
             self.pkg, raw=True
         )
         self.logger.debug(
@@ -140,10 +139,10 @@ class PackageLoader:
         st = time.time()
         kw = {
             "pkg_hash": snowflake_id(hdr),
-            "pkg_name": cvt(hdr["RPMTAG_NAME"]),
-            "pkg_epoch": cvt(hdr["RPMTAG_EPOCH"], int),
-            "pkg_version": cvt(hdr["RPMTAG_VERSION"]),
-            "pkg_release": cvt(hdr["RPMTAG_RELEASE"]),
+            "pkg_name": cvt(hdr[rpm.RPMTAG_NAME]),
+            "pkg_epoch": cvt(hdr[rpm.RPMTAG_EPOCH], int),
+            "pkg_version": cvt(hdr[rpm.RPMTAG_VERSION]),
+            "pkg_release": cvt(hdr[rpm.RPMTAG_RELEASE]),
             "specfile_name": spec_file.name,
             "specfile_date": spec_file.mtime,
             "specfile_content_base64": base64.b64encode(spec_contents),
@@ -160,7 +159,7 @@ class PackageLoader:
         if not int(bool(hdr["RPMTAG_SOURCEPACKAGE"])):
             raise ValueError("Binary package files loading not supported yet")
 
-        sha1 = bytes.fromhex(cvt(hdr["RPMSIGTAG_SHA1"]))
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
 
         self.logger.debug(f"calculate MD5 for {pkg_name} file")
