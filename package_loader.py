@@ -161,6 +161,15 @@ class PackageLoader:
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
 
+        kw["pkg_hash"] = hashes["mmh"]
+        kw["pkg_filename"] = pkg_name
+        kw["pkg_filesize"] = self._get_file_size()
+        if is_srpm:
+            kw["pkg_sourcerpm"] = pkg_name
+            kw["pkg_srcrpm_hash"] = hashes["mmh"]
+        else:
+            kw["pkg_srcrpm_hash"] = srpm_hash
+
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             self.logger.debug(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
@@ -170,15 +179,6 @@ class PackageLoader:
 
             self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
-
-            kw["pkg_hash"] = hashes["mmh"]
-            kw["pkg_filename"] = pkg_name
-            kw["pkg_filesize"] = self._get_file_size()
-            if is_srpm:
-                kw["pkg_sourcerpm"] = pkg_name
-                kw["pkg_srcrpm_hash"] = hashes["mmh"]
-            else:
-                kw["pkg_srcrpm_hash"] = srpm_hash
 
             extract.insert_package(self.conn, self.logger, hdr, self.pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
