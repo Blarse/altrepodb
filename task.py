@@ -312,6 +312,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         task_iterations: Iterable,
         count_list: list,
         force_load: bool,
+        lock: threading.Lock,
         *args,
         **kwargs,
     ) -> None:
@@ -325,7 +326,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.force = force_load
-        self.lock = threading.Lock()
+        self.lock = lock
         super().__init__(*args, **kwargs)
 
     def _calculate_hash_from_array_by_CH(self, hashes):
@@ -485,6 +486,7 @@ def titer_load_worker_pool(
     connections = []
     titer_count = []
     titers = LockedIterator((titer for titer in task_iterations))
+    src_load_lock = threading.Lock()
 
     if num_of_workers:
         args.workers = num_of_workers
@@ -511,6 +513,7 @@ def titer_load_worker_pool(
             titers,
             titer_count,
             args.force,
+            src_load_lock,
         )
         worker.start()
         workers.append(worker)
