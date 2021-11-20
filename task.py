@@ -342,6 +342,15 @@ class TaskIterationLoaderWorker(RaisingTread):
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
+        kw["pkg_hash"] = hashes["mmh"]
+        kw["pkg_filename"] = pkg_name
+        kw["pkg_filesize"] = self.girar.get_file_size(pkg)
+        if is_srpm:
+            kw["pkg_sourcerpm"] = pkg_name
+            kw["pkg_srcrpm_hash"] = hashes["mmh"]
+        else:
+            kw["pkg_srcrpm_hash"] = srpm_hash
+
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             if self.pkg_hashes[pkg_name]["md5"]:
                 hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
@@ -364,15 +373,6 @@ class TaskIterationLoaderWorker(RaisingTread):
                 hashes["blake2b"] = blake2b_from_file(
                     self.girar.get_file_path(pkg), as_bytes=True
                 )
-
-            kw["pkg_hash"] = hashes["mmh"]
-            kw["pkg_filename"] = pkg_name
-            kw["pkg_filesize"] = self.girar.get_file_size(pkg)
-            if is_srpm:
-                kw["pkg_sourcerpm"] = pkg_name
-                kw["pkg_srcrpm_hash"] = hashes["mmh"]
-            else:
-                kw["pkg_srcrpm_hash"] = srpm_hash
 
             extract.insert_package(
                 self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
