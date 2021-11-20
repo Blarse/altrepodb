@@ -311,7 +311,6 @@ class TaskIterationLoaderWorker(RaisingTread):
         task_logs: list,
         task_iterations: Iterable,
         count_list: list,
-        force_load: bool,
         lock: threading.Lock,
         *args,
         **kwargs,
@@ -325,7 +324,6 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.titers = task_iterations
         self.count_list = count_list
         self.count = 0
-        self.force = force_load
         self.lock = lock
         super().__init__(*args, **kwargs)
 
@@ -351,7 +349,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             if self.pkg_hashes[pkg_name]["md5"]:
                 hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
             else:
@@ -498,7 +496,10 @@ def titer_load_worker_pool(
         for pkg in titer["titer_rpms"]:
             packages_.append(pkg)
 
-    pkg_hashes_cache = init_cache(conn, packages_, logger)
+    if not args.force:
+        pkg_hashes_cache = init_cache(conn, packages_, logger)
+    else:
+        pkg_hashes_cache = set()
 
     for i in range(args.workers):
         conn = get_client(args)
@@ -512,7 +513,6 @@ def titer_load_worker_pool(
             task_logs,
             titers,
             titer_count,
-            args.force,
             src_load_lock,
         )
         worker.start()
@@ -545,7 +545,6 @@ class PackageLoaderWorker(RaisingTread):
         task_pkg_hashes: dict,
         packages: Iterable,
         count_list: list,
-        force_load: bool,
         *args,
         **kwargs,
     ) -> None:
@@ -558,7 +557,6 @@ class PackageLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = threading.Lock()
-        self.force = force_load
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
@@ -600,7 +598,7 @@ class PackageLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             extract.insert_package(
                 self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
             )
@@ -648,7 +646,10 @@ def package_load_worker_pool(
     connections = []
     packages = LockedIterator((pkg for pkg in packages_))
 
-    pkg_hashes_cache = init_cache(conn, packages_, logger)
+    if not args.force:
+        pkg_hashes_cache = init_cache(conn, packages_, logger)
+    else:
+        pkg_hashes_cache = set()
 
     if num_of_workers:
         args.workers = num_of_workers
@@ -664,7 +665,6 @@ def package_load_worker_pool(
             task_pkg_hashes,
             packages,
             pkg_count,
-            args.force,
         )
         worker.start()
         workers.append(worker)
