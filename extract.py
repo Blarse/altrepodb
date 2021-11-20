@@ -1,3 +1,4 @@
+from multiprocessing import pool
 import os
 import time
 import lzma
@@ -19,6 +20,7 @@ from collections import defaultdict
 from io import BufferedRandom, BytesIO
 from rpm import TransactionSet
 from typing import Any
+import multiprocessing
 
 from altrpm import (
     rpm,
@@ -803,6 +805,19 @@ def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
     )
     return result[0][0] != 0
 
+def get_hashes_from_pkglist(fname: str) -> tuple[bool,str,dict]:
+    hdrs = readHeaderListFromXZFile(fname)
+    if fname.split("/")[-1].startswith("srclist"):
+        src_list = True
+    else:
+        src_list = False
+    hsh = {}
+    for hdr in hdrs:
+        pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
+        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
+        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
+        hsh[pkg_name] = (pkg_md5, pkg_blake2b)
+    return src_list, fname, hsh
 
 def read_repo_structure(repo_name, repo_path, logger):
     """Reads repository structure for given path and store
@@ -844,6 +859,8 @@ def read_repo_structure(repo_name, repo_path, logger):
         msg = f"The path '{str(root)}' is not regular repo structure root"
         raise FunctionalNotImplemented(msg)
 
+
+    pkglists = []
     for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)]:
         # if arch_dir.is_dir() and arch_dir.name in ARCHS:
         repo["arch"]["archs"].append(
@@ -881,24 +898,28 @@ def read_repo_structure(repo_name, repo_path, logger):
             pkglist_names += [
                 ("pkglist." + _) for _ in repo["comp"]["kwargs"]["all_comps"]
             ]
+            # pkglists = []
             for pkglist_name in pkglist_names:
                 f = base_subdir.joinpath(pkglist_name + ".xz")
                 if f.is_file():
-                    logger.info(f"Reading headers list from {f}")
-                    hdrs = readHeaderListFromXZFile(f)
-                    for hdr in hdrs:
-                        pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-                        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
-                        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
-                        if pkglist_name.startswith("srclist"):
-                            repo["src_hashes"][pkg_name]["md5"] = pkg_md5
-                            repo["src_hashes"][pkg_name]["blake2b"] = pkg_blake2b
-                        else:
-                            repo["pkg_hashes"][pkg_name]["md5"] = pkg_md5
-                            repo["pkg_hashes"][pkg_name]["blake2b"] = pkg_blake2b
+                    pkglists.append(str(f))
             # check if blake2b hashes used by release file contents
             if not repo["use_blake2b"]:
                 repo["use_blake2b"] = check_release_for_blake2b(release_file)
+
+    # get hashes from header lists with multiprocessing
+    logger.info(f"Reading package's hashes from headers lists")
+    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as p:
+        for res in p.map(get_hashes_from_pkglist, pkglists):
+            logger.info(f"Got {len(res[2])} package hashes from {res[1]}")
+            if res[0]:
+                for k, v in res[2].items():
+                    repo["src_hashes"][k]["md5"] = v[0]
+                    repo["src_hashes"][k]["blake2b"] = v[1]
+            else:
+                for k, v in res[2].items():
+                    repo["pkg_hashes"][k]["md5"] = v[0]
+                    repo["pkg_hashes"][k]["blake2b"] = v[1]
 
     # check if '%root%/files/list' exists and load all data from it
     p = root.joinpath("files/list")
