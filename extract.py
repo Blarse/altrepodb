@@ -1,4 +1,3 @@
-from multiprocessing import pool
 import os
 import time
 import lzma
@@ -366,7 +365,7 @@ def get_client(args):
         port=args.port,
         database=args.dbname,
         user=args.user,
-        password=args.password
+        password=args.password,
     )
 
 
@@ -805,7 +804,8 @@ def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
     )
     return result[0][0] != 0
 
-def get_hashes_from_pkglist(fname: str) -> tuple[bool,str,dict]:
+
+def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
     hdrs = readHeaderListFromXZFile(fname)
     if fname.split("/")[-1].startswith("srclist"):
         src_list = True
@@ -818,6 +818,7 @@ def get_hashes_from_pkglist(fname: str) -> tuple[bool,str,dict]:
         pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
         hsh[pkg_name] = (pkg_md5, pkg_blake2b)
     return src_list, fname, hsh
+
 
 def read_repo_structure(repo_name, repo_path, logger):
     """Reads repository structure for given path and store
@@ -859,7 +860,6 @@ def read_repo_structure(repo_name, repo_path, logger):
         msg = f"The path '{str(root)}' is not regular repo structure root"
         raise FunctionalNotImplemented(msg)
 
-
     pkglists = []
     for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)]:
         # if arch_dir.is_dir() and arch_dir.name in ARCHS:
@@ -898,7 +898,6 @@ def read_repo_structure(repo_name, repo_path, logger):
             pkglist_names += [
                 ("pkglist." + _) for _ in repo["comp"]["kwargs"]["all_comps"]
             ]
-            # pkglists = []
             for pkglist_name in pkglist_names:
                 f = base_subdir.joinpath(pkglist_name + ".xz")
                 if f.is_file():
