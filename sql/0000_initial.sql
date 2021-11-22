@@ -541,13 +541,15 @@ ORDER BY (bz_id, bz_component, bz_assignee) PRIMARY KEY (bz_id);
 -- Repository status table
 CREATE TABLE RepositoryStatus
 (
-    pkgset_name         LowCardinality(String),
-    rs_start_date       DateTime,
-    rs_end_date         DateTime,
-    rs_show             UInt8, -- 0 - hide branch, 1 - show branch
-    rs_description_ru   String,
-    rs_description_en   String,
-    rs_mirrors_json     String, -- package set mirror details as stringify JSON structure
+    pkgset_name             LowCardinality(String),
+    rs_start_date           DateTime,
+    rs_end_date             DateTime,
+    rs_show                 UInt8, -- 0 - hide branch, 1 - show branch
+    rs_description_ru       String,
+    rs_description_en       String,
+    rs_mirrors_json         String, -- package set mirror details as stringify JSON structure
+    rs_mailing_list         LowCardinality(String), -- branch mailing list URL
+    rs_pkgset_name_bugzilla LowCardinality(String), -- branch name in Bugzilla
     ts DateTime64 MATERIALIZED now64()
 )
 ENGINE = MergeTree
