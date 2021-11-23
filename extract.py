@@ -231,8 +231,6 @@ def insert_pkgset_name(
             hour=0, minute=0, second=0, microsecond=0
         )
     sql = "INSERT INTO PackageSetName (*) VALUES"
-    # if uuid is None:
-    #     uuid = str(uuid4())
     data = {
         "pkgset_uuid": uuid,
         "pkgset_puuid": puuid,
@@ -378,7 +376,7 @@ class Worker(threading.Thread):
         src_repo_cache,
         pkg_repo_cache,
         packages,
-        aname,
+        pkgset,
         display,
         repair,
         is_src=False,
@@ -388,7 +386,7 @@ class Worker(threading.Thread):
         self.connection = connection
         self.logger = logger
         self.packages = packages
-        self.aname = aname
+        self.pkgset = pkgset
         self.display = display
         self.src_repo_cache = src_repo_cache
         self.pkg_repo_cache = pkg_repo_cache
@@ -465,12 +463,7 @@ class Worker(threading.Thread):
                     package = package.iname  # type: ignore
                 self.logger.debug("process: {0}".format(package))
                 pkghash = check_package_in_cache(self.cache, map_package["pkg_hash"])
-                if self.repair is not None:
-                    if pkghash is not None:
-                        repair_package(
-                            self.connection, self.logger, header, self.repair, **kw
-                        )
-                    continue
+
                 if pkghash is None:
                     pkghash = insert_package(
                         self.connection, self.logger, header, package, **kw
@@ -489,7 +482,7 @@ class Worker(threading.Thread):
                     raise PackageLoadError(
                         f"No hash for {package} from 'insert_package()'"
                     )
-                self.aname.add(pkghash)
+                self.pkgset.add(pkghash)
             except Exception as error:
                 self.logger.error(error, exc_info=True)
                 self.exc = error
@@ -845,6 +838,7 @@ def read_repo_structure(repo_name, repo_path, logger):
         "src_hashes": defaultdict(lambda: defaultdict(lambda: None, key=None)),
         "pkg_hashes": defaultdict(lambda: defaultdict(lambda: None, key=None)),
         "use_blake2b": False,
+        "bin_pkgs": {},
     }
 
     repo["src"]["puuid"] = repo["repo"]["uuid"]
@@ -916,6 +910,11 @@ def read_repo_structure(repo_name, repo_path, logger):
                     repo["src_hashes"][k]["md5"] = v[0]
                     repo["src_hashes"][k]["blake2b"] = v[1]
             else:
+                # store binary packages by arch and component
+                arch_ = res[1].split("/")[-3]
+                comp_ = res[1].split(".")[-2]
+                repo["bin_pkgs"][(arch_, comp_)] = tuple(res[2].keys())
+                # store hashes
                 for k, v in res[2].items():
                     repo["pkg_hashes"][k]["md5"] = v[0]
                     repo["pkg_hashes"][k]["blake2b"] = v[1]
@@ -1045,10 +1044,6 @@ def read_repo_structure(repo_name, repo_path, logger):
 
 def load(args: Any, logger: logging.Logger):
     conn = get_client(args)
-    # if not check_latest_version(conn):
-    #     conn.disconnect()
-    #     raise RuntimeError('Incorrect database schema version')
-    # logger.debug('check database version complete')
     iso = check_iso(args.path, logger)
     if iso:
         if check_assignment_name(conn, args.pkgset):
@@ -1113,18 +1108,19 @@ def load(args: Any, logger: logging.Logger):
             logger.info(
                 f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}"
             )
-            for rpm_file in src_dir.iterdir():
-                if rpm_file.suffix == ".rpm":
-                    pkg_count += 1
-                    if repo["src_hashes"][rpm_file.name]["sha1"] is None:
-                        packages_list.append(str(rpm_file))
-                    else:
-                        pkgh = repo["src_hashes"][rpm_file.name]["mmh"]
-                        if not pkgh:
-                            msg = f"No hash found in cache for {rpm_file.name}"
-                            raise ValueError(msg)
-                        pkgset_cached.add(pkgh)
-                        pkg_count2 += 1
+            for pkg in repo["src_hashes"]:
+                pkg_count += 1
+                if repo["src_hashes"][pkg]["sha1"] is None:
+                    rpm_file = src_dir.joinpath(pkg)
+                    if not rpm_file.is_file():
+                        raise ValueError(f"File {rpm_file} not found")
+                    packages_list.append(str(rpm_file))
+                else:
+                    pkgh = repo["src_hashes"][pkg]["mmh"]
+                    if not pkgh:
+                        raise ValueError(f"No hash found in cache for {pkg}")
+                    pkgset_cached.add(pkgh)
+                    pkg_count2 += 1
             logger.info(
                 f"Checked {pkg_count} SRC packages. "
                 f"{pkg_count2} packages in cache, "
@@ -1200,17 +1196,21 @@ def load(args: Any, logger: logging.Logger):
                 pkg_count = 0
                 logger.info(f"Start checking RPM packages in '{comp['path']}'")
                 rpm_dir = Path.joinpath(repo_root, comp["path"])
-                for rpm_file in rpm_dir.iterdir():
-                    if rpm_file.suffix == ".rpm":
-                        pkg_count += 1
-                        if repo["pkg_hashes"][rpm_file.name]["sha1"] is None:
-                            packages_list.append(str(rpm_file))
-                        else:
-                            pkgh = repo["pkg_hashes"][rpm_file.name]["mmh"]
-                            if not pkgh:
-                                msg = f"No hash found in cache for {rpm_file.name}"
-                                raise ValueError(msg)
-                            pkgset_cached.add(pkgh)
+                # proceed binary packages using repo["bin_pkgs"] dictionary
+                arch_ = comp["path"].split("/")[0]
+                comp_ = comp["path"].split(".")[-1]
+                for pkg in repo["bin_pkgs"][(arch_, comp_)]:
+                    rpm_file = rpm_dir.joinpath(pkg)
+                    pkg_count += 1
+                    if repo["pkg_hashes"][pkg]["sha1"] is None:
+                        if not rpm_file.is_file():
+                            raise ValueError(f"File {pkg} not found in {comp['path']}")
+                        packages_list.append(str(rpm_file))
+                    else:
+                        pkgh = repo["pkg_hashes"][rpm_file.name]["mmh"]
+                        if not pkgh:
+                            raise ValueError(f"No hash found in cache for {pkg}")
+                        pkgset_cached.add(pkgh)
                 logger.info(
                     f"Checked {pkg_count} RPM packages. "
                     f"{len(packages_list)} packages for load. "
@@ -1279,35 +1279,7 @@ def load(args: Any, logger: logging.Logger):
                 kv_args=tmp_d,
             )
 
-    # packages = LockedIterator(find_packages(args))
-    # workers = []
-    # connections = [conn]
-    # display = None
-    # if args.verbose and args.repair is None:
-    #     display = Display(log)
-    # cache = init_cache(conn)
-    # aname = set()
-    # for i in range(args.workers):
-    #     conn = get_client(args)
-    #     connections.append(conn)
-    #     worker = Worker(conn, cache, packages, aname, display, args.repair)
-    #     worker.start()
-    #     workers.append(worker)
-
-    # for w in workers:
-    #     w.join()
-
     aname_id = str(uuid4())
-    # if args.repair is None:
-    #     insert_assignment_name(
-    #         conn,
-    #         assignment_name=args.assignment,
-    #         uuid=aname_id,
-    #         tag=args.tag,
-    #         assignment_date=args.date,
-    #         complete=1
-    #     )
-    #     insert_assignment(conn, aname_id, aname)
 
     if iso:
         if args.constraint is not None:
