@@ -1,30 +1,27 @@
-import argparse
-import configparser
-import logging
 import os
-import os.path
 import sys
-import urllib.error
-import urllib.request
-from collections import defaultdict, namedtuple
-from pathlib import Path
-import datetime
-import time
-import traceback
-import threading
-import rpm
 import json
+import time
+import logging
+import argparse
+import datetime
+import threading
+import traceback
+import configparser
 import clickhouse_driver as chd
 from copy import deepcopy
+from pathlib import Path
+from collections import defaultdict, namedtuple
+from typing import Iterable
 
 import extract
-
-# from extract import get_header, insert_package, init_cache, check_package
+from altrpm import rpm, readHeaderListFromXZFile
 from utils import (
     cvt,
     mmhash,
     get_logger,
     log_parser,
+    snowflake_id,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
@@ -35,7 +32,7 @@ from utils import (
     cvt_datetime_local_to_utc,
     set_datetime_timezone_to_utc,
     LockedIterator,
-    GeneratorWrapper
+    GeneratorWrapper,
 )
 
 
@@ -72,7 +69,7 @@ class RaisingTread(threading.Thread):
         if self.exc:
             raise RaisingThreadError(
                 message=self.exc_message, traceback=self.exc_traceback
-            ) from self.exc
+            ) from self.exc  # type: ignore
 
 
 def get_client(args):
@@ -107,8 +104,119 @@ def init_cache(conn, packages, logger):
     return {i[0] for i in result}
 
 
+class TaskFromFS:
+    def __init__(self, path: str, logger: logging.Logger):
+        self.logger = logger
+        self.path = Path(path)
+
+    def _get_content(self, path, status=False):
+        r = None
+        if status:
+            if Path(path).exists():
+                return True
+            else:
+                return False
+        try:
+            r = Path(path).read_bytes()
+        except IsADirectoryError:
+            # return directory listing
+            return [x for x in Path(path).iterdir()]
+        except FileNotFoundError as e:
+            self.logger.debug(f"{e} - {path}")
+            return None
+        except Exception as e:
+            self.logger.error(f"{e} - {path}")
+            return None
+        return r
+
+    def get(self, path):
+        p = Path.joinpath(self.path, path)
+        r = self._get_content(p, status=False)
+        return cvt(r)
+
+    def check(self):
+        return self._get_content(self.path, status=True)
+
+    def check_file(self, path):
+        p = Path.joinpath(self.path, path)
+        return self._get_content(p, status=True)
+
+    def get_bytes(self, path):
+        p = Path.joinpath(self.path, path)
+        r = self._get_content(p, status=False)
+        return r
+
+    def get_file_mtime(self, path):
+        p = Path.joinpath(self.path, path)
+        try:
+            mtime = p.stat().st_mtime
+        except FileNotFoundError:
+            return None
+        return cvt_ts_to_datetime(mtime, use_local_tz=False)
+
+    def get_file_size(self, path):
+        p = Path.joinpath(self.path, path)
+        try:
+            file_size = p.stat().st_size
+        except FileNotFoundError:
+            return 0
+        return file_size
+
+    def get_header(self, path):
+        return extract.get_header(str(Path.joinpath(self.path, path)), self.logger)
+
+    def get_file_path(self, path):
+        return Path.joinpath(self.path, path)
+
+    def file_exists_and_not_empty(self, path):
+        p = Path.joinpath(self.path, path)
+        if p.is_file() and p.stat().st_size > 0:
+            return True
+        else:
+            return False
+
+    def get_symlink_target(self, path, name_only=False):
+        symlink = Path.joinpath(self.path, path)
+        if symlink.is_symlink():
+            if name_only:
+                return str(symlink.resolve().name)
+            else:
+                return str(symlink.resolve())
+        else:
+            return None
+
+    def parse_approval_file(self, path):
+        p = Path.joinpath(self.path, path)
+        r = self._get_content(p, status=False)
+        n = d = m = None
+        if r:
+            r = cvt(r)
+            try:
+                d, *m = [x for x in r.split("\n") if len(x) > 0]  # type: ignore
+                d, n = [x.strip() for x in d.split("::") if len(x) > 0]  # type: ignore
+                n = n.split(" ")[-1]  # type: ignore
+                d = datetime.datetime.strptime(d, "%Y-%b-%d %H:%M:%S")  # type: ignore
+                d = set_datetime_timezone_to_utc(d)
+                m = "\n".join((x for x in m))  # type: ignore
+                return (n, d, m)
+            except Exception as e:
+                self.logger.error(
+                    f"File parsing failed with error {e} for '{path}' contains '{r}'"
+                )
+        return None
+
+
 class LogLoaderWorker(RaisingTread):
-    def __init__(self, conn, girar, logger, logs, count_list, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        conn: chd.Client,
+        girar: TaskFromFS,
+        logger: logging.Logger,
+        logs: Iterable,
+        count_list: list,
+        *args,
+        **kwargs,
+    ) -> None:
         self.conn = conn
         self.girar = girar
         self.logger = logger
@@ -142,7 +250,7 @@ class LogLoaderWorker(RaisingTread):
                                 tlog_ts=t,
                                 tlog_message=m,
                             )
-                            for l, t, m in log_parsed
+                            for l, t, m in log_parsed  # type: ignore
                         ),
                     )
                     self.logger.debug(
@@ -153,7 +261,7 @@ class LogLoaderWorker(RaisingTread):
             except Exception as error:
                 self.logger.error(error, exc_info=True)
                 self.exc = error
-                self.exc_message = f"Exception in thread {self.name} for log {log_name}"
+                self.exc_message = f"Exception in thread {self.name} for log {log_name}"  # type: ignore
                 self.exc_traceback = traceback.format_exc()
                 break
         self.logger.debug(f"thread {self.ident} stop")
@@ -195,15 +303,15 @@ def log_load_worker_pool(args, girar, logger, logs_list, num_of_workers=None):
 class TaskIterationLoaderWorker(RaisingTread):
     def __init__(
         self,
-        conn,
-        girar,
-        logger,
-        pkg_hashes_cache,
-        task_pkg_hashes,
-        task_logs,
-        task_iterations,
-        count_list,
-        force_load,
+        conn: chd.Client,
+        girar: TaskFromFS,
+        logger: logging.Logger,
+        pkg_hashes_cache: set,
+        task_pkg_hashes: dict,
+        task_logs: list,
+        task_iterations: Iterable,
+        count_list: list,
+        lock: threading.Lock,
         *args,
         **kwargs,
     ) -> None:
@@ -216,44 +324,21 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.titers = task_iterations
         self.count_list = count_list
         self.count = 0
-        self.force = force_load
-        self.lock = threading.Lock()
+        self.lock = lock
         super().__init__(*args, **kwargs)
 
     def _calculate_hash_from_array_by_CH(self, hashes):
         sql = "SELECT murmurHash3_64(%(hashes)s)"
         r = self.conn.execute(sql, {"hashes": hashes})
-        return int(r[0][0])
+        return int(r[0][0])  # type: ignore
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
-
-        if self.pkg_hashes[pkg_name]["md5"]:
-            hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
-        else:
-            self.logger.debug(f"calculate MD5 for {pkg_name} file")
-            hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
-
-        if self.pkg_hashes[pkg_name]["sha256"]:
-            hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
-        else:
-            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-            hashes["sha256"] = sha256_from_file(
-                self.girar.get_file_path(pkg), as_bytes=True
-            )
-
-        if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
-            hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
-        else:
-            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
-            hashes["blake2b"] = blake2b_from_file(
-                self.girar.get_file_path(pkg), as_bytes=True
-            )
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
@@ -264,7 +349,29 @@ class TaskIterationLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+            if self.pkg_hashes[pkg_name]["md5"]:
+                hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
+            else:
+                self.logger.debug(f"calculate MD5 for {pkg_name} file")
+                hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+
+            if self.pkg_hashes[pkg_name]["sha256"]:
+                hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
+            else:
+                self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+                hashes["sha256"] = sha256_from_file(
+                    self.girar.get_file_path(pkg), as_bytes=True
+                )
+
+            if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
+                hashes["blake2b"] = self.pkg_hashes[pkg_name]["blake2b"]
+            else:
+                self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+                hashes["blake2b"] = blake2b_from_file(
+                    self.girar.get_file_path(pkg), as_bytes=True
+                )
+
             extract.insert_package(
                 self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
             )
@@ -353,7 +460,9 @@ class TaskIterationLoaderWorker(RaisingTread):
                 self.exc_message = f"Exception in thread {self.name} for task iteration {titer['task_id']} {titer['subtask_id']}"
                 self.exc_traceback = traceback.format_exc()
                 break
-            self.logger.info(f"{self.count} packages loaded from /build/{subtask}/{arch}")
+            self.logger.info(
+                f"{self.count} packages loaded from /build/{subtask}/{arch}"
+            )
             if self.count:
                 self.count = 0
         self.logger.debug(f"thread {self.ident} stop")
@@ -375,6 +484,7 @@ def titer_load_worker_pool(
     connections = []
     titer_count = []
     titers = LockedIterator((titer for titer in task_iterations))
+    src_load_lock = threading.Lock()
 
     if num_of_workers:
         args.workers = num_of_workers
@@ -386,7 +496,10 @@ def titer_load_worker_pool(
         for pkg in titer["titer_rpms"]:
             packages_.append(pkg)
 
-    pkg_hashes_cache = init_cache(conn, packages_, logger)
+    if not args.force:
+        pkg_hashes_cache = init_cache(conn, packages_, logger)
+    else:
+        pkg_hashes_cache = set()
 
     for i in range(args.workers):
         conn = get_client(args)
@@ -400,7 +513,7 @@ def titer_load_worker_pool(
             task_logs,
             titers,
             titer_count,
-            args.force,
+            src_load_lock,
         )
         worker.start()
         workers.append(worker)
@@ -425,14 +538,13 @@ def titer_load_worker_pool(
 class PackageLoaderWorker(RaisingTread):
     def __init__(
         self,
-        conn,
-        girar,
-        logger,
-        pkg_hashes_cache,
-        task_pkg_hashes,
-        packages,
-        count_list,
-        force_load,
+        conn: chd.Client,
+        girar: TaskFromFS,
+        logger: logging.Logger,
+        pkg_hashes_cache: set,
+        task_pkg_hashes: dict,
+        packages: Iterable,
+        count_list: list,
         *args,
         **kwargs,
     ) -> None:
@@ -445,15 +557,14 @@ class PackageLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = threading.Lock()
-        self.force = force_load
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
         if self.pkg_hashes[pkg_name]["md5"]:
@@ -487,7 +598,7 @@ class PackageLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
             extract.insert_package(
                 self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
             )
@@ -535,7 +646,10 @@ def package_load_worker_pool(
     connections = []
     packages = LockedIterator((pkg for pkg in packages_))
 
-    pkg_hashes_cache = init_cache(conn, packages_, logger)
+    if not args.force:
+        pkg_hashes_cache = init_cache(conn, packages_, logger)
+    else:
+        pkg_hashes_cache = set()
 
     if num_of_workers:
         args.workers = num_of_workers
@@ -551,7 +665,6 @@ def package_load_worker_pool(
             task_pkg_hashes,
             packages,
             pkg_count,
-            args.force,
         )
         worker.start()
         workers.append(worker)
@@ -783,7 +896,9 @@ INSERT INTO Depends SELECT * FROM
 """
         self.logger.info("Updating Depends table for missing file riquire dependencies")
         self.conn.execute(sql)
-        self.logger.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
+        self.logger.debug(
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+        )
 
     def _flush_buffer_tables(self):
         """Force flush bufeer tables using OPTIMIZE TABLE SQL requests."""
@@ -809,112 +924,6 @@ INSERT INTO Depends SELECT * FROM
 
     def update_depends(self):
         self._update_dependencies_table()
-
-
-class TaskFromFS:
-    def __init__(self, path, logger):
-        self.logger = logger
-        self.path = Path(path)
-        self.ts = rpm.TransactionSet()
-
-    def _get_content(self, path, status=False):
-        r = None
-        if status:
-            if Path(path).exists():
-                return True
-            else:
-                return False
-        try:
-            r = Path(path).read_bytes()
-        except IsADirectoryError:
-            # return directory listing
-            return [x for x in Path(path).iterdir()]
-        except FileNotFoundError as e:
-            self.logger.debug(f"{e} - {path}")
-            return None
-        except Exception as e:
-            self.logger.error(f"{e} - {path}")
-            return None
-        return r
-
-    def get(self, path):
-        p = Path.joinpath(self.path, path)
-        r = self._get_content(p, status=False)
-        return cvt(r)
-
-    def check(self):
-        return self._get_content(self.path, status=True)
-
-    def check_file(self, path):
-        p = Path.joinpath(self.path, path)
-        return self._get_content(p, status=True)
-
-    def get_bytes(self, path):
-        p = Path.joinpath(self.path, path)
-        r = self._get_content(p, status=False)
-        return r
-
-    def get_file_mtime(self, path):
-        p = Path.joinpath(self.path, path)
-        try:
-            mtime = p.stat().st_mtime
-        except FileNotFoundError:
-            return None
-        return cvt_ts_to_datetime(mtime, use_local_tz=False)
-
-    def get_file_size(self, path):
-        p = Path.joinpath(self.path, path)
-        try:
-            file_size = p.stat().st_size
-        except FileNotFoundError:
-            return 0
-        return file_size
-
-    def get_header(self, path):
-        self.logger.debug(f"reading header for {path}")
-        return extract.get_header(
-            self.ts, str(Path.joinpath(self.path, path)), self.logger
-        )
-
-    def get_file_path(self, path):
-        return Path.joinpath(self.path, path)
-
-    def file_exists_and_not_empty(self, path):
-        p = Path.joinpath(self.path, path)
-        if p.is_file() and p.stat().st_size > 0:
-            return True
-        else:
-            return False
-
-    def get_symlink_target(self, path, name_only=False):
-        symlink = Path.joinpath(self.path, path)
-        if symlink.is_symlink():
-            if name_only:
-                return str(symlink.resolve().name)
-            else:
-                return str(symlink.resolve())
-        else:
-            return None
-
-    def parse_approval_file(self, path):
-        p = Path.joinpath(self.path, path)
-        r = self._get_content(p, status=False)
-        n = d = m = None
-        if r:
-            r = cvt(r)
-            try:
-                d, *m = [x for x in r.split("\n") if len(x) > 0]
-                d, n = [x.strip() for x in d.split("::") if len(x) > 0]
-                n = n.split(" ")[-1]
-                d = datetime.datetime.strptime(d, "%Y-%b-%d %H:%M:%S")
-                d = set_datetime_timezone_to_utc(d)
-                m = "\n".join((x for x in m))
-                return (n, d, m)
-            except Exception as e:
-                self.logger.error(
-                    f"File parsing failed with error {e} for '{path}' contains '{r}'"
-                )
-        return None
 
 
 def init_task_structure_from_task(girar, logger):
@@ -1046,11 +1055,11 @@ def init_task_structure_from_task(girar, logger):
     for pkglist in (
         x for x in girar.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
     ):
-        hdrs = extract.read_headers_from_xz_pkglist(pkglist, logger)
+        hdrs = readHeaderListFromXZFile(pkglist)
         for hdr in hdrs:
             pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
+            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
+            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
             task["pkg_hashes"][pkg_name]["blake2b"] = pkg_blake2b
             # FIXME: workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
             if task["pkg_hashes"][pkg_name]["md5"]:
@@ -1059,7 +1068,8 @@ def init_task_structure_from_task(girar, logger):
                         f"Found mismatching MD5 from APT hash for {pkg_name}. Calculating MD5 from file"
                     )
                     t = [
-                        x for x in girar.get_file_path("build/repo").glob(
+                        x
+                        for x in girar.get_file_path("build/repo").glob(
                             f"*/RPMS.task/{pkg_name}"
                         )
                     ]
@@ -1068,7 +1078,9 @@ def init_task_structure_from_task(girar, logger):
                             t[0], as_bytes=True
                         )
                     else:
-                        logger.error(f"Failed to calculate MD5 for {pkg_name} from file")
+                        logger.error(
+                            f"Failed to calculate MD5 for {pkg_name} from file"
+                        )
                 else:
                     continue
             else:
@@ -1380,10 +1392,7 @@ def get_args():
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument("-w", "--workers", type=int, help="Workers count (default: 4)")
     parser.add_argument(
-        "-D",
-        "--debug",
-        action="store_true",
-        help="Set logging level to debug"
+        "-D", "--debug", action="store_true", help="Set logging level to debug"
     )
     parser.add_argument(
         "-J",

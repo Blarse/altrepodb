@@ -1,6 +1,5 @@
 import os
 import sys
-import rpm
 import time
 import base64
 import logging
@@ -10,18 +9,16 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-import altrpm
 import extract
-
+from altrpm import rpm, extractSpecAndHeadersFromRPM
 from utils import (
-    get_logger,
     cvt,
-    mmhash,
+    get_logger,
+    snowflake_id,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
 )
-
 
 NAME = "package"
 
@@ -111,7 +108,6 @@ class PackageLoader:
         self.logger = logger
         self.force = args.force
         self.cache = self._init_cache()
-        self.ts = rpm.TransactionSet()
 
     def _init_cache(self) -> set:
         result = self.conn.execute(
@@ -120,8 +116,7 @@ class PackageLoader:
         return {i[0] for i in result}
 
     def _get_header(self):  # return rpm header object
-        self.logger.debug(f"reading header for {self.pkg}")
-        return extract.get_header(self.ts, str(self.pkg), self.logger)
+        return extract.get_header(str(self.pkg), self.logger)
 
     def _get_file_size(self) -> int:
         try:
@@ -133,23 +128,23 @@ class PackageLoader:
     def _load_spec(self) -> None:
         self.logger.info(f"extracting spec file form {self.pkg.name}")
         st = time.time()
-        spec_file, spec_contents, hdr = altrpm.extractSpecAndHeadersFromRPM(
+        spec_file, spec_contents, hdr = extractSpecAndHeadersFromRPM(
             self.pkg, raw=True
         )
         self.logger.debug(
             f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
-        self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
+        self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")  # type: ignore
         st = time.time()
         kw = {
-            "pkg_hash": mmhash(bytes.fromhex(cvt(hdr["RPMTAG_SHA1HEADER"]))),
-            "pkg_name": cvt(hdr["RPMTAG_NAME"]),
-            "pkg_epoch": cvt(hdr["RPMTAG_EPOCH"], int),
-            "pkg_version": cvt(hdr["RPMTAG_VERSION"]),
-            "pkg_release": cvt(hdr["RPMTAG_RELEASE"]),
-            "specfile_name": spec_file.name,
-            "specfile_date": spec_file.mtime,
-            "specfile_content_base64": base64.b64encode(spec_contents),
+            "pkg_hash": snowflake_id(hdr),
+            "pkg_name": cvt(hdr[rpm.RPMTAG_NAME]),
+            "pkg_epoch": cvt(hdr[rpm.RPMTAG_EPOCH], int),
+            "pkg_version": cvt(hdr[rpm.RPMTAG_VERSION]),
+            "pkg_release": cvt(hdr[rpm.RPMTAG_RELEASE]),
+            "specfile_name": spec_file.name,  # type: ignore
+            "specfile_date": spec_file.mtime,  # type: ignore
+            "specfile_content_base64": base64.b64encode(spec_contents),  # type: ignore
         }
         self.conn.execute(self.sql.insert_spec_file, [kw,])
         self.logger.info(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
@@ -160,20 +155,11 @@ class PackageLoader:
         hdr = self._get_header()
         pkg_name = self.pkg.name
         # load only source packages for a now
-        if not int(bool(hdr[rpm.RPMTAG_SOURCEPACKAGE])):
+        if not int(bool(hdr["RPMTAG_SOURCEPACKAGE"])):
             raise ValueError("Binary package files loading not supported yet")
 
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": mmhash(sha1)}
-
-        self.logger.debug(f"calculate MD5 for {pkg_name} file")
-        hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
-
-        self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-        hashes["sha256"] = sha256_from_file(self.pkg, as_bytes=True)
-
-        self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
-        hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
@@ -185,6 +171,15 @@ class PackageLoader:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+            self.logger.debug(f"calculate MD5 for {pkg_name} file")
+            hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
+
+            self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+            hashes["sha256"] = sha256_from_file(self.pkg, as_bytes=True)
+
+            self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+            hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
+
             extract.insert_package(self.conn, self.logger, hdr, self.pkg, **kw)
             extract.insert_pkg_hash_single(self.conn, hashes)
             self.cache.add(hashes["mmh"])

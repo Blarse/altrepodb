@@ -1,5 +1,9 @@
 from dataclasses import dataclass
+from typing import Union
 
+
+RESERVED = None
+NOT_IMPLEMENTED = None
 
 # RPM tag base
 HEADER_IMAGE = 61
@@ -14,7 +18,7 @@ RPMTAG_EXTERNAL_TAG = 1000000
 
 @dataclass(frozen=True)
 class RPMTag:
-    # RPM header tags
+    # RPM signature tags
     RPMTAG_HEADERIMAGE = HEADER_IMAGE
     RPMTAG_HEADERSIGNATURES = HEADER_SIGNATURES
     RPMTAG_HEADERIMMUTABLE = HEADER_IMMUTABLE
@@ -30,17 +34,31 @@ class RPMTag:
     RPMTAG_SIGGPG = RPMTAG_SIG_BASE + 6
     RPMTAG_SIGPGP5 = RPMTAG_SIG_BASE + 7
     RPMTAG_BADSHA1_1 = RPMTAG_SIG_BASE + 8
+    RPMSIGTAG_BADSHA1_1 = RPMTAG_SIG_BASE + 8
     RPMTAG_BADSHA1_2 = RPMTAG_SIG_BASE + 9
+    RPMSIGTAG_BADSHA1_2 = RPMTAG_SIG_BASE + 9
     RPMTAG_PUBKEYS = RPMTAG_SIG_BASE + 10
     RPMTAG_DSAHEADER = RPMTAG_SIG_BASE + 11
+    RPMSIGTAG_DSA = RPMTAG_SIG_BASE + 11
     RPMTAG_RSAHEADER = RPMTAG_SIG_BASE + 12
+    RPMSIGTAG_RSA = RPMTAG_SIG_BASE + 12
     RPMTAG_SHA1HEADER = RPMTAG_SIG_BASE + 13
+    RPMSIGTAG_SHA1 = RPMTAG_SIG_BASE + 13
     RPMTAG_HDRID = RPMTAG_SIG_BASE + 13
     RPMTAG_LONGSIGSIZE = RPMTAG_SIG_BASE + 14
+    RPMSIGTAG_LONGSIZE = RPMTAG_SIG_BASE + 14
     RPMTAG_LONGARCHIVESIZE = RPMTAG_SIG_BASE + 15
+    RPMSIGTAG_LONGARCHIVESIZE = RPMTAG_SIG_BASE + 15
+    # X = RPMTAG_SIG_BASE + 16  # reserved
     RPMTAG_SHA256HEADER = RPMTAG_SIG_BASE + 17
+    RPMSIGTAG_SHA256 = RPMTAG_SIG_BASE + 17
+    RPMSIGTAG_FILESIGNATURES = RPMTAG_SIG_BASE + 18
+    RPMSIGTAG_FILESIGNATURELENGTH = RPMTAG_SIG_BASE + 19
     RPMTAG_VERITYSIGNATURES = RPMTAG_SIG_BASE + 20
+    RPMSIGTAG_VERITYSIGNATURES = RPMTAG_SIG_BASE + 20
     RPMTAG_VERITYSIGNATUREALGO = RPMTAG_SIG_BASE + 21
+    RPMSIGTAG_VERITYSIGNATUREALGO = RPMTAG_SIG_BASE + 21
+    # RPM header tags
     RPMTAG_NAME = 1000
     RPMTAG_N = 1000
     RPMTAG_VERSION = 1001
@@ -362,16 +380,6 @@ class RPMTag:
     RPMTAG_APTINDEXLEGACYUPDATE_DATE = 1000022
     RPMTAG_APTINDEXLEGACYUPDATE_URL = 1000023
 
-    def __getitem__(self, tag_id):
-        """Get tag name by it's value.
-        If tag value not found returns None.
-        """
-        for a in self.__dir__():
-            if not a.startswith("__"):
-                if getattr(self, a, None) == tag_id:
-                    return a
-        return None
-
 
 @dataclass(frozen=True)
 class RPMSigTag:
@@ -382,37 +390,247 @@ class RPMSigTag:
     RPMTAG_HEADERREGIONS = HEADER_REGIONS
     RPMTAG_HEADERI18NTABLE = HEADER_I18NTABLE
     RPMTAG_SIG_BASE = HEADER_SIGBASE
-    RPMSIGTAG_SIZE = 1000
-    RPMSIGTAG_LEMD5_1 = 1001
-    RPMSIGTAG_PGP = 1002
-    RPMSIGTAG_LEMD5_2 = 1003
-    RPMSIGTAG_MD5 = 1004
-    RPMSIGTAG_GPG = 1005
-    RPMSIGTAG_PGP5 = 1006
-    RPMSIGTAG_PAYLOADSIZE = 1007
-    RPMSIGTAG_RESERVEDSPACE = 1008
-    RPMSIGTAG_BADSHA1_1 = RPMTAG_SIG_BASE + 8
-    RPMSIGTAG_BADSHA1_2 = RPMTAG_SIG_BASE + 9
-    RPMSIGTAG_DSA = RPMTAG_SIG_BASE + 11
-    RPMSIGTAG_RSA = RPMTAG_SIG_BASE + 12
-    RPMSIGTAG_SHA1 = RPMTAG_SIG_BASE + 13
-    RPMSIGTAG_LONGSIZE = RPMTAG_SIG_BASE + 14
-    RPMSIGTAG_LONGARCHIVESIZE = RPMTAG_SIG_BASE + 15
-    RPMSIGTAG_SHA256 = RPMTAG_SIG_BASE + 17
-    RPMSIGTAG_FILESIGNATURES = RPMTAG_SIG_BASE + 18
-    RPMSIGTAG_FILESIGNATURELENGTH = RPMTAG_SIG_BASE + 19
-    RPMSIGTAG_VERITYSIGNATURES = RPMTAG_SIG_BASE + 20
-    RPMSIGTAG_VERITYSIGNATUREALGO = RPMTAG_SIG_BASE + 21
+    RPMSIGTAG_SIZE = 1000  # RPMTAG_SIGSIZE
+    RPMSIGTAG_LEMD5_1 = 1001  # RPMTAG_SIGLEMD5_1
+    RPMSIGTAG_PGP = 1002  # RPMTAG_SIGPGP
+    RPMSIGTAG_LEMD5_2 = 1003  # RPMTAG_SIGLEMD5_2
+    RPMSIGTAG_MD5 = 1004  # RPMTAG_SIGMD5
+    RPMSIGTAG_GPG = 1005  # RPMTAG_SIGGPG
+    RPMSIGTAG_PGP5 = 1006  # RPMTAG_SIGPGP5
+    RPMSIGTAG_PAYLOADSIZE = 1007  # ??
+    RPMSIGTAG_RESERVEDSPACE = 1008  # ??
+    RPMSIGTAG_BADSHA1_1 = RPMTAG_SIG_BASE + 8  # RPMTAG_BADSHA1_1
+    RPMSIGTAG_BADSHA1_2 = RPMTAG_SIG_BASE + 9  # RPMTAG_BADSHA1_2
+    # X = RPMTAG_SIG_BASE + 10                 # RPMTAG_PUBKEYS
+    RPMSIGTAG_DSA = RPMTAG_SIG_BASE + 11  # RPMTAG_DSAHEADER
+    RPMSIGTAG_RSA = RPMTAG_SIG_BASE + 12  # RPMTAG_RSAHEADER
+    RPMSIGTAG_SHA1 = RPMTAG_SIG_BASE + 13  # RPMTAG_SHA1HEADER
+    RPMSIGTAG_LONGSIZE = RPMTAG_SIG_BASE + 14  # RPMTAG_LONGSIGSIZE
+    RPMSIGTAG_LONGARCHIVESIZE = RPMTAG_SIG_BASE + 15  # RPMTAG_LONGARCHIVESIZE
+    # X = RPMTAG_SIG_BASE + 16  # reserved
+    RPMSIGTAG_SHA256 = RPMTAG_SIG_BASE + 17  # RPMTAG_SHA256HEADER
+    RPMSIGTAG_FILESIGNATURES = RPMTAG_SIG_BASE + 18  # RPMSIGTAG_FILESIGNATURES
+    RPMSIGTAG_FILESIGNATURELENGTH = RPMTAG_SIG_BASE + 19  # RPMSIGTAG_FILESIGNATURELENGTH
+    RPMSIGTAG_VERITYSIGNATURES = RPMTAG_SIG_BASE + 20  # RPMTAG_VERITYSIGNATURES
+    RPMSIGTAG_VERITYSIGNATUREALGO = RPMTAG_SIG_BASE + 21  # RPMTAG_VERITYSIGNATUREALGO
+
+    LUT = {
+        1000: RPMTag.RPMTAG_SIGSIZE,
+        1001: RPMTag.RPMTAG_SIGLEMD5_1,
+        1002: RPMTag.RPMTAG_SIGPGP,
+        1003: RPMTag.RPMTAG_SIGLEMD5_2,
+        1004: RPMTag.RPMTAG_SIGMD5,
+        1005: RPMTag.RPMTAG_SIGGPG,
+        1006: RPMTag.RPMTAG_SIGPGP5,
+        1007: RPMTag.RPMTAG_ARCHIVESIZE,
+        1008: NOT_IMPLEMENTED,
+        264: RPMTag.RPMTAG_BADSHA1_1,
+        265: RPMTag.RPMTAG_BADSHA1_2,
+        266: RPMTag.RPMTAG_PUBKEYS,
+        267: RPMTag.RPMTAG_DSAHEADER,
+        268: RPMTag.RPMTAG_RSAHEADER,
+        269: RPMTag.RPMTAG_SHA1HEADER,
+        270: RPMTag.RPMTAG_LONGSIGSIZE,
+        271: RPMTag.RPMTAG_LONGARCHIVESIZE,
+        272: RESERVED,
+        273: RPMTag.RPMTAG_SHA256HEADER,
+        274: RPMSIGTAG_FILESIGNATURES,
+        275: RPMSIGTAG_FILESIGNATURELENGTH,
+        276: RPMTag.RPMTAG_VERITYSIGNATURES,
+        277: RPMTag.RPMTAG_VERITYSIGNATUREALGO,
+    }
 
     def __getitem__(self, tag_id):
-        """Get tag name by it's value.
-        If tag value not found returns None.
-        """
-        for a in self.__dir__():
-            if not a.startswith("__"):
-                if getattr(self, a, None) == tag_id:
-                    return a
-        return None
+        """Translate signature tag ID's to RPMTAG_* ID's."""
+        return self.LUT.get(tag_id, None)
+
+
+@dataclass(frozen=True)
+class RPMTagTypesTable:
+    ANY = 0
+    ARRAY = 1
+    LOCALE_STRING_ARRAY = 2
+
+    TAG_TYPES = {
+        100: ARRAY,
+        266: ARRAY,
+        276: ARRAY,
+        1004: LOCALE_STRING_ARRAY,
+        1005: LOCALE_STRING_ARRAY,
+        1016: LOCALE_STRING_ARRAY,
+        1017: ARRAY,
+        1018: ARRAY,
+        1019: ARRAY,
+        1027: ARRAY,
+        1028: ARRAY,
+        1029: ARRAY,
+        1030: ARRAY,
+        1031: ARRAY,
+        1032: ARRAY,
+        1033: ARRAY,
+        1034: ARRAY,
+        1035: ARRAY,
+        1036: ARRAY,
+        1037: ARRAY,
+        1039: ARRAY,
+        1040: ARRAY,
+        1045: ARRAY,
+        1047: ARRAY,
+        1048: ARRAY,
+        1049: ARRAY,
+        1050: ARRAY,
+        1051: ARRAY,
+        1052: ARRAY,
+        1053: ARRAY,
+        1054: ARRAY,
+        1055: ARRAY,
+        1059: ARRAY,
+        1060: ARRAY,
+        1061: ARRAY,
+        1062: ARRAY,
+        1065: ARRAY,
+        1066: ARRAY,
+        1067: ARRAY,
+        1068: ARRAY,
+        1069: ARRAY,
+        1080: ARRAY,
+        1081: ARRAY,
+        1082: ARRAY,
+        1085: ARRAY,
+        1086: ARRAY,
+        1087: ARRAY,
+        1088: ARRAY,
+        1089: ARRAY,
+        1090: ARRAY,
+        1091: ARRAY,
+        1092: ARRAY,
+        1095: ARRAY,
+        1096: ARRAY,
+        1097: ARRAY,
+        1098: ARRAY,
+        1099: ARRAY,
+        1112: ARRAY,
+        1113: ARRAY,
+        1114: ARRAY,
+        1115: ARRAY,
+        1116: ARRAY,
+        1117: ARRAY,
+        1118: ARRAY,
+        1119: ARRAY,
+        1120: ARRAY,
+        1121: ARRAY,
+        1133: ARRAY,
+        1134: ARRAY,
+        1135: ARRAY,
+        1140: ARRAY,
+        1141: ARRAY,
+        1142: ARRAY,
+        1143: ARRAY,
+        1144: ARRAY,
+        1145: ARRAY,
+        1147: ARRAY,
+        1148: ARRAY,
+        1149: ARRAY,
+        1150: ARRAY,
+        1153: ARRAY,
+        1154: ARRAY,
+        1156: ARRAY,
+        1157: ARRAY,
+        1158: ARRAY,
+        1159: ARRAY,
+        1160: ARRAY,
+        1161: ARRAY,
+        1162: ARRAY,
+        1164: ARRAY,
+        1165: ARRAY,
+        1166: ARRAY,
+        1167: ARRAY,
+        1168: ARRAY,
+        1169: ARRAY,
+        1174: ARRAY,
+        1175: ARRAY,
+        1177: ARRAY,
+        1178: ARRAY,
+        1182: ARRAY,
+        1183: ARRAY,
+        1186: ARRAY,
+        1187: ARRAY,
+        1188: ARRAY,
+        1189: ARRAY,
+        1190: ARRAY,
+        1191: ARRAY,
+        1192: ARRAY,
+        5000: ARRAY,
+        5001: ARRAY,
+        5002: ARRAY,
+        5003: ARRAY,
+        5004: ARRAY,
+        5005: ARRAY,
+        5006: ARRAY,
+        5007: ARRAY,
+        5008: ARRAY,
+        5010: ARRAY,
+        5027: ARRAY,
+        5029: ARRAY,
+        5030: ARRAY,
+        5031: ARRAY,
+        5032: ARRAY,
+        5033: ARRAY,
+        5035: ARRAY,
+        5036: ARRAY,
+        5037: ARRAY,
+        5038: ARRAY,
+        5039: ARRAY,
+        5040: ARRAY,
+        5041: ARRAY,
+        5042: ARRAY,
+        5043: ARRAY,
+        5044: ARRAY,
+        5045: ARRAY,
+        5046: ARRAY,
+        5047: ARRAY,
+        5048: ARRAY,
+        5049: ARRAY,
+        5050: ARRAY,
+        5051: ARRAY,
+        5052: ARRAY,
+        5053: ARRAY,
+        5054: ARRAY,
+        5055: ARRAY,
+        5056: ARRAY,
+        5057: ARRAY,
+        5058: ARRAY,
+        5059: ARRAY,
+        5060: ARRAY,
+        5061: ARRAY,
+        5066: ARRAY,
+        5067: ARRAY,
+        5068: ARRAY,
+        5069: ARRAY,
+        5070: ARRAY,
+        5071: ARRAY,
+        5072: ARRAY,
+        5076: ARRAY,
+        5077: ARRAY,
+        5078: ARRAY,
+        5079: ARRAY,
+        5080: ARRAY,
+        5081: ARRAY,
+        5082: ARRAY,
+        5084: ARRAY,
+        5085: ARRAY,
+        5086: ARRAY,
+        5087: ARRAY,
+        5088: ARRAY,
+        5089: ARRAY,
+        5090: ARRAY,
+        # 5092: ARRAY,  # mentioned as array in rpmtag.h but returned as string by librpm
+        # 5097: ARRAY,  # mentioned as array in rpmtag.h but returned as string by librpm
+    }
+
+    def __getitem__(self, tag_id):
+        """Translate tag ID's to tag representation."""
+        return self.TAG_TYPES.get(tag_id, self.ANY)
 
 
 @dataclass(frozen=True)
@@ -430,48 +648,19 @@ class RPMTagType:
     RPM_I18NSTRING_TYPE = 9
 
 
-class RPMHeaderExtractor:
+def get_tag_content(hdr_dict: dict, tag: Union[int, str]):
     """Handles headers content extraction by tag name or tag id."""
-
-    def __init__(self):
-        self.tags_by_id = {}
-        self.tags_by_name = {}
-        # get tags from RPMTag
+    if isinstance(tag, int):
+        return hdr_dict.get(tag, None)
+    if isinstance(tag, str):
         for k, v in vars(RPMTag).items():
-            if not k.startswith("_"):
-                self.tags_by_name[k] = v
-        # get tags from RPMTag
-        for k, v in vars(RPMSigTag).items():
-            if not k.startswith("_"):
-                self.tags_by_name[k] = v
-        # fill self.tags dictionary
-        for tag_name, tag_id in self.tags_by_name.items():
-            if tag_id not in self.tags_by_id:
-                self.tags_by_id[tag_id] = []
-            self.tags_by_id[tag_id].append(tag_name)
-
-    def get_tag_content(self, tag, hdr_dict):
-        if isinstance(tag, str):
-            if tag in hdr_dict.keys():
-                return hdr_dict.get(tag, None)
-            tag_id = self.tags_by_name.get(tag, None)
-            if tag_id is None:
-                return None
-        elif isinstance(tag, int):
-            if tag not in self.tags_by_id:
-                return None
-            tag_id = tag
-        else:
-            # unsupportet tag type
-            return None
-        data = None
-        for t_name in self.tags_by_id[tag_id]:
-            data = hdr_dict.get(t_name, None)
-            if data is not None:
-                return data
-        return data
+            if k == tag:
+                return hdr_dict.get(v, None)
+        return None
+    return None
 
 
 rpmh = RPMTag()
 rpms = RPMSigTag()
 rpmt = RPMTagType()
+rpmtt = RPMTagTypesTable()

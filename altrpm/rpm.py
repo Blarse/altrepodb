@@ -1,8 +1,9 @@
 import io
+import os
 import bz2
 import gzip
 import lzma
-from os import PathLike
+import shutil
 import struct
 from struct import error as StructError
 import libarchive
@@ -10,16 +11,17 @@ import subprocess
 from collections import namedtuple
 from typing import Union, BinaryIO, Any
 
-from .rpmtag import rpmh, rpms, rpmt, RPMHeaderExtractor
+from .rpmtag import rpmh, rpms, rpmt, rpmtt, get_tag_content
 
 USE_COMPRESSOR_MAGIC = True
+USE_DEFAULT_C_LOCALE = True
 
 RPM_MAGIC = b"\xED\xAB\xEE\xDB"
 RPM_HEADER_MAGIC = b"\x8E\xAD\xE8"
 
-lead_struct = struct.Struct(b"!4sBBhh66shh16s")
-header_struct = struct.Struct(b"!3s1b4sii")
-tag_struct = struct.Struct(b"!iiii")
+lead_struct = struct.Struct("!4sBBhh66shh16s")
+header_struct = struct.Struct("!3s1b4sii")
+tag_struct = struct.Struct("!iiii")
 
 RPMLeadS = namedtuple(
     "RPMLeadS",
@@ -112,54 +114,52 @@ def extract_int(
 
 def extract_int8(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
-) -> Union[int, list[int]]:
-    data = extract_int(reader, base, offset, count, 1, rewind)
-    if count == 1:
-        return data[0]
-    return data
+) -> list[int]:
+    return extract_int(reader, base, offset, count, 1, rewind)
 
 
 def extract_int16(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
-) -> Union[int, list[int]]:
-    data = extract_int(reader, base, offset, count, 2, rewind)
-    if count == 1:
-        return data[0]
-    return data
+) -> list[int]:
+    return extract_int(reader, base, offset, count, 2, rewind)
 
 
 def extract_int32(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
-) -> Union[int, list[int]]:
-    data = extract_int(reader, base, offset, count, 4, rewind)
-    if count == 1:
-        return data[0]
-    return data
+) -> list[int]:
+    return extract_int(reader, base, offset, count, 4, rewind)
 
 
 def extract_int64(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
-) -> Union[int, list[int]]:
-    data = extract_int(reader, base, offset, count, 8, rewind)
-    if count == 1:
-        return data[0]
-    return data
+) -> list[int]:
+    return extract_int(reader, base, offset, count, 8, rewind)
 
 
 def extract_array(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
 ) -> list[bytes]:
+    BUFF_SIZE = 256
     pos_ = reader.tell()
     reader.seek(base + offset)
     data = []
     for _ in range(count):
-        chars = b""
+        st_start_ = reader.tell()
+        buff_ = reader.read(BUFF_SIZE)
+        if not buff_:
+            break
         while True:
-            c = reader.read(1)
-            if c == b"\x00":
-                data.append(chars)
+            st_end_ = buff_.find(b"\x00")
+            if st_end_ == -1:
+                buff_ += reader.read(BUFF_SIZE)
+            if st_end_ == 0:
+                data.append(b"")
+                reader.seek(st_start_ + 1)
                 break
-            chars += c
+            if st_end_ > 0:
+                data.append(buff_[0:st_end_])
+                reader.seek(st_start_ + st_end_ + 1)
+                break
     if rewind:
         reader.seek(pos_)
     return data
@@ -196,11 +196,10 @@ class Object(object):
 
 class RPMHeadersDict(dict):
     def __init__(self):
-        self.he = RPMHeaderExtractor()
         return super().__init__()
 
     def __getitem__(self, key):
-        return self.he.get_tag_content(key, super())
+        return get_tag_content(super(), key)
 
 
 class RPMHeaderParser:
@@ -225,14 +224,23 @@ class RPMHeaderParser:
             self.reader, base, rpm_tag.offset, rpm_tag.count, rewind=True
         )
 
-        tag_name = rpms[rpm_tag.tag] if is_sig_tag else rpmh[rpm_tag.tag]
+        tag_id = rpms[rpm_tag.tag] if is_sig_tag else rpm_tag.tag
 
-        if tag_name is None:
-            tag_name = f"TAG_{str(rpm_tag.tag)}"
-
-        self.hdr[tag_name] = data
+        if tag_id is not None:
+            # convert tag data representation in accordance to it's type
+            if rpmtt[tag_id] == rpmtt.ANY and isinstance(data, list):
+                data = data[0]
+            # convert I18N tags to return only 'C' locale
+            elif (
+                USE_DEFAULT_C_LOCALE
+                and rpmtt[tag_id] == rpmtt.LOCALE_STRING_ARRAY
+                and isinstance(data, list)
+            ):
+                data = data[0]
+            self.hdr[tag_id] = data
 
     def parse_headers(self):
+        is_binary_pkg = True
         # headers list file does not contains lead and signature
         if not self.from_headers_list:
             # read lead
@@ -240,9 +248,9 @@ class RPMHeaderParser:
             if rpm_lead[0] != RPM_MAGIC:
                 raise ValueError(f"File is not a RPM package")
 
-            # set 'RPMTAG_SOURCEPACKAGE'
+            # set package type flag from 'type' field in lead section 
             if rpm_lead[3] != 0:
-                self.hdr[rpmh[rpmh.RPMTAG_SOURCEPACKAGE]] = 1
+                is_binary_pkg = False
 
             # read signature Header Record
             sig_start = self.reader.tell()
@@ -285,33 +293,54 @@ class RPMHeaderParser:
         for _ in range(rpm_header.nindex):
             rpm_tag = RPMTagS(*tag_struct.unpack(self.reader.read(tag_struct.size)))
             self.extract_tag_content(rpm_tag, is_sig_tag=False)
+        
+        # set RPMTAG_SOURCEPACKAGE in librpm way
+        if not is_binary_pkg and self.hdr[rpmh.RPMTAG_SOURCERPM] is None:
+            self.hdr[rpmh.RPMTAG_SOURCEPACKAGE] = 1
 
 
-class RPMHeadersList:
-    def __init__(self):
-        self.hdrs = []
 
-    def _parse_hdrs_list(self, reader: Union[BinaryIO, Any]):
+def parse_headers_list(filename):
+    with open(filename, "rb") as f:
+        hdrs = []
         while True:
             try:
-                parser = RPMHeaderParser(reader, from_headers_list=True)
-                self.hdrs.append(parser.hdr)
-                reader.seek(parser.compressed_payload_offset)
+                parser = RPMHeaderParser(f, from_headers_list=True)
+                hdrs.append(parser.hdr)
+                f.seek(parser.compressed_payload_offset)
             except (ValueError, StructError):
                 break
-
-    def parse_headers_list(self, hdr_list_file):
-        with io.open(hdr_list_file, "rb") as f:
-            self._parse_hdrs_list(f)
-        return self.hdrs
-
-    def parse_compressed_headers_list(self, xz_headers_file):
-        with lzma.open(xz_headers_file, "rb") as f:
-            self._parse_hdrs_list(f)
-        return self.hdrs
+        return hdrs
 
 
-_FileOrPath = Union[str, bytes, PathLike]
+def parse_xz_headers_list(filename):
+    # uncompress and read headers from list
+    r, w = os.pipe()
+    r, w = os.fdopen(r, "rb", 0), os.fdopen(w, "wb", 0)
+    pid = os.fork()
+    if pid:  # Parser
+        w.close()
+        hdrs_file = io.BytesIO(r.read())
+        r.close()
+
+        hdrs = []
+        while True:
+            try:
+                parser = RPMHeaderParser(hdrs_file, from_headers_list=True)
+                hdrs.append(parser.hdr)
+                hdrs_file.seek(parser.compressed_payload_offset)
+            except (ValueError, StructError):
+                break
+        hdrs_file.close()
+        return hdrs
+    else:  # Decompressor
+        r.close()
+        fdno = lzma.open(filename, "rb")
+        shutil.copyfileobj(fdno, w)
+        os._exit(0)
+
+
+_FileOrPath = Union[str, bytes, os.PathLike]
 
 
 class RPMHeaders:
@@ -357,7 +386,7 @@ class RPMCpio(RPMHeaderParser):
 
         if not USE_COMPRESSOR_MAGIC:
             # get payload compressor form tag #1125
-            self.payload_compressor = self.hdr["RPMTAG_PAYLOADCOMPRESSOR"]
+            self.payload_compressor = self.hdr[rpmh.RPMTAG_PAYLOADCOMPRESSOR]
 
             if self.payload_compressor is None:
                 decompressor = decompress_none
@@ -416,7 +445,9 @@ class RPMCpio(RPMHeaderParser):
         spec_file = Object()
         with libarchive.memory_reader(self._extract_cpio()()) as archive:
             for entry in archive:
-                if entry.isfile and (entry.name.endswith(".spec") or entry.name == "spec"):
+                if entry.isfile and (
+                    entry.name.endswith(".spec") or entry.name == "spec"
+                ):
                     self._copy_file_attrs(entry, spec_file)
                     for block in entry.get_blocks():
                         spec_file_contents += block

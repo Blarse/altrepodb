@@ -1,7 +1,7 @@
 import os
-import rpm
 
-from utils import changelog_to_list, cvt, cvt_ts, packager_parse, mmhash, convert_file_class
+from altrpm import rpm
+from utils import changelog_to_list, cvt, cvt_ts, packager_parse, snowflake_id, convert_file_class
 
 
 os.environ['LANG'] = 'C'
@@ -9,7 +9,7 @@ os.environ['LANG'] = 'C'
 
 def detect_arch(hdr):
     package_name = cvt(hdr[rpm.RPMTAG_NAME])
-    if package_name.startswith('i586-'):
+    if package_name.startswith('i586-'):  # type: ignore
         return 'x86_64-i586'
 
     return cvt(hdr[rpm.RPMTAG_ARCH])
@@ -24,8 +24,8 @@ def get_package_map(hdr):
         pname, pemail = packager, ''
 
     map_package = {
-        'pkg_hash': mmhash(bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))),
-        'pkg_cs': bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER])),
+        'pkg_hash': snowflake_id(hdr),
+        'pkg_cs': bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER])),  # type: ignore
         'pkg_packager': pname,
         'pkg_packager_email': pemail,
         'pkg_name': cvt(hdr[rpm.RPMTAG_NAME]),
