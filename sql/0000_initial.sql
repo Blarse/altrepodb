@@ -377,9 +377,18 @@ GROUP BY pkg_hash;
 
 
 -- Materialized view for source packages last changelog
-CREATE MATERIALIZED VIEW mv_src_packages_last_changelog
-ENGINE = ReplacingMergeTree
-ORDER BY pkg_hash POPULATE AS
+CREATE TABLE SrcPackagesLastChangelog
+(
+    pkg_hash    UInt64,
+    chlog_nick  String,
+    chlog_name  String,
+    chlog_date  DateTime,
+    chlog_evr   String,
+    chlog_text  String
+) ENGINE = ReplacingMergeTree ORDER BY pkg_hash;
+
+-- populate table with SELECT from MV below
+CREATE MATERIALIZED VIEW mv_src_packages_last_changelog TO SrcPackagesLastChangelog AS
 SELECT DISTINCT
     pkg_hash,
     extract(replaceOne(extract(pkg_changelog.name[1], '<(.+@?.+)>+'), ' at ', '@'), '(.*)@') AS chlog_nick,
