@@ -1010,25 +1010,6 @@ GROUP BY Acl.acl_branch, Acl.acl_for;
 -- FROM all_pkgsets_sources
 -- GROUP BY pkg_hash;
 
--- view to get expanded list ACLs from database with groups
-CREATE
-OR REPLACE VIEW last_acl_with_groups AS
-SELECT acl_branch,
-       acl_date_last                                      AS acl_date,
-       acl_for                                            AS pkgname,
-       if(notEmpty(AclGroups.aclg), AclGroups.aclg, aclu) AS acl_user,
-       order_u,
-       AclGroups.order_g
-FROM last_acl AS AclUsers
-         ARRAY JOIN acl_list AS aclu, arrayEnumerate(acl_list) AS order_u
-         LEFT JOIN ( SELECT acl_for, aclg, order_g, acl_branch
-                     FROM last_acl ARRAY JOIN
-                          acl_list AS aclg,
-                          arrayEnumerate(acl_list) AS order_g
-                     WHERE acl_for LIKE '@%' ) AS AclGroups
-                   ON (aclu = AclGroups.acl_for) AND (last_acl.acl_branch = AclGroups.acl_branch)
-ORDER BY order_u ASC, order_g ASC;
-
 -- view for all CVE's and packages
 CREATE
 OR REPLACE VIEW last_cve AS
@@ -1048,3 +1029,71 @@ FROM Cve
 --                               LEFT JOIN ( SELECT * FROM all_source_pkghash_with_uniq_branch_name ) AS SrcSet
 --                                         USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
 -- WHERE sourcepackage = 1;
+
+-- intermediate table for MV cascading
+CREATE TABLE last_acl_stage1
+(
+    acl_branch      String,
+    acl_date_last   SimpleAggregateFunction(max, DateTime),
+    acl_for         String,
+    acl_list        SimpleAggregateFunction(anyLast, Array(String))
+)
+ENGINE = AggregatingMergeTree
+ORDER BY (acl_branch, acl_for);
+
+
+-- materialized view  for last ACL
+CREATE MATERIALIZED VIEW mv_last_acl TO last_acl_stage1 AS
+SELECT
+    acl_branch,
+    max(acl_date) as acl_date_last,
+    acl_for,
+    argMax(acl_list, acl_date) as acl_list
+FROM Acl
+GROUP BY
+    acl_branch,
+    acl_for;
+
+
+-- view to get expanded list ACLs from database with groups
+CREATE OR REPLACE VIEW last_acl_with_groups
+(
+    acl_branch  String,
+    acl_date    DateTime,
+    pkgname     String,
+    acl_user    String,
+    order_u     UInt32,
+    order_g     UInt32
+) AS
+SELECT
+    acl_branch,
+    max(acl_date_last) AS acl_date,
+    acl_for AS pkgname,
+    argMax(if(notEmpty(AclGroups.aclg), AclGroups.aclg, aclu), acl_date_last) AS acl_user,
+    order_u,
+    AclGroups.order_g
+FROM last_acl_stage1
+ARRAY JOIN
+    acl_list AS aclu,
+    arrayEnumerate(acl_list) AS order_u
+LEFT JOIN
+(
+    SELECT
+        acl_for,
+        aclg,
+        order_g,
+        acl_branch
+    FROM last_acl_stage1
+ARRAY JOIN
+        acl_list AS aclg,
+        arrayEnumerate(acl_list) AS order_g
+    WHERE acl_for LIKE '@%'
+) AS AclGroups ON (aclu = AclGroups.acl_for) AND (last_acl_stage1.acl_branch = AclGroups.acl_branch)
+GROUP BY
+    acl_for,
+    acl_branch,
+    order_u,
+    AclGroups.order_g
+ORDER BY
+    order_u ASC,
+    order_g ASC;
