@@ -901,8 +901,27 @@ INNER JOIN
     FROM last_packages
 ) AS PkgSet USING (pkg_hash);
 
--- VIEW to JOIN binary and source package
 
+-- table with source package name - binary package name pairs
+-- populate for migration with SELECT from mv_packages_source_and_binaries below
+CREATE TABLE PackagesSourceAndBinaries
+(
+    src_pkg_name    String,
+    bin_pkg_name    String
+)
+ENGINE = ReplacingMergeTree ORDER BY (src_pkg_name, bin_pkg_name);
+
+-- MV for PackagesSourceAndBinaries
+CREATE MATERIALIZED VIEW mv_packages_source_and_binaries TO PackagesSourceAndBinaries AS
+SELECT DISTINCT
+    arrayStringConcat(arrayPopBack(arrayPopBack(splitByChar('-', pkg_sourcerpm))), '-') AS src_pkg_name,
+    pkg_name AS bin_pkg_name
+FROM Packages
+WHERE pkg_srcrpm_hash != 0
+    AND pkg_name NOT LIKE 'i586-%';
+
+
+-- VIEW to JOIN binary and source package
 CREATE
 OR REPLACE VIEW all_packages_with_source AS
 SELECT Packages_buffer.*, srcPackage.*
@@ -985,30 +1004,6 @@ SELECT acl_branch, max(acl_date) AS acl_date_last, any(acl_for) AS acl_for, argM
 FROM Acl
 GROUP BY Acl.acl_branch, Acl.acl_for;
 
--- view to prepare source packages with array of binary packages
--- CREATE
--- OR REPLACE VIEW source_with_binary_array_packages AS
--- SELECT DISTINCT pkg_hash,
---                 any(pkg_name)                AS pkgname,
---                 any(pkg_version)             AS version,
---                 any(pkg_release)             AS release,
---                 any(pkg_changelog)           AS changelog,
---                 groupUniqArray(name_evr) AS binlist
--- FROM Packages_buffer
---          LEFT JOIN ( SELECT concat(pkg_name, ':', pkg_version, ':', pkg_release) AS name_evr, pkg_sourcerpm AS sourcerpm
---                      FROM Packages_buffer
---                      WHERE (pkg_sourcepackage = 0)
---                        AND (pkg_name NOT LIKE '%-debuginfo')
---                        AND (pkg_name NOT LIKE 'i586-%') ) AS Bin ON Bin.sourcerpm = pkg_filename
--- WHERE pkg_sourcepackage = 1
--- GROUP BY pkg_hash;
-
--- VIEW to get all pkghash with a unique array of pkgset names
-
--- CREATE VIEW all_source_pkghash_with_uniq_branch_name (pkg_hash UInt64, pkgset_array Array(String)) AS
--- SELECT pkg_hash, groupUniqArray(pkgset_name) AS pkgset_array
--- FROM all_pkgsets_sources
--- GROUP BY pkg_hash;
 
 -- view for all CVE's and packages
 CREATE
@@ -1017,18 +1012,6 @@ SELECT *
 FROM Cve
          LEFT JOIN last_packages USING (pkg_hash);
 
-
--- view for cve-check-tool with source, array of binary packages and changelogs.
-
--- CREATE
--- OR REPLACE VIEW packages_for_cvecheck AS
--- SELECT pkg_hash, pkg_name, pkg_version, pkg_release, binlist, pkgset_array, changelog
--- FROM Packages
---          LEFT JOIN ( SELECT source_with_binary_array_packages.*, SrcSet.pkgset_array
---                      FROM source_with_binary_array_packages
---                               LEFT JOIN ( SELECT * FROM all_source_pkghash_with_uniq_branch_name ) AS SrcSet
---                                         USING (pkg_hash) ) AS Pkgs USING (pkg_hash)
--- WHERE sourcepackage = 1;
 
 -- intermediate table for MV cascading
 CREATE TABLE last_acl_stage1
