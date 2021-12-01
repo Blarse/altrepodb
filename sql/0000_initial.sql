@@ -1081,7 +1081,7 @@ ORDER BY
     order_u ASC,
     order_g ASC;
 
--- add table for watch
+-- add table for Watch partitioned by month
 CREATE TABLE PackagesWatch
 (
     acl             String,
@@ -1092,4 +1092,5 @@ CREATE TABLE PackagesWatch
     date_update     DateTime
 )
 ENGINE = ReplacingMergeTree
-ORDER BY (acl, pkg_name, old_version, new_version, url, date_update);
+PARTITION BY toYYYYMM(date_update)
+ORDER BY (acl, date_update, pkg_name, old_version, new_version, url);
