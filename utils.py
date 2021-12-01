@@ -1,5 +1,7 @@
+import os
 import re
 import json
+import lzma
 import mmh3
 import logging
 import argparse
@@ -12,11 +14,18 @@ from functools import wraps
 from logging import handlers
 from dataclasses import dataclass
 from hashlib import sha256, md5, blake2b
-from typing import Any
+from clickhouse_driver import Client
+from typing import Any, Iterable, Union, Hashable, Generator
 
 from altrpm import rpm
 
-def mmhash(val):
+# custom types
+_FileName = Union[str, os.PathLike]
+
+
+def mmhash(val: Any) -> int:
+    """Calculate MurmurHash3 64-bit value."""
+
     a, b = mmh3.hash64(val, signed=False)
     return a ^ b
 
@@ -32,12 +41,13 @@ def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
         epoch (int, optional): Base epoch for timestamp part calculation. Defaults to 1_000_000_000.
 
     Returns:
-        int: [description]
+        int: showflake like ID
     """
+
     buildtime: int = cvt(hdr[rpm.RPMTAG_BUILDTIME], int)  # type: ignore
     sha1: bytes = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
-    md5: bytes = hdr[rpm.RPMTAG_SIGMD5] # bytes
-    gpg: bytes = hdr[rpm.RPMTAG_SIGGPG] # bytes
+    md5: bytes = hdr[rpm.RPMTAG_SIGMD5]  # bytes
+    gpg: bytes = hdr[rpm.RPMTAG_SIGGPG]  # bytes
 
     if md5 is None:
         md5 = b""
@@ -58,7 +68,9 @@ def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
     return sf_id
 
 
-def valid_date(s):
+def valid_date(s: str) -> datetime.datetime:
+    """Convert string to datetime object or rise an error."""
+
     try:
         return datetime.datetime.strptime(s, "%Y-%m-%d")
     except ValueError:
@@ -66,8 +78,34 @@ def valid_date(s):
         raise argparse.ArgumentTypeError(msg)
 
 
-def get_logger(name, tag=None, date=None):
+def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
+    """Check whether the hash is in the cache."""
+
+    if pkghash in cache:
+        return pkghash
+    return None
+
+
+def get_client(args: Any) -> Client:
+    """Get Clickhouse client instance."""
+
+    client = Client(
+        args.host,
+        port=args.port,
+        database=args.dbname,
+        user=args.user,
+        password=args.password,
+    )
+    client.connection.connect()
+
+    return client
+
+
+def get_logger(
+    name: str, tag: str = "", date: Union[datetime.date, None] = None
+) -> logging.Logger:
     """Create and configure logger."""
+
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
@@ -98,7 +136,9 @@ class Display:
 
     """Show information about progress."""
 
-    def __init__(self, log, timer_init_delta=0, step=1000):
+    def __init__(
+        self, log: logging.Logger, timer_init_delta: float = 0, step: int = 1000
+    ):
         self.lock = threading.Lock()
         self.log = log
         self.counter = 0
@@ -168,10 +208,10 @@ class Timing:
         return timer
 
 
-def cvt(b, t=str):
-    """Convert byte string or list of byte strings to strings
-    or list strings.
-    """
+def cvt(b: Any, t: type = str) -> Any:
+    """Convert byte string or list of byte strings to strings or list strings.
+    Return default vaues for bytes, string and int if input value is None."""
+
     if isinstance(b, bytes) and t is str:
         return b.decode("latin-1")
     if isinstance(b, list):
@@ -186,10 +226,10 @@ def cvt(b, t=str):
     return b
 
 
-def cvt_ts(ts):
+def cvt_ts(ts: Union[int, list[int]]) -> Any:
     """Convert timestamp or list of timestamps to datetime object or list
-    of datetime objects.
-    """
+    of datetime objects."""
+
     if isinstance(ts, int):
         return datetime.datetime.fromtimestamp(ts)
     if isinstance(ts, list):
@@ -197,8 +237,9 @@ def cvt_ts(ts):
     return ts
 
 
-def changelog_to_list(dates, names, texts):
-    """Compile changelog records to dict of elements"""
+def changelog_to_list(dates: list, names: list, texts: list) -> list:
+    """Compile changelog records to dict of elements."""
+
     if not len(dates) == len(names) == len(texts):
         raise ValueError
     chlog = []
@@ -214,8 +255,9 @@ def changelog_to_list(dates, names, texts):
     return chlog
 
 
-def convert_file_class(fc: str):
-    """Converts file class value from RPM header to CH Enum"""
+def convert_file_class(fc: str) -> str:
+    """Converts file class value from RPM header to CH Enum."""
+
     lut = {
         "directory": "directory",
         "symbolic link to": "symlink",
@@ -238,42 +280,22 @@ def convert_file_class(fc: str):
 packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")  # type: ignore
 
 
-def packager_parse(packager):
-    """Parse packager.
+def packager_parse(packager: str) -> Union[tuple[str, str], None]:
+    """Parse packager for name and email."""
 
-    return tuple of name and email or None
-    """
     m = packager_pattern.search(packager)
     if m is not None:
         name_ = m.group(1).strip()
         email_ = m.group(3).strip().replace(" at ", "@")
         return name_, email_
+    return None
 
 
-class LockedIterator:
-    def __init__(self, it):
-        self.it = it
-        self.lock = threading.Lock()
+def sha256_from_file(
+    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
+) -> Union[bytes, str]:
+    """Calculates SHA256 hash from file."""
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        with self.lock:
-            return next(self.it)
-
-
-def sha256_from_file(fname, as_bytes=False, capitalized=False):
-    """Calculates SHA256 hash from file
-
-    Args:
-        fname (path-like object or string): path to file
-        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
-        capitalized (bool, optional): capitalize SHA256 hash string. Defaults to False.
-
-    Returns:
-        string or bytes: file's SHA256 hash
-    """
     hash = sha256()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
@@ -286,17 +308,11 @@ def sha256_from_file(fname, as_bytes=False, capitalized=False):
         return hash.hexdigest()
 
 
-def md5_from_file(fname, as_bytes=False, capitalized=False):
-    """Calculates MD5 hash from file
+def md5_from_file(
+    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
+) -> Union[bytes, str]:
+    """Calculates MD5 hash from file."""
 
-    Args:
-        fname (path-like object or string): path to file
-        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
-        capitalized (bool, optional): capitalize MD5 hash string. Defaults to False.
-
-    Returns:
-        string or bytes: file's MD5 hash
-    """
     hash = md5()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
@@ -309,17 +325,11 @@ def md5_from_file(fname, as_bytes=False, capitalized=False):
         return hash.hexdigest()
 
 
-def blake2b_from_file(fname, as_bytes=False, capitalized=False):
-    """Calculates blake2b hash from file
+def blake2b_from_file(
+    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
+) -> Union[bytes, str]:
+    """Calculates blake2b hash from file."""
 
-    Args:
-        fname (path-like object or string): path to file
-        as_bytes (bool, otional): return hash as raw bytes. Defaults to False
-        capitalized (bool, optional): capitalize blake2b hash string. Defaults to False.
-
-    Returns:
-        string or bytes: file's blake2b hash
-    """
     hash = blake2b()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
@@ -332,21 +342,15 @@ def blake2b_from_file(fname, as_bytes=False, capitalized=False):
         return hash.hexdigest()
 
 
-def join_dicts_with_as_string(d1, d2, key):
+def join_dicts_with_as_string(
+    d1: dict, d2: Union[dict, list, tuple, str], key: Hashable
+) -> dict:
     """Join dictionary with dictionary, list, tuple or any object
     that can be represented as string.
     Stringify all elements of joined object if it is not dictionary.
     Do not preserve value in original dictionary if given 'key' exists.
-    If joined object is not dictionary and key is None returns original dictionary.
+    If joined object is not dictionary and key is None returns original dictionary."""
 
-    Args:
-        d1 (dict): dictionary to join with
-        d2 (any): dictionary or any object that has string representation
-        key (any, optional): key for joined object
-
-    Returns:
-        dict: joined dictionary
-    """
     res = d1
     if not isinstance(d1, dict):
         return d1
@@ -364,28 +368,11 @@ def join_dicts_with_as_string(d1, d2, key):
     return res
 
 
-class FunctionalNotImplemented(Exception):
-    """Exception raised for not implemented functional
+def cvt_ts_to_datetime(
+    ts: Union[int, float], use_local_tz: bool = False
+) -> datetime.datetime:
+    """Converts timestamp to datetime object as UTC or local time."""
 
-    Attributes:
-        function - not implemented function description
-    """
-
-    def __init__(self, function, message="Functional not implemented"):
-        self.function = function
-        self.message = message
-
-
-def cvt_ts_to_datetime(ts, use_local_tz=False):
-    """Converts timestamp to datetime object as UTC or local time
-
-    Args:
-        ts (int | float): Timestamp
-        use_local_tz (bool, optional): Use local time zone. Defaults to False.
-
-    Returns:
-        datetime: Converted timestamp as datetime object
-    """
     utc = datetime.datetime.utcfromtimestamp(ts).replace(tzinfo=tz.tzutc())
     if use_local_tz:
         return utc.astimezone(tz.tzlocal())
@@ -393,25 +380,22 @@ def cvt_ts_to_datetime(ts, use_local_tz=False):
         return utc
 
 
-def cvt_datetime_local_to_utc(dt):
+def cvt_datetime_local_to_utc(dt: datetime.datetime) -> datetime.datetime:
+    """Converts timezone from local to UTC."""
+
     dt = dt.replace(tzinfo=tz.tzlocal())
     return dt.astimezone(tz.tzutc())
 
 
-def set_datetime_timezone_to_utc(dt):
+def set_datetime_timezone_to_utc(dt: datetime.datetime) -> datetime.datetime:
+    """Set timezone to UTC."""
+
     return dt.replace(tzinfo=tz.tzutc())
 
 
-def val_from_json_str(json_str, val_key):
-    """Returns value from stringified JSON
+def val_from_json_str(json_str: str, val_key: str) -> Any:
+    """Returns value from stringified JSON by key."""
 
-    Args:
-        json_str (str): stringified JSON
-        val_key (str): key to lookup value in JSON
-
-    Returns:
-        any: value found in JSON or None
-    """
     if json_str is None or json_str == "":
         return None
     else:
@@ -425,34 +409,25 @@ def val_from_json_str(json_str, val_key):
             return None
 
 
-class GeneratorWrapper:
-    """Wraps generator function and allow to test it's emptyness at any time"""
+def unxz(fname: _FileName, mode_binary: bool = False) -> Union[bytes, str]:
+    """Reads '.xz' compressed file contents."""
 
-    def __init__(self, iter):
-        self.source = iter
-        self.stored = False
-
-    def __iter__(self):
-        return self
-
-    def __bool__(self):
-        if self.stored:
-            return True
-        try:
-            self.value = next(self.source)
-            self.stored = True
-        except StopIteration:
-            return False
-        return True
-
-    def __next__(self):
-        if self.stored:
-            self.stored = False
-            return self.value
-        return next(self.source)
+    if mode_binary:
+        with lzma.open(fname, "rb") as f:
+            res = f.read()
+        return res
+    else:
+        with lzma.open(fname, "rt") as f:
+            res = f.read()
+        return res
 
 
-def log_parser(logger, log_file, log_type, log_start_time):
+def log_parser(
+    logger: logging.Logger,
+    log_file: _FileName,
+    log_type: str,
+    log_start_time: datetime.datetime,
+) -> Generator:
     """Task logs parser generator
 
     Args:
@@ -473,7 +448,7 @@ def log_parser(logger, log_file, log_type, log_start_time):
 
     if not Path(log_file).is_file():
         logger.error(f"File '{log_file}' not found")
-        return ()
+        return tuple()
     else:
         with Path(log_file).open("r", encoding="utf-8", errors="backslashreplace") as f:
             first_line = True
@@ -588,16 +563,9 @@ def log_parser(logger, log_file, log_type, log_start_time):
                         return tuple()
 
 
-def parse_hash_diff(hash_file):
-    """Parse hash diff file.
-    Returns added and deleted hashes as dictionaries
+def parse_hash_diff(hash_file: _FileName) -> tuple[dict, dict]:
+    """Parse hash diff file. Returns added and deleted hashes as dictionaries."""
 
-    Args:
-        hash_file (str): hash diff file name
-
-    Returns:
-        (dict, dict): added hashses, deleted hashes
-    """
     hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")  # type: ignore
     h_added = {}
     h_deleted = {}
@@ -619,18 +587,8 @@ def parse_hash_diff(hash_file):
     return h_added, h_deleted
 
 
-def parse_pkglist_diff(diff_file, is_src_list):
-    """Parse package list diff file.
-    Returns added and deleted packages lists
-
-    Args:
-        diff_file (str): package list diff file
-        is_src_list (bool): parse file as source packages list or binary packages list
-
-    Returns:
-        (list(PkgInfo), list(PkgInfo)): added packages, deleted packages.
-        PkgInfo attributes: ['name', 'evr', 'file', 'srpm', 'arch']
-    """
+def parse_pkglist_diff(diff_file: _FileName, is_src_list: bool) -> tuple[list, list]:
+    """Parse package list diff file. Returns tuple of added and deleted packages lists."""
 
     @dataclass(frozen=True)
     class PkgInfo:
