@@ -1080,3 +1080,16 @@ GROUP BY
 ORDER BY
     order_u ASC,
     order_g ASC;
+
+-- add table for watch
+CREATE TABLE PackagesWatch
+(
+    acl             String,
+    pkg_name        String,
+    old_version     String,
+    new_version     String,
+    url             String,
+    date_update     DateTime
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (acl, pkg_name, old_version, new_version, url, date_update);
