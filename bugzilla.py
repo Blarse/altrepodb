@@ -7,7 +7,7 @@ import configparser
 from collections import namedtuple
 from clickhouse_driver import Client
 
-from utils import get_logger
+from utils import get_logger, get_client
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"
@@ -18,20 +18,6 @@ BUGZILLA_URL_PARAMS = {
     "human": 1,
     # "api_key": ""
 }
-
-
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-
-    return client
 
 
 def get_args():
