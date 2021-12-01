@@ -14,12 +14,13 @@ from pathlib import Path
 from collections import defaultdict, namedtuple
 from typing import Iterable
 
-import extract
+from extract import PackageHandler
 from altrpm import rpm, readHeaderListFromXZFile
 from utils import (
     cvt,
     mmhash,
     get_logger,
+    get_client,
     log_parser,
     snowflake_id,
     md5_from_file,
@@ -29,57 +30,15 @@ from utils import (
     parse_hash_diff,
     parse_pkglist_diff,
     cvt_ts_to_datetime,
+    check_package_in_cache,
     cvt_datetime_local_to_utc,
     set_datetime_timezone_to_utc,
-    LockedIterator,
-    GeneratorWrapper,
 )
-
+from base import LockedIterator, GeneratorWrapper, RaisingTread, RaisingThreadError
 
 NAME = "task"
 
 os.environ["LANG"] = "C"
-
-
-class RaisingThreadError(Exception):
-    """Custom exception class used in RaisingThread subclasses
-
-    Args:
-        message (string): exception message
-        traceback (string): traceback of exception that raised in thread
-    """
-
-    def __init__(self, message=None, traceback=None) -> None:
-        self.message = message
-        self.traceback = traceback
-        super().__init__()
-
-
-class RaisingTread(threading.Thread):
-    """Base threading class that raises exception stored in self.exc at join()"""
-
-    def __init__(self, *args, **kwargs):
-        self.exc = None
-        self.exc_message = None
-        self.exc_traceback = None
-        super().__init__(*args, **kwargs)
-
-    def join(self):
-        super().join()
-        if self.exc:
-            raise RaisingThreadError(
-                message=self.exc_message, traceback=self.exc_traceback
-            ) from self.exc  # type: ignore
-
-
-def get_client(args):
-    return chd.Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
 
 
 def init_cache(conn, packages, logger):
@@ -163,7 +122,7 @@ class TaskFromFS:
         return file_size
 
     def get_header(self, path):
-        return extract.get_header(str(Path.joinpath(self.path, path)), self.logger)
+        return PackageHandler.get_header(str(Path.joinpath(self.path, path)))
 
     def get_file_path(self, path):
         return Path.joinpath(self.path, path)
@@ -192,12 +151,12 @@ class TaskFromFS:
         if r:
             r = cvt(r)
             try:
-                d, *m = [x for x in r.split("\n") if len(x) > 0]  # type: ignore
-                d, n = [x.strip() for x in d.split("::") if len(x) > 0]  # type: ignore
-                n = n.split(" ")[-1]  # type: ignore
-                d = datetime.datetime.strptime(d, "%Y-%b-%d %H:%M:%S")  # type: ignore
+                d, *m = [x for x in r.split("\n") if len(x) > 0]
+                d, n = [x.strip() for x in d.split("::") if len(x) > 0]
+                n = n.split(" ")[-1]
+                d = datetime.datetime.strptime(d, "%Y-%b-%d %H:%M:%S")
                 d = set_datetime_timezone_to_utc(d)
-                m = "\n".join((x for x in m))  # type: ignore
+                m = "\n".join((x for x in m))
                 return (n, d, m)
             except Exception as e:
                 self.logger.error(
@@ -237,7 +196,7 @@ class LogLoaderWorker(RaisingTread):
                 log_file_size = self.girar.get_file_size(log_name)
                 log_file = self.girar.get_file_path(log_name)
                 log_parsed = GeneratorWrapper(
-                    log_parser(self.logger, log_file, log_type, log_start_time)
+                    log_parser(self.logger, log_file, log_type, log_start_time)  # type: ignore
                 )
                 if log_parsed:
                     count += 1
@@ -250,7 +209,7 @@ class LogLoaderWorker(RaisingTread):
                                 tlog_ts=t,
                                 tlog_message=m,
                             )
-                            for l, t, m in log_parsed  # type: ignore
+                            for l, t, m in log_parsed
                         ),
                     )
                     self.logger.debug(
@@ -325,6 +284,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = lock
+        self.ph = PackageHandler(conn, logger)
         super().__init__(*args, **kwargs)
 
     def _calculate_hash_from_array_by_CH(self, hashes):
@@ -336,7 +296,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
@@ -349,12 +309,14 @@ class TaskIterationLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if not check_package_in_cache(self.cache, hashes["mmh"]):
             if self.pkg_hashes[pkg_name]["md5"]:
                 hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
             else:
                 self.logger.debug(f"calculate MD5 for {pkg_name} file")
-                hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+                hashes["md5"] = md5_from_file(
+                    self.girar.get_file_path(pkg), as_bytes=True
+                )
 
             if self.pkg_hashes[pkg_name]["sha256"]:
                 hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
@@ -372,10 +334,8 @@ class TaskIterationLoaderWorker(RaisingTread):
                     self.girar.get_file_path(pkg), as_bytes=True
                 )
 
-            extract.insert_package(
-                self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
-            )
-            extract.insert_pkg_hash_single(self.conn, hashes)
+            self.ph.insert_package(hdr, self.girar.get_file_path(pkg), **kw)
+            self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
             self.logger.debug(
@@ -557,13 +517,14 @@ class PackageLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = threading.Lock()
+        self.ph = PackageHandler(conn, logger)
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
         st = time.time()
         kw = {}
         hdr = self.girar.get_header(pkg)
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
         pkg_name = Path(pkg).name
 
@@ -598,11 +559,9 @@ class PackageLoaderWorker(RaisingTread):
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if not extract.check_package_in_cache(self.cache, hashes["mmh"]):
-            extract.insert_package(
-                self.conn, self.logger, hdr, self.girar.get_file_path(pkg), **kw
-            )
-            extract.insert_pkg_hash_single(self.conn, hashes)
+        if not check_package_in_cache(self.cache, hashes["mmh"]):
+            self.ph.insert_package(hdr, self.girar.get_file_path(pkg), **kw)
+            self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
             self.logger.debug(
@@ -1058,8 +1017,8 @@ def init_task_structure_from_task(girar, logger):
         hdrs = readHeaderListFromXZFile(pkglist)
         for hdr in hdrs:
             pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
-            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
+            pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+            pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
             task["pkg_hashes"][pkg_name]["blake2b"] = pkg_blake2b
             # FIXME: workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
             if task["pkg_hashes"][pkg_name]["md5"]:
