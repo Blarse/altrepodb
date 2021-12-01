@@ -11,7 +11,7 @@ from collections import namedtuple
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-from utils import get_logger, cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from htmllistparse import fetch_listing
 
 
@@ -145,20 +145,6 @@ GROUP BY
     insert_into_beehive_status = """
 INSERT INTO BeehiveStatus (*) VALUES
 """
-
-
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-
-    return client
 
 
 def get_args():
@@ -551,13 +537,17 @@ class Beehive:
                 else:
                     el_dict["bh_ftbfs_since"] = el_dict["bh_updated"]
             else:
-                self.logger.error(f"Failed to get status for package {pkg}. Element: {el_dict}")
+                self.logger.error(
+                    f"Failed to get status for package {pkg}. Element: {el_dict}"
+                )
                 raise ValueError("Can't find package build status")
 
             try:
                 el_dict["pkg_hash"] = pkgs_from_db[pkg]
             except KeyError:
-                self.logger.error(f"Failed to get hash for package {pkg}. Element: {el_dict}")
+                self.logger.error(
+                    f"Failed to get hash for package {pkg}. Element: {el_dict}"
+                )
                 raise ValueError("Can't find package hash")
 
             result.append(el_dict)
@@ -567,8 +557,12 @@ class Beehive:
                 result, f"{mtime.strftime('%Y-%m-%d')}_{t_key.branch}_{t_key.arch}"
             )
         self.conn.execute(self.sql.insert_into_beehive_status, result)
-        self.logger.debug(f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds")
-        self.logger.info(f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB")
+        self.logger.debug(
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+        )
+        self.logger.info(
+            f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB"
+        )
 
     def beehive_store(self) -> None:
         latest_beehive_from_db = self._get_last_beehive_status_from_db()
@@ -638,7 +632,9 @@ class Beehive:
                 pkgs_ftbfs = self._get_beehive_ftbfs_since(t_key=t_key)
 
                 if len(pkgs_time) != len(pkgs_status):
-                    self.logger.error(f"Inconsistent data from Beehive for {branch_}/{arch}")
+                    self.logger.error(
+                        f"Inconsistent data from Beehive for {branch_}/{arch}"
+                    )
                     break
 
                 self._store_beehive_results(
