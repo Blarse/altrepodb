@@ -71,7 +71,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
     except RequestException as exc:
         logger.error(f"Failed get information from {URL_WATCH}", exc_info=True)
         raise RuntimeError("Failed get information from Watch")
-    watch_last_modified = parsedate_to_datetime('Wed, 02 Dec 2021 00:45:40 GMT')
+    watch_last_modified = parsedate_to_datetime(res.headers["Last-Modified"])
 
     try:
         res_db = conn.execute('SELECT max(date_update) FROM PackagesWatch')
