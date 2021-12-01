@@ -9,33 +9,22 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-import extract
+from extract import PackageHandler
 from altrpm import rpm, extractSpecAndHeadersFromRPM
 from utils import (
     cvt,
     get_logger,
+    get_client,
     snowflake_id,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
+    check_package_in_cache,
 )
 
 NAME = "package"
 
 os.environ["LANG"] = "C"
-
-
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-    return client
 
 
 def get_args():
@@ -108,6 +97,7 @@ class PackageLoader:
         self.logger = logger
         self.force = args.force
         self.cache = self._init_cache()
+        self.ph = PackageHandler(conn, logger)
 
     def _init_cache(self) -> set:
         result = self.conn.execute(
@@ -116,7 +106,7 @@ class PackageLoader:
         return {i[0] for i in result}
 
     def _get_header(self):  # return rpm header object
-        return extract.get_header(str(self.pkg), self.logger)
+        return self.ph.get_header(str(self.pkg))
 
     def _get_file_size(self) -> int:
         try:
@@ -128,9 +118,7 @@ class PackageLoader:
     def _load_spec(self) -> None:
         self.logger.info(f"extracting spec file form {self.pkg.name}")
         st = time.time()
-        spec_file, spec_contents, hdr = extractSpecAndHeadersFromRPM(
-            self.pkg, raw=True
-        )
+        spec_file, spec_contents, hdr = extractSpecAndHeadersFromRPM(self.pkg, raw=True)
         self.logger.debug(
             f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
@@ -170,7 +158,7 @@ class PackageLoader:
         else:
             kw["pkg_srcrpm_hash"] = srpm_hash
 
-        if self.force or not extract.check_package_in_cache(self.cache, hashes["mmh"]):
+        if self.force or not check_package_in_cache(self.cache, hashes["mmh"]):
             self.logger.debug(f"calculate MD5 for {pkg_name} file")
             hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
 
@@ -180,8 +168,8 @@ class PackageLoader:
             self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
 
-            extract.insert_package(self.conn, self.logger, hdr, self.pkg, **kw)
-            extract.insert_pkg_hash_single(self.conn, hashes)
+            self.ph.insert_package(hdr, self.pkg, **kw)
+            self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.logger.info(
                 f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
