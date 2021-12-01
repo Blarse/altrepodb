@@ -6,31 +6,16 @@ import argparse
 import requests
 import configparser
 from dateutil import tz
-from clickhouse_driver import Client
-from clickhouse_driver import errors
+from clickhouse_driver import Client, errors
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from utils import get_logger
+from utils import get_logger, get_client
 
 NAME = "repocop"
 
 URL_REPOCOP = "http://repocop.altlinux.org/pub/repocop/prometheus3/packages.altlinux-sisyphus.json.bz2"
 FILE_NAME = URL_REPOCOP.split("/")[-1]
-
-
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-
-    return client
 
 
 def get_args():
