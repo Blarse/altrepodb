@@ -9,24 +9,11 @@ from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 from clickhouse_driver import Client, errors
 
-from utils import get_logger
+from utils import get_logger, get_client
 
 NAME = "watch"
 
 URL_WATCH = "https://watch.altlinux.org/pub/watch/watch-total.txt"
-
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-
-    return client
 
 
 def get_args():
