@@ -7,6 +7,10 @@ from utils import changelog_to_list, cvt, cvt_ts, packager_parse, snowflake_id, 
 os.environ['LANG'] = 'C'
 
 
+def unpack_map(tagmap):
+    return [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
+
+
 def detect_arch(hdr):
     package_name = cvt(hdr[rpm.RPMTAG_NAME])
     if package_name.startswith('i586-'):  # type: ignore
@@ -79,6 +83,14 @@ def get_package_map(hdr):
         'pkg_platform': cvt(hdr[rpm.RPMTAG_PLATFORM]),
     }
     return map_package
+
+
+def get_partial_pkg_map(hdr, key_list):
+    map_package = get_package_map(hdr)
+    res = {}
+    for key in key_list:
+        res[key] = map_package[key]
+    return res
 
 
 def get_file_map(hdr):

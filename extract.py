@@ -1,47 +1,37 @@
 import os
 import time
-import lzma
 import base64
 import logging
-import pycdlib
-import fnmatch
 import datetime
 import argparse
-import tempfile
 import itertools
 import threading
 import configparser
-import iso as isopkg
+import multiprocessing
 import clickhouse_driver as chd
 from uuid import uuid4
 from pathlib import Path
-from collections import defaultdict
-from io import BufferedRandom, BytesIO
 from rpm import TransactionSet
-from typing import Any
-import multiprocessing
+from collections import defaultdict
+from typing import Any, Iterable, Union
 
-from altrpm import (
-    rpm,
-    readHeaderFromRPM,
-    extractSpecFromRPM,
-    readHeaderListFromXZFile
-)
+from altrpm import rpm, extractSpecFromRPM, readHeaderListFromXZFile
 import mapper
 from utils import (
     cvt,
-    mmhash,
+    unxz,
     get_logger,
+    get_client,
     valid_date,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
+    check_package_in_cache,
     join_dicts_with_as_string,
     Timing,
     Display,
-    LockedIterator,
-    FunctionalNotImplemented,
 )
+from base import LockedIterator, NotImplementedError, PackageLoadError
 
 
 NAME = "extract"
@@ -64,322 +54,234 @@ ARCHS = (
 os.environ["LANG"] = "C"
 
 
-class PackageLoadError(Exception):
-    def __init__(self, message=None):
-        self.message = message
-        super().__init__()
+class PackageHandler:
+    """Handle package header parsing and insertion to DB."""
 
+    def __init__(self, conn: chd.Client, logger: logging.Logger):
+        self.conn = conn
+        self.logger = logger
 
-def check_package_in_cache(cache, pkghash):
-    """Check whether the hash is in the cache.
+    @staticmethod
+    def get_header(rpmfile: str) -> Any:
+        # return readHeaderFromRPM(rpmfile)
+        ts = TransactionSet()
+        return ts.hdrFromFdno(rpmfile)
 
-    return hash or None
-    """
-    if pkghash in cache:
+    @Timing.timeit(NAME)
+    def insert_package(self, hdr, pkg_file, **kwargs):
+        """Insert information about package into database.
+
+        Also:
+        insert packager, files, requires, provides, confilcts, obsolets
+        """
+        map_package = mapper.get_package_map(hdr)
+        map_package.update(**kwargs)
+        # formatting changelog
+        chlog = map_package["pkg_changelog"]
+        del map_package["pkg_changelog"]
+        map_package["pkg_changelog.date"] = []
+        map_package["pkg_changelog.name"] = []
+        map_package["pkg_changelog.evr"] = []
+        map_package["pkg_changelog.hash"] = []
+
+        for el in chlog:
+            map_package["pkg_changelog.date"].append(el[0])
+            map_package["pkg_changelog.name"].append(el[1])
+            map_package["pkg_changelog.evr"].append(el[2])
+            map_package["pkg_changelog.hash"].append(el[4])
+
+        payload = [
+            {"chlog_hash": r[0], "chlog_text": r[1]}
+            for r in {(el[4], el[3]) for el in chlog}
+        ]
+
+        self.conn.execute("""INSERT INTO Changelog_buffer (*) VALUES""", payload)
+
+        sql_insert = "INSERT INTO Packages_buffer ({0}) VALUES".format(
+            ", ".join(map_package.keys())
+        )
+
+        pkghash = map_package["pkg_hash"]
+
+        self.insert_file(pkghash, hdr)
+
+        map_require = mapper.get_require_map(hdr)
+        self.insert_list(map_require, pkghash, "require")
+
+        map_conflict = mapper.get_conflict_map(hdr)
+        self.insert_list(map_conflict, pkghash, "conflict")
+
+        map_obsolete = mapper.get_obsolete_map(hdr)
+        self.insert_list(map_obsolete, pkghash, "obsolete")
+
+        map_provide = mapper.get_provide_map(hdr)
+        self.insert_list(map_provide, pkghash, "provide")
+
+        self.conn.execute(sql_insert, [map_package])
+
+        if map_package["pkg_sourcepackage"] == 1:
+            self.insert_specfile(pkg_file, map_package)
+
         return pkghash
-    return None
 
-
-def get_partial_pkg_map(hdr, key_list):
-    map_package = mapper.get_package_map(hdr)
-    res = {}
-    for key in key_list:
-        res[key] = map_package[key]
-    return res
-
-
-@Timing.timeit(NAME)
-def insert_package(conn, logger, hdr, pkg_file, **kwargs):
-    """Insert information about package into database.
-
-    Also:
-    insert packager, files, requires, provides, confilcts, obsolets
-    """
-    map_package = mapper.get_package_map(hdr)
-    map_package.update(**kwargs)
-    # formatting changelog
-    chlog = map_package["pkg_changelog"]
-    del map_package["pkg_changelog"]
-    map_package["pkg_changelog.date"] = []
-    map_package["pkg_changelog.name"] = []
-    map_package["pkg_changelog.evr"] = []
-    map_package["pkg_changelog.hash"] = []
-
-    for el in chlog:
-        map_package["pkg_changelog.date"].append(el[0])
-        map_package["pkg_changelog.name"].append(el[1])
-        map_package["pkg_changelog.evr"].append(el[2])
-        map_package["pkg_changelog.hash"].append(el[4])
-
-    payload = [
-        {"chlog_hash": r[0], "chlog_text": r[1]}
-        for r in {(el[4], el[3]) for el in chlog}
-    ]
-
-    conn.execute("""INSERT INTO Changelog_buffer (*) VALUES""", payload)
-
-    sql_insert = "INSERT INTO Packages_buffer ({0}) VALUES".format(
-        ", ".join(map_package.keys())
-    )
-
-    pkghash = map_package["pkg_hash"]
-
-    insert_file(conn, logger, pkghash, hdr)
-
-    map_require = mapper.get_require_map(hdr)
-    insert_list(conn, logger, map_require, pkghash, "require")
-
-    map_conflict = mapper.get_conflict_map(hdr)
-    insert_list(conn, logger, map_conflict, pkghash, "conflict")
-
-    map_obsolete = mapper.get_obsolete_map(hdr)
-    insert_list(conn, logger, map_obsolete, pkghash, "obsolete")
-
-    map_provide = mapper.get_provide_map(hdr)
-    insert_list(conn, logger, map_provide, pkghash, "provide")
-
-    conn.execute(sql_insert, [map_package])
-
-    if map_package["pkg_sourcepackage"] == 1:
-        insert_specfile(conn, logger, pkg_file, map_package)
-
-    return pkghash
-
-
-def unpack_map(tagmap):
-    return [dict(zip(tagmap, v)) for v in zip(*tagmap.values())]
-
-
-@Timing.timeit(NAME)
-def insert_specfile(conn, logger, pkg_file, pkg_map):
-    logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
-    st = time.time()
-    spec_file, spec_contents = extractSpecFromRPM(pkg_file, raw=True)
-    logger.debug(f"headers and spec file extracted in {(time.time() - st):.3f} seconds")
-    logger.debug(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
-    st = time.time()
-    kw = {
-        "pkg_hash": pkg_map["pkg_hash"],
-        "pkg_name": pkg_map["pkg_name"],
-        "pkg_epoch": pkg_map["pkg_epoch"],
-        "pkg_version": pkg_map["pkg_version"],
-        "pkg_release": pkg_map["pkg_release"],
-        "specfile_name": spec_file.name,
-        "specfile_date": spec_file.mtime,
-        "specfile_content_base64": base64.b64encode(spec_contents),
-    }
-    conn.execute("INSERT INTO Specfiles_insert (*) VALUES", [kw,])
-    logger.debug(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
-
-
-@Timing.timeit(NAME)
-def insert_file(conn, logger, pkghash, hdr):
-    map_file = mapper.get_file_map(hdr)
-    map_file["pkg_hash"] = itertools.cycle([pkghash])
-    data = unpack_map(map_file)
-    conn.execute(
-        "INSERT INTO Files_insert ({0}) VALUES".format(", ".join(map_file.keys())), data
-    )
-    logger.debug("insert file for pkghash: {0}".format(pkghash))
-
-
-@Timing.timeit("extract")
-def insert_list(conn, logger, tagmap, pkghash, dptype):
-    """Insert list as batch."""
-    tagmap["pkg_hash"] = itertools.cycle([pkghash])
-    tagmap["dp_type"] = itertools.cycle([dptype])
-    data = unpack_map(tagmap)
-    conn.execute(
-        "INSERT INTO Depends_buffer ({0}) VALUES".format(", ".join(tagmap.keys())), data
-    )
-    logger.debug("insert list into: {0} for pkghash: {1}".format(dptype, pkghash))
-
-
-@Timing.timeit(NAME)
-def insert_assignment_name(
-    conn,
-    logger,
-    assignment_name=None,
-    uuid=None,
-    tag=None,
-    assignment_date=None,
-    complete=0,
-):
-    if assignment_date is None:
-        assignment_date = datetime.datetime.now()
-    sql = "INSERT INTO AssignmentName (uuid, assignment_name, assignment_date, tag, complete) VALUES"
-    if uuid is None:
-        uuid = str(uuid4())
-    data = {
-        "uuid": uuid,
-        "assignment_name": assignment_name,
-        "assignment_date": assignment_date,
-        "tag": tag,
-        "complete": complete,
-    }
-    conn.execute(sql, [data])
-    logger.debug("insert assignment name uuid: {0}".format(uuid))
-    # return data
-
-
-@Timing.timeit(NAME)
-def insert_pkgset_name(
-    conn, logger, name, uuid, puuid, ruuid, depth, tag, date, complete, kv_args
-):
-    if date is None:
-        date = datetime.datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0
+    @Timing.timeit(NAME)
+    def insert_specfile(self, pkg_file, pkg_map):
+        self.logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
+        st = time.time()
+        spec_file, spec_contents = extractSpecFromRPM(pkg_file, raw=True)
+        self.logger.debug(
+            f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
-    sql = "INSERT INTO PackageSetName (*) VALUES"
-    data = {
-        "pkgset_uuid": uuid,
-        "pkgset_puuid": puuid,
-        "pkgset_ruuid": ruuid,
-        "pkgset_depth": depth,
-        "pkgset_nodename": name,
-        "pkgset_date": date,
-        "pkgset_tag": tag,
-        "pkgset_complete": complete,
-        "pkgset_kv.k": [k for k, v in kv_args.items() if v is not None],
-        "pkgset_kv.v": [v for k, v in kv_args.items() if v is not None],
-    }
-    conn.execute(sql, [data])
-    logger.debug("insert package set name uuid: {0}".format(uuid))
-
-
-@Timing.timeit(NAME)
-def insert_pkgset(conn, logger, uuid, pkghash):
-    conn.execute(
-        "INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES",
-        [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
-    )
-    logger.debug(
-        "insert package set uuid: {0}, pkg_hash: {1}".format(uuid, len(pkghash))
-    )
-
-
-@Timing.timeit(NAME)
-def insert_pkg_hashes(conn, pkg_hashes):
-    """Inserts multiple packages hashes to DB
-
-    Args:
-        conn (connection): ClickHouse driver connection object
-        pkg_hashes (dict[dict]): dictionary of packages hashes
-    """
-    payload = []
-    for v in pkg_hashes.values():
-        payload.append(
-            {
-                "pkgh_mmh": v["mmh"],
-                "pkgh_md5": v["md5"],
-                "pkgh_sha1": v["sha1"],
-                "pkgh_sha256": v["sha256"],
-                "pkgh_blake2b": v["blake2b"],
-            }
+        self.logger.debug(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
+        st = time.time()
+        kw = {
+            "pkg_hash": pkg_map["pkg_hash"],
+            "pkg_name": pkg_map["pkg_name"],
+            "pkg_epoch": pkg_map["pkg_epoch"],
+            "pkg_version": pkg_map["pkg_version"],
+            "pkg_release": pkg_map["pkg_release"],
+            "specfile_name": spec_file.name,
+            "specfile_date": spec_file.mtime,
+            "specfile_content_base64": base64.b64encode(spec_contents),
+        }
+        self.conn.execute(
+            "INSERT INTO Specfiles_insert (*) VALUES",
+            [
+                kw,
+            ],
         )
-    settings = {"strings_as_bytes": True}
-    conn.execute(
-        "INSERT INTO PackageHash_buffer (*) VALUES", payload, settings=settings
-    )
+        self.logger.debug(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
+
+    @Timing.timeit(NAME)
+    def insert_file(self, pkghash, hdr):
+        map_file = mapper.get_file_map(hdr)
+        map_file["pkg_hash"] = itertools.cycle([pkghash])
+        data = mapper.unpack_map(map_file)
+        self.conn.execute(
+            "INSERT INTO Files_insert ({0}) VALUES".format(", ".join(map_file.keys())),
+            data,
+        )
+        self.logger.debug("insert file for pkghash: {0}".format(pkghash))
+
+    @Timing.timeit("extract")
+    def insert_list(self, tagmap, pkghash, dptype):
+        """Insert list as batch."""
+        tagmap["pkg_hash"] = itertools.cycle([pkghash])
+        tagmap["dp_type"] = itertools.cycle([dptype])
+        data = mapper.unpack_map(tagmap)
+        self.conn.execute(
+            "INSERT INTO Depends_buffer ({0}) VALUES".format(", ".join(tagmap.keys())),
+            data,
+        )
+        self.logger.debug(
+            "insert list into: {0} for pkghash: {1}".format(dptype, pkghash)
+        )
+
+    @Timing.timeit(NAME)
+    def insert_pkg_hashes(self, pkg_hashes):
+        """Inserts multiple packages hashes to DB
+
+        Args:
+            conn (connection): ClickHouse driver connection object
+            pkg_hashes (dict[dict]): dictionary of packages hashes
+        """
+        payload = []
+        for v in pkg_hashes.values():
+            payload.append(
+                {
+                    "pkgh_mmh": v["mmh"],
+                    "pkgh_md5": v["md5"],
+                    "pkgh_sha1": v["sha1"],
+                    "pkgh_sha256": v["sha256"],
+                    "pkgh_blake2b": v["blake2b"],
+                }
+            )
+        settings = {"strings_as_bytes": True}
+        self.conn.execute(
+            "INSERT INTO PackageHash_buffer (*) VALUES", payload, settings=settings
+        )
+
+    @Timing.timeit(NAME)
+    def insert_pkg_hash_single(self, pkg_hash):
+        """Insert single package hashes to DB
+
+        Args:
+            conn (connection): ClickHouse driver connection object
+            pkg_hash (dict): dictionary of single package hashes
+        """
+        settings = {"strings_as_bytes": True}
+        self.conn.execute(
+            "INSERT INTO PackageHash_buffer (*) VALUES",
+            [
+                {
+                    "pkgh_mmh": pkg_hash["mmh"],
+                    "pkgh_md5": pkg_hash["md5"],
+                    "pkgh_sha1": pkg_hash["sha1"],
+                    "pkgh_sha256": pkg_hash["sha256"],
+                    "pkgh_blake2b": pkg_hash["blake2b"],
+                }
+            ],
+            settings=settings,
+        )
 
 
-@Timing.timeit(NAME)
-def insert_pkg_hash_single(conn, pkg_hash):
-    """Insert single package hashes to DB
+class PackageSetHandler:
+    """Handle package set records insertion to DB."""
 
-    Args:
-        conn (connection): ClickHouse driver connection object
-        pkg_hash (dict): dictionary of single package hashes
-    """
-    settings = {"strings_as_bytes": True}
-    conn.execute(
-        "INSERT INTO PackageHash_buffer (*) VALUES",
-        [
-            {
-                "pkgh_mmh": pkg_hash["mmh"],
-                "pkgh_md5": pkg_hash["md5"],
-                "pkgh_sha1": pkg_hash["sha1"],
-                "pkgh_sha256": pkg_hash["sha256"],
-                "pkgh_blake2b": pkg_hash["blake2b"],
-            }
-        ],
-        settings=settings,
-    )
+    def __init__(self, conn: chd.Client, logger: logging.Logger):
+        self.conn = conn
+        self.logger = logger
 
+    @Timing.timeit(NAME)
+    def insert_pkgset_name(
+        self, name, uuid, puuid, ruuid, depth, tag, date, complete, kv_args
+    ):
+        if date is None:
+            date = datetime.datetime.now().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+        sql = "INSERT INTO PackageSetName (*) VALUES"
+        data = {
+            "pkgset_uuid": uuid,
+            "pkgset_puuid": puuid,
+            "pkgset_ruuid": ruuid,
+            "pkgset_depth": depth,
+            "pkgset_nodename": name,
+            "pkgset_date": date,
+            "pkgset_tag": tag,
+            "pkgset_complete": complete,
+            "pkgset_kv.k": [k for k, v in kv_args.items() if v is not None],
+            "pkgset_kv.v": [v for k, v in kv_args.items() if v is not None],
+        }
+        self.conn.execute(sql, [data])
+        self.logger.debug("insert package set name uuid: {0}".format(uuid))
 
-def find_packages(args, logger):
-    """Recursively walk through directory for find rpm packages.
-
-    return generator
-    """
-    path = args.path
-    logger.debug("scanning directory: {0}".format(path))
-    for dirname, _, filenames in os.walk(path):
-        for filename in filenames:
-            f = os.path.join(dirname, filename)
-            if args.exclude is not None and fnmatch.fnmatch(f, args.exclude):
-                logger.debug("skip {}".format(f))
-                continue
-            if f.endswith(".rpm") and not os.path.islink(f):
-                yield f
-
-
-def iso_find_packages(iso):
-    for dirname, _, filenames in iso.walk(rr_path="/"):
-        for filename in filenames:
-            f = os.path.join(dirname, filename)
-            if f.endswith(".rpm"):
-                tmp_file = tempfile.TemporaryFile()
-                iso.get_file_from_iso_fp(tmp_file, rr_path=f)
-                tmp_file.seek(0)
-                tmp_file.iname = f  # type: ignore
-                yield tmp_file
-
-
-@Timing.timeit(NAME)
-def get_header(rpmfile, logger):
-    logger.debug(f"read header from {rpmfile}")
-    # return readHeaderFromRPM(rpmfile)
-    ts = TransactionSet()
-    return ts.hdrFromFdno(rpmfile)
-
-
-def check_iso(path, logger):
-    if os.path.isdir(path):
-        return None
-    iso = pycdlib.PyCdlib()
-    fp = open(path, "rb")
-    try:
-        iso.open_fp(fp)
-    except pycdlib.pycdlib.pycdlibexception.PyCdlibInvalidInput:
-        logger.error("error open iso: {0}".format(path))
-        return None
-    return iso
-
-
-def get_client(args):
-    return chd.Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
+    @Timing.timeit(NAME)
+    def insert_pkgset(self, uuid, pkghash):
+        self.conn.execute(
+            "INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES",
+            [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
+        )
+        self.logger.debug(
+            "insert package set uuid: {0}, pkg_hash: {1}".format(uuid, len(pkghash))
+        )
 
 
 class Worker(threading.Thread):
+    """Package loader worker."""
+
     def __init__(
         self,
-        connection,
-        logger,
-        pkg_cache,
-        src_repo_cache,
-        pkg_repo_cache,
-        packages,
-        pkgset,
-        display,
-        repair,
-        is_src=False,
+        connection: chd.Client,
+        logger: logging.Logger,
+        lock: threading.Lock,
+        pkg_cache: set,
+        src_repo_cache: dict,
+        pkg_repo_cache: dict,
+        packages: Iterable,
+        pkgset: set,
+        display: Union[Display, None],
+        is_src: bool = False,
         *args,
         **kwargs,
     ):
@@ -391,21 +293,20 @@ class Worker(threading.Thread):
         self.src_repo_cache = src_repo_cache
         self.pkg_repo_cache = pkg_repo_cache
         self.cache = pkg_cache
-        self.repair = repair
         self.is_src = is_src
         self.exc = None
         self.exc_args = None
-        self.lock = threading.Lock()
+        self.lock = lock
+        self.ph = PackageHandler(connection, logger)
         super().__init__(*args, **kwargs)
 
     def run(self):
         self.logger.debug("thread start")
-        # count = 0
         for package in self.packages:
             try:
                 pkg_filename = Path(package).name
-                header = get_header(package, self.logger)
-                map_package = get_partial_pkg_map(
+                header = self.ph.get_header(package)
+                map_package = mapper.get_partial_pkg_map(
                     header,
                     (
                         "pkg_sourcepackage",
@@ -458,25 +359,20 @@ class Worker(threading.Thread):
                 ):
                     kw["pkg_srcrpm_hash"] = 0
 
-                if isinstance(package, BufferedRandom):
-                    package.close()
-                    package = package.iname  # type: ignore
                 self.logger.debug("process: {0}".format(package))
                 pkghash = check_package_in_cache(self.cache, map_package["pkg_hash"])
 
                 if pkghash is None:
-                    pkghash = insert_package(
-                        self.connection, self.logger, header, package, **kw
-                    )
+                    pkghash = self.ph.insert_package(header, package, **kw)
                     self.cache.add(pkghash)
                     # insert package hashes to PackageHash_buffer
                     if self.is_src:
-                        insert_pkg_hash_single(
-                            self.connection, self.src_repo_cache[pkg_filename]
+                        self.ph.insert_pkg_hash_single(
+                            self.src_repo_cache[pkg_filename]
                         )
                     else:
-                        insert_pkg_hash_single(
-                            self.connection, self.pkg_repo_cache[pkg_filename]
+                        self.ph.insert_pkg_hash_single(
+                            self.pkg_repo_cache[pkg_filename]
                         )
                 if pkghash is None:
                     raise PackageLoadError(
@@ -504,18 +400,19 @@ class Worker(threading.Thread):
 
 
 def worker_pool(
-    pkg_cache,
-    src_repo_cache,
-    pkg_repo_cache,
-    packages_list,
-    pkgset,
-    display,
-    is_src,
-    args,
-    logger,
+    logger: logging.Logger,
+    pkg_cache: set,
+    src_repo_cache: dict,
+    pkg_repo_cache: dict,
+    packages_list: Iterable,
+    pkgset: set,
+    display: Union[Display, None],
+    is_src: bool,
+    args: Any,
 ):
-    workers = []
-    connections = []
+    lock = threading.Lock()
+    workers: list[Worker] = []
+    connections: list[chd.Client] = []
 
     packages = LockedIterator((pkg for pkg in packages_list))
 
@@ -525,13 +422,13 @@ def worker_pool(
         worker = Worker(
             conn,
             logger,
+            lock,
             pkg_cache,
             src_repo_cache,
             pkg_repo_cache,
             packages,
             pkgset,
             display,
-            args.repair,
             is_src,
         )
         worker.start()
@@ -549,68 +446,54 @@ def worker_pool(
             c.disconnect()
 
 
-def iso_get_info(iso, args, logger):
-    result = {}
-    try:
-        for dirname, _, filenames in iso.walk(rr_path="/.disk"):
-            for filename in filenames:
-                f = os.path.join(dirname, filename)
-                data = BytesIO()
-                iso.get_file_from_iso_fp(data, rr_path=f)
-                result[filename.split(".")[0]] = (
-                    data.getvalue().strip().decode("latin-1")
-                )
-        result_string = "\n".join(
-            ["{0}: {1}".format(k, v) for k, v in result.items()]
-        )
-        args.tag = result_string
-    except Exception as error:
-        logger.error(error, exc_info=True)
+class RepoLoadHandler:
+    """Handle repository structure processing and loading to DB."""
 
+    def __init__(self, conn: chd.Client, logger: logging.Logger):
+        self.conn = conn
+        self.logger = logger
 
-def init_cache(src_hashes, bin_hashes):
-    cache = set()
-    for v in src_hashes.values():
-        if v["mmh"] != 0:
-            cache.add(v["mmh"])
-    for v in bin_hashes.values():
-        if v["mmh"] != 0:
-            cache.add(v["mmh"])
+    @staticmethod
+    def init_cache(src_hashes: dict, bin_hashes: dict) -> set:
+        cache = set()
+        for v in src_hashes.values():
+            if v["mmh"] != 0:
+                cache.add(v["mmh"])
+        for v in bin_hashes.values():
+            if v["mmh"] != 0:
+                cache.add(v["mmh"])
 
-    return cache
+        return cache
 
-
-@Timing.timeit("PkgHashTmp")
-def init_hash_temp_table(conn, logger, hashes):
-    payload = []
-    result = conn.execute(
-        """
+    @Timing.timeit(NAME)
+    def init_hash_temp_table(self, hashes: dict) -> None:
+        payload = []
+        result = self.conn.execute(
+"""
 CREATE TEMPORARY TABLE IF NOT EXISTS PkgHashTmp
 (
     name    String,
     md5     FixedString(16),
     sha256  FixedString(32)
 )"""
-    )
-    for k in hashes:
-        # workaround to a possible bug in the repository structure
-        # if files/list/*.hash.* files contain missing packages
-        if hashes[k]["md5"] is None:
-            continue
-        payload.append(
-            {"name": k, "md5": hashes[k]["md5"], "sha256": hashes[k]["sha256"]}
         )
-    result = conn.execute("INSERT INTO PkgHashTmp (*) VALUES", payload)
-    logger.debug(f"Inserted {len(payload)} hashes into PkgHashTmp")
-    # Free memory immediatelly
-    del payload
-    # return {i[0] for i in result}
+        for k in hashes:
+            # workaround to a possible bug in the repository structure
+            # if files/list/*.hash.* files contain missing packages
+            if hashes[k]["md5"] is None:
+                continue
+            payload.append(
+                {"name": k, "md5": hashes[k]["md5"], "sha256": hashes[k]["sha256"]}
+            )
+        result = self.conn.execute("INSERT INTO PkgHashTmp (*) VALUES", payload)
+        self.logger.debug(f"Inserted {len(payload)} hashes into PkgHashTmp")
+        # Free memory immediatelly
+        del payload
 
-
-@Timing.timeit("PkgHash_check_md5_not_in_db")
-def update_hases_from_db(conn, logger, repo_cache):
-    result = conn.execute(
-        """
+    @Timing.timeit(NAME)
+    def update_hases_from_db(self, repo_cache: dict) -> None:
+        result = self.conn.execute(
+"""
 SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
 FROM PkgHashTmp AS t1 
 LEFT JOIN
@@ -619,183 +502,35 @@ LEFT JOIN
     FROM PackageHash_buffer
 ) AS t2
 ON t1.md5 = t2.md5""",
-        settings={"strings_as_bytes": True},
-    )
-    cnt1 = cnt2 = 0
-    if len(result):
-        for (k, *v) in result:
-            if len(v) == 3:
-                kk = k.decode("utf-8")
-                if kk in repo_cache.keys():
-                    if v[1] != 0:
-                        # repo_cache[kk]['md5'] = v[0]
-                        repo_cache[kk]["mmh"] = v[1]
-                        repo_cache[kk]["sha1"] = v[2]
-                        cnt1 += 1
-                    else:
-                        repo_cache[kk]["mmh"] = 0
-                        repo_cache[kk]["sha1"] = None
-                        cnt2 += 1
-    logger.debug(
-        f"Requested {len(result)} package hashes from database. "
-        f"For {len(repo_cache)} packages {cnt1} hashes found in "
-        f"'PackagaeHash_buffer' table, {cnt2} packages not loaded yet."
-    )
-
-
-def check_assignment_name(conn, name):
-    sql = "SELECT COUNT(*) FROM AssignmentName WHERE assignment_name=%(aname)s"
-    r = conn.execute(sql, {"aname": name})
-    return r[0][0] > 0
-
-
-def full_check(conn, logger, hdr, map_package):
-    # check files
-    # rpm control sum
-    map_file = mapper.get_file_map(hdr)
-    fields = list(map_file.keys())  # save order
-    data = unpack_map(map_file)
-    csf_rpm = set(
-        [mmhash(".".join([str(d[i]) for i in fields])) for d in data]
-    )  # calc hashsum for each row
-    # db control sum
-    res = conn.execute(
-        "SELECT {0} FROM File_buffer WHERE pkghash=%(pkghash)s".format(
-            ", ".join(fields)
-        ),
-        map_package,
-    )
-    csf_db = set(
-        [mmhash(".".join([str(i) for i in r])) for r in res]
-    )  # calc hashsum for each row
-    ck_files = csf_rpm == csf_db
-    if not ck_files:
-        logger.debug("package: {name} {pkgcs} files corrupted".format(**map_package))
-    # check depends
-    fields = ["dpname", "dpversion", "flag"]
-    map_require = mapper.get_require_map(hdr)
-    map_conflict = mapper.get_conflict_map(hdr)
-    map_obsolete = mapper.get_obsolete_map(hdr)
-    map_provide = mapper.get_provide_map(hdr)
-    dep_data = (
-        unpack_map(map_require)
-        + unpack_map(map_conflict)
-        + unpack_map(map_obsolete)
-        + unpack_map(map_provide)
-    )
-    csd_rpm = set([mmhash(".".join([str(d[i]) for i in fields])) for d in dep_data])
-    res = conn.execute(
-        "SELECT {0} FROM Depends_buffer WHERE pkghash=%(pkghash)s".format(
-            ", ".join(fields)
-        ),
-        map_package,
-    )
-    csd_db = set([mmhash(".".join([str(i) for i in r])) for r in res])
-    ck_depends = csd_rpm == csd_db
-    if not ck_depends:
-        logger.debug("package: {name} {pkgcs} depends corrupted".format(**map_package))
-    return not (ck_files and ck_depends)
-
-
-def repair_package(conn, logger, hdr, repair, **kwargs):
-    map_package = mapper.get_package_map(hdr)
-    need_repair = False
-    need_full_repair = False
-    fields = list(map_package.keys())
-    result = conn.execute(
-        "SELECT {0} FROM Package_buffer WHERE pkghash=%(pkghash)s".format(
-            ",".join(fields)
-        ),
-        map_package,
-    )
-    pkg = {k: v for k, v in zip(fields, result[0])}
-    if map_package != pkg:
-        need_repair = True
-        logger.debug("package: {name} {pkgcs} corrupted".format(**map_package))
-    if repair == "repair" and need_repair:
-        map_package.update(**kwargs)
-        remove_package(conn, map_package)
-        sql_insert = "INSERT INTO Package_buffer ({0}) VALUES".format(
-            ", ".join(map_package.keys())
+            settings={"strings_as_bytes": True},
         )
-        conn.execute(sql_insert, [map_package])
-        return
-    if repair in ["full-check", "full-repair"]:
-        need_full_repair = full_check(conn, logger, hdr, map_package)
-    if repair == "full-repair" and (need_repair or need_full_repair):
-        remove_package(conn, map_package, full=True)
-        insert_package(conn, hdr, **kwargs)
+        cnt1 = cnt2 = 0
+        if len(result):  # type: ignore
+            for (k, *v) in result:  # type: ignore
+                if len(v) == 3:
+                    kk = k.decode("utf-8")
+                    if kk in repo_cache.keys():
+                        if v[1] != 0:
+                            # repo_cache[kk]['md5'] = v[0]
+                            repo_cache[kk]["mmh"] = v[1]
+                            repo_cache[kk]["sha1"] = v[2]
+                            cnt1 += 1
+                        else:
+                            repo_cache[kk]["mmh"] = 0
+                            repo_cache[kk]["sha1"] = None
+                            cnt2 += 1
+        self.logger.debug(
+            f"Requested {len(result)} package hashes from database. "  # type: ignore
+            f"For {len(repo_cache)} packages {cnt1} hashes found in "
+            f"'PackagaeHash_buffer' table, {cnt2} packages not loaded yet."
+        )
 
-
-def remove_package(conn, mp, full=False):
-    conn.execute("ALTER TABLE Package DELETE WHERE pkghash=%(pkghash)s", mp)
-    if full:
-        conn.execute("ALTER TABLE File DELETE WHERE pkghash=%(pkghash)s", mp)
-        conn.execute("ALTER TABLE Depends DELETE WHERE pkghash=%(pkghash)s", mp)
-
-
-def unxz(fname, mode_binary=False):
-    """Reads '.xz' compressed file contents
-
-    Args:
-        fname (path-like or string): path to comressed file
-        mode_binary (bool, optional): file read mode: binary or text.
-
-    Returns:
-        (bytes or text): contents of comressed '.xz' file
-    """
-    if mode_binary:
-        with lzma.open(fname, "rb") as f:
-            res = f.read()
-        return res
-    else:
-        with lzma.open(fname, "rt") as f:
-            res = f.read()
-        return res
-
-
-def read_release_components(f) -> list[str]:
-    """Read components from 'release' file in reposiory tree
-
-    Args:
-        f (path-like object): path to 'release' file
-
-    Returns:
-        list(string): list of components
-    """
-    comps = []
-    with f.open(mode="r") as fd:
-        for line in fd.readlines():
-            ls = line.split(":")
-            if ls[0] == "Components":
-                comps = [x.strip() for x in ls[1].split()]
-                break
-    return comps
-
-
-def check_release_for_blake2b(f) -> bool:
-    """Search blake2b hashes mentioned in release file in reposiory tree.
-
-    Args:
-        f (path-like object): path to 'release' file
-
-    Returns:
-        bool: is BLAKE2b hashes section found in release file
-    """
-    with f.open(mode="r") as fd:
-        for line in fd.readlines():
-            ls = line.split(":")
-            if ls[0] == "BLAKE2b":
-                return True
-    return False
-
-
-def check_repo_date_name_in_db(conn, pkgset_name, pkgset_date):
-    result = conn.execute(
-        f"SELECT COUNT(*) FROM PackageSetName WHERE "
-        f"pkgset_nodename='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
-    )
-    return result[0][0] != 0
+    def check_repo_date_name_in_db(self, pkgset_name: str, pkgset_date: datetime.date) -> bool:
+        result = self.conn.execute(
+            f"SELECT COUNT(*) FROM PackageSetName WHERE "
+            f"pkgset_nodename='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
+        )
+        return result[0][0] != 0  # type: ignore
 
 
 def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
@@ -807,22 +542,38 @@ def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
     hsh = {}
     for hdr in hdrs:
         pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))  # type: ignore
-        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))  # type: ignore
+        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
+        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
         hsh[pkg_name] = (pkg_md5, pkg_blake2b)
     return src_list, fname, hsh
 
 
-def read_repo_structure(repo_name, repo_path, logger):
-    """Reads repository structure for given path and store
+def read_release_components(file: Path) -> list[str]:
+    """Read components from 'release' file in reposiory tree."""
 
-    Args:
-        repo_name (string): name of processed repository
-        repo_path (string): path to repository root
+    comps = []
+    with file.open(mode="r") as fd:
+        for line in fd.readlines():
+            ls = line.split(":")
+            if ls[0] == "Components":
+                comps = [x.strip() for x in ls[1].split()]
+                break
+    return comps
 
-    Returns:
-        dict: repository structure and file's hashes
-    """
+
+def check_release_for_blake2b(file: Path) -> bool:
+    """Search blake2b hashes mentioned in release file in reposiory tree."""
+
+    with file.open(mode="r") as fd:
+        for line in fd.readlines():
+            ls = line.split(":")
+            if ls[0] == "BLAKE2b":
+                return True
+    return False
+
+
+def read_repo_structure(repo_name: str, repo_path: str, logger: logging.Logger) -> dict:
+    """Reads repository structure for given path and store."""
 
     repo = {
         "repo": {
@@ -848,11 +599,11 @@ def read_repo_structure(repo_name, repo_path, logger):
     root = Path(repo["repo"]["path"])
 
     if not Path.joinpath(root, "files/list").is_dir() or not [
-        _ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)
+        x for x in root.iterdir() if (x.is_dir() and x.name in ARCHS)
     ]:
-        # TODO: add support for ISO-like repositories
-        msg = f"The path '{str(root)}' is not regular repo structure root"
-        raise FunctionalNotImplemented(msg)
+        raise NotImplementedError(
+            message=f"The path '{str(root)}' is not regular repository structure root"
+        )
 
     pkglists = []
     for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and _.name in ARCHS)]:
@@ -934,7 +685,7 @@ def read_repo_structure(repo_name, repo_path, logger):
         for arch in ARCHS:
             f = p.joinpath(arch + ".hash.xz")
             if f.is_file():
-                contents = (_ for _ in unxz(f, mode_binary=False).split("\n") if len(_))  # type: ignore
+                contents = (x for x in unxz(f, mode_binary=False).split("\n") if len(x))  # type: ignore
                 if arch == "src":
                     # load to src_hashes
                     for c in contents:
@@ -1044,275 +795,225 @@ def read_repo_structure(repo_name, repo_path, logger):
 
 def load(args: Any, logger: logging.Logger):
     conn = get_client(args)
-    iso = check_iso(args.path, logger)
-    if iso:
-        if check_assignment_name(conn, args.pkgset):
-            raise NameError("This assignment name is already loaded!")
-        packages = LockedIterator(iso_find_packages(iso))
-        if args.date is None:
-            r = os.stat(args.path)
-            args.date = datetime.datetime.fromtimestamp(r.st_mtime)
-        iso_get_info(iso, args, logger)
-        #  TODO: set 'class' for ISO and SquashFS if foubd
-        # repo['repo']['kwargs']['class'] = 'iso'
-    else:
-        connections = [conn]
-        display = None
-        pkgset = set()
-        ts = time.time()
-        # set date if None
-        if args.date is None:
-            args.date = datetime.datetime.now().replace(
-                hour=0, minute=0, second=0, microsecond=0
+    connections = [conn]
+    display = None
+    pkgset = set()
+    ts = time.time()
+    rlh = RepoLoadHandler(conn, logger)
+    # set date if None
+    if args.date is None:
+        args.date = datetime.datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    # check if {%name%}-{%date%} already in DB
+    if rlh.check_repo_date_name_in_db(args.pkgset, args.date.date()):
+        if not args.force:
+            logger.error(
+                f"Repository with name '{args.pkgset}' and "
+                f"date '{args.date.date()}' already exists in database"
             )
-        # check if {%name%}-{%date%} already in DB
-        if check_repo_date_name_in_db(conn, args.pkgset, args.date.date()):
-            if not args.force:
-                logger.error(
-                    f"Repository with name '{args.pkgset}' and "
-                    f"date '{args.date.date()}' already exists in database"
-                )
-                raise NameError("This package set is already loaded!")
-        logger.info(f"Start loading repository structure")
-        # read repo structures
-        repo = read_repo_structure(args.pkgset, args.path, logger)
-        repo["repo"]["kwargs"]["class"] = "repository"
-        # init hash caches
-        init_hash_temp_table(conn, logger, repo["src_hashes"])
-        init_hash_temp_table(conn, logger, repo["pkg_hashes"])
-        update_hases_from_db(conn, logger, repo["src_hashes"])
-        update_hases_from_db(conn, logger, repo["pkg_hashes"])
-        cache = init_cache(repo["src_hashes"], repo["pkg_hashes"])
-        ts = time.time() - ts
-        logger.info(f"Repository structure loaded, caches initialized in {ts:.3f} sec.")
-        if args.verbose and args.repair is None:
-            display = Display(logger, ts)
-        # store repository structure
-        if args.repair is None:
-            # level 0 : repository
-            # rpository root loaded last as a 'transaction complete' sign
-            repo_root = Path(repo["repo"]["path"])
-            # level 1 : src
-            # load source RPMs first
-            # generate 'src.rpm' packages list
-            pkg_count = 0
-            pkg_count2 = 0
-            ts = time.time()
-            packages_list = []
-            pkgset_cached = set()
-            logger.info("Start checking SRC packages")
-            # load source packages fom 'files/SRPMS'
-            src_dir = Path.joinpath(repo_root, "files/SRPMS")
-            if not src_dir.is_dir():
-                raise RuntimeError("'files/SRPMS directory not found'")
-            logger.info(
-                f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}"
-            )
-            for pkg in repo["src_hashes"]:
-                pkg_count += 1
-                if repo["src_hashes"][pkg]["sha1"] is None:
-                    rpm_file = src_dir.joinpath(pkg)
-                    if not rpm_file.is_file():
-                        raise ValueError(f"File {rpm_file} not found")
-                    packages_list.append(str(rpm_file))
-                else:
-                    pkgh = repo["src_hashes"][pkg]["mmh"]
-                    if not pkgh:
-                        raise ValueError(f"No hash found in cache for {pkg}")
-                    pkgset_cached.add(pkgh)
-                    pkg_count2 += 1
-            logger.info(
-                f"Checked {pkg_count} SRC packages. "
-                f"{pkg_count2} packages in cache, "
-                f"{len(packages_list)} packages for load. "
-                f"Time elapsed {(time.time() - ts):.3f} sec."
-            )
-            # load 'src.rpm' packages
-            worker_pool(
-                cache,
-                repo["src_hashes"],
-                repo["pkg_hashes"],
-                packages_list,
-                pkgset,
-                display,
-                True,
-                args,
-                logger,
-            )
-            # build pkgset for PackageSet record
-            pkgset.update(pkgset_cached)
-
-            insert_pkgset(conn, logger, repo["src"]["uuid"], pkgset)
-            # store PackageSetName record for 'src'
-            tmp_d = {"depth": "1", "type": "srpm", "size": str(len(pkgset))}
-            tmp_d = join_dicts_with_as_string(
-                tmp_d, repo["repo"]["kwargs"]["class"], "class"
-            )
-            tmp_d = join_dicts_with_as_string(tmp_d, repo["src"]["path"], "SRPMS")
-            tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
-            insert_pkgset_name(
-                conn,
-                logger,
-                name=repo["src"]["name"],
-                uuid=repo["src"]["uuid"],
-                puuid=repo["src"]["puuid"],
-                ruuid=repo["repo"]["uuid"],
-                depth=1,
-                tag=args.tag,
-                date=args.date,
-                complete=1,
-                kv_args=tmp_d,
-            )
-
-            # level 2: architectures
-            for arch in repo["arch"]["archs"]:
-                tmp_d = {"depth": "1", "type": "arch", "size": "0"}
-                tmp_d = join_dicts_with_as_string(
-                    tmp_d, repo["repo"]["kwargs"]["class"], "class"
-                )
-                tmp_d = join_dicts_with_as_string(tmp_d, arch["path"], "path")
-                tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
-                insert_pkgset_name(
-                    conn,
-                    logger,
-                    name=arch["name"],
-                    uuid=arch["uuid"],
-                    puuid=arch["puuid"],
-                    ruuid=repo["repo"]["uuid"],
-                    depth=1,
-                    tag=args.tag,
-                    date=args.date,
-                    complete=1,
-                    kv_args=tmp_d,
-                )
-            # level 3: components
-            for comp in repo["comp"]["comps"]:
-                # load RPMs first
-                pkgset = set()
-                pkgset_cached = set()
-                # generate 'rpm' packages list
-                packages_list = []
-                ts = time.time()
-                pkg_count = 0
-                logger.info(f"Start checking RPM packages in '{comp['path']}'")
-                rpm_dir = Path.joinpath(repo_root, comp["path"])
-                # proceed binary packages using repo["bin_pkgs"] dictionary
-                arch_ = comp["path"].split("/")[0]
-                comp_ = comp["path"].split(".")[-1]
-                for pkg in repo["bin_pkgs"][(arch_, comp_)]:
-                    rpm_file = rpm_dir.joinpath(pkg)
-                    pkg_count += 1
-                    if repo["pkg_hashes"][pkg]["sha1"] is None:
-                        if not rpm_file.is_file():
-                            raise ValueError(f"File {pkg} not found in {comp['path']}")
-                        packages_list.append(str(rpm_file))
-                    else:
-                        pkgh = repo["pkg_hashes"][rpm_file.name]["mmh"]
-                        if not pkgh:
-                            raise ValueError(f"No hash found in cache for {pkg}")
-                        pkgset_cached.add(pkgh)
-                logger.info(
-                    f"Checked {pkg_count} RPM packages. "
-                    f"{len(packages_list)} packages for load. "
-                    f"Time elapsed {(time.time() - ts):.3f} sec."
-                )
-                # load '.rpm' packages
-                worker_pool(
-                    cache,
-                    repo["src_hashes"],
-                    repo["pkg_hashes"],
-                    packages_list,
-                    pkgset,
-                    display,
-                    False,
-                    args,
-                    logger,
-                )
-                # build pkgset for PackageSet record
-                pkgset.update(pkgset_cached)
-
-                insert_pkgset(conn, logger, comp["uuid"], pkgset)
-                # store PackageSetName record
-                tmp_d = {"depth": "2", "type": "comp", "size": str(len(pkgset))}
-                tmp_d = join_dicts_with_as_string(
-                    tmp_d, repo["repo"]["kwargs"]["class"], "class"
-                )
-                tmp_d = join_dicts_with_as_string(tmp_d, comp["path"], "path")
-                tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
-                insert_pkgset_name(
-                    conn,
-                    logger,
-                    name=comp["name"],
-                    uuid=comp["uuid"],
-                    puuid=comp["puuid"],
-                    ruuid=repo["repo"]["uuid"],
-                    depth=2,
-                    tag=args.tag,
-                    date=args.date,
-                    complete=1,
-                    kv_args=tmp_d,
-                )
-            # level 0 : repository
-            tmp_d = {
-                "depth": "0",
-                "type": "repo",
-                "size": str(len(repo["src_hashes"]) + len(repo["pkg_hashes"])),
-            }
-            tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["kwargs"], None)
-            tmp_d = join_dicts_with_as_string(
-                tmp_d, repo["arch"]["kwargs"]["all_archs"], "archs"
-            )
-            tmp_d = join_dicts_with_as_string(
-                tmp_d, repo["comp"]["kwargs"]["all_comps"], "comps"
-            )
-            insert_pkgset_name(
-                conn,
-                logger,
-                name=repo["repo"]["name"],
-                uuid=repo["repo"]["uuid"],
-                puuid=repo["repo"]["puuid"],
-                ruuid=repo["repo"]["uuid"],
-                depth=0,
-                tag=args.tag,
-                date=args.date,
-                complete=1,
-                kv_args=tmp_d,
-            )
-
-    aname_id = str(uuid4())
-
-    if iso:
-        if args.constraint is not None:
-            constraint_name = (args.constraint,)
+            raise NameError("This package set is already loaded!")
+    logger.info(f"Start loading repository structure")
+    # read repo structures
+    repo = read_repo_structure(args.pkgset, args.path, logger)
+    repo["repo"]["kwargs"]["class"] = "repository"
+    # init hash caches
+    rlh.init_hash_temp_table(repo["src_hashes"])
+    rlh.init_hash_temp_table(repo["pkg_hashes"])
+    rlh.update_hases_from_db(repo["src_hashes"])
+    rlh.update_hases_from_db(repo["pkg_hashes"])
+    cache = rlh.init_cache(repo["src_hashes"], repo["pkg_hashes"])
+    ts = time.time() - ts
+    logger.info(f"Repository structure loaded, caches initialized in {ts:.3f} sec.")
+    if args.verbose:
+        display = Display(logger, ts)
+    # store repository structure
+    # level 0 : repository
+    # rpository root loaded last as a 'transaction complete' sign
+    repo_root = Path(repo["repo"]["path"])
+    # level 1 : src
+    # load source RPMs first
+    # generate 'src.rpm' packages list
+    pkg_count = 0
+    pkg_count2 = 0
+    ts = time.time()
+    packages_list = []
+    pkgset_cached = set()
+    logger.info("Start checking SRC packages")
+    # load source packages fom 'files/SRPMS'
+    src_dir = Path.joinpath(repo_root, "files/SRPMS")
+    if not src_dir.is_dir():
+        raise RuntimeError("'files/SRPMS directory not found'")
+    logger.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
+    for pkg in repo["src_hashes"]:
+        pkg_count += 1
+        if repo["src_hashes"][pkg]["sha1"] is None:
+            rpm_file = src_dir.joinpath(pkg)
+            if not rpm_file.is_file():
+                raise ValueError(f"File {rpm_file} not found")
+            packages_list.append(str(rpm_file))
         else:
-            constraint_name = detect_assignment_name(conn, aname_id)
-        if constraint_name:
-            isopkg.process_iso(conn, iso, args, constraint_name)
-        iso.close()
+            pkgh = repo["src_hashes"][pkg]["mmh"]
+            if not pkgh:
+                raise ValueError(f"No hash found in cache for {pkg}")
+            pkgset_cached.add(pkgh)
+            pkg_count2 += 1
+    logger.info(
+        f"Checked {pkg_count} SRC packages. "
+        f"{pkg_count2} packages in cache, "
+        f"{len(packages_list)} packages for load. "
+        f"Time elapsed {(time.time() - ts):.3f} sec."
+    )
+    # load 'src.rpm' packages
+    worker_pool(
+        logger,
+        cache,
+        repo["src_hashes"],
+        repo["pkg_hashes"],
+        packages_list,
+        pkgset,
+        display,
+        True,
+        args,
+    )
+    # build pkgset for PackageSet record
+    pkgset.update(pkgset_cached)
 
-    for c in connections:  # type: ignore
+    psh = PackageSetHandler(conn, logger)
+
+    psh.insert_pkgset(repo["src"]["uuid"], pkgset)
+    # store PackageSetName record for 'src'
+    tmp_d = {"depth": "1", "type": "srpm", "size": str(len(pkgset))}
+    tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["kwargs"]["class"], "class")
+    tmp_d = join_dicts_with_as_string(tmp_d, repo["src"]["path"], "SRPMS")
+    tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
+    psh.insert_pkgset_name(
+        name=repo["src"]["name"],
+        uuid=repo["src"]["uuid"],
+        puuid=repo["src"]["puuid"],
+        ruuid=repo["repo"]["uuid"],
+        depth=1,
+        tag=args.tag,
+        date=args.date,
+        complete=1,
+        kv_args=tmp_d,
+    )
+
+    # level 2: architectures
+    for arch in repo["arch"]["archs"]:
+        tmp_d = {"depth": "1", "type": "arch", "size": "0"}
+        tmp_d = join_dicts_with_as_string(
+            tmp_d, repo["repo"]["kwargs"]["class"], "class"
+        )
+        tmp_d = join_dicts_with_as_string(tmp_d, arch["path"], "path")
+        tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
+        psh.insert_pkgset_name(
+            name=arch["name"],
+            uuid=arch["uuid"],
+            puuid=arch["puuid"],
+            ruuid=repo["repo"]["uuid"],
+            depth=1,
+            tag=args.tag,
+            date=args.date,
+            complete=1,
+            kv_args=tmp_d,
+        )
+    # level 3: components
+    for comp in repo["comp"]["comps"]:
+        # load RPMs first
+        pkgset = set()
+        pkgset_cached = set()
+        # generate 'rpm' packages list
+        packages_list = []
+        ts = time.time()
+        pkg_count = 0
+        logger.info(f"Start checking RPM packages in '{comp['path']}'")
+        rpm_dir = Path.joinpath(repo_root, comp["path"])
+        # proceed binary packages using repo["bin_pkgs"] dictionary
+        arch_ = comp["path"].split("/")[0]
+        comp_ = comp["path"].split(".")[-1]
+        for pkg in repo["bin_pkgs"][(arch_, comp_)]:
+            rpm_file = rpm_dir.joinpath(pkg)
+            pkg_count += 1
+            if repo["pkg_hashes"][pkg]["sha1"] is None:
+                if not rpm_file.is_file():
+                    raise ValueError(f"File {pkg} not found in {comp['path']}")
+                packages_list.append(str(rpm_file))
+            else:
+                pkgh = repo["pkg_hashes"][rpm_file.name]["mmh"]
+                if not pkgh:
+                    raise ValueError(f"No hash found in cache for {pkg}")
+                pkgset_cached.add(pkgh)
+        logger.info(
+            f"Checked {pkg_count} RPM packages. "
+            f"{len(packages_list)} packages for load. "
+            f"Time elapsed {(time.time() - ts):.3f} sec."
+        )
+        # load '.rpm' packages
+        worker_pool(
+            logger,
+            cache,
+            repo["src_hashes"],
+            repo["pkg_hashes"],
+            packages_list,
+            pkgset,
+            display,
+            False,
+            args,
+        )
+        # build pkgset for PackageSet record
+        pkgset.update(pkgset_cached)
+
+        psh.insert_pkgset(comp["uuid"], pkgset)
+        # store PackageSetName record
+        tmp_d = {"depth": "2", "type": "comp", "size": str(len(pkgset))}
+        tmp_d = join_dicts_with_as_string(
+            tmp_d, repo["repo"]["kwargs"]["class"], "class"
+        )
+        tmp_d = join_dicts_with_as_string(tmp_d, comp["path"], "path")
+        tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["name"], "repo")
+        psh.insert_pkgset_name(
+            name=comp["name"],
+            uuid=comp["uuid"],
+            puuid=comp["puuid"],
+            ruuid=repo["repo"]["uuid"],
+            depth=2,
+            tag=args.tag,
+            date=args.date,
+            complete=1,
+            kv_args=tmp_d,
+        )
+    # level 0 : repository
+    tmp_d = {
+        "depth": "0",
+        "type": "repo",
+        "size": str(len(repo["src_hashes"]) + len(repo["pkg_hashes"])),
+    }
+    tmp_d = join_dicts_with_as_string(tmp_d, repo["repo"]["kwargs"], None)
+    tmp_d = join_dicts_with_as_string(
+        tmp_d, repo["arch"]["kwargs"]["all_archs"], "archs"
+    )
+    tmp_d = join_dicts_with_as_string(
+        tmp_d, repo["comp"]["kwargs"]["all_comps"], "comps"
+    )
+    psh.insert_pkgset_name(
+        name=repo["repo"]["name"],
+        uuid=repo["repo"]["uuid"],
+        puuid=repo["repo"]["puuid"],
+        ruuid=repo["repo"]["uuid"],
+        depth=0,
+        tag=args.tag,
+        date=args.date,
+        complete=1,
+        kv_args=tmp_d,
+    )
+
+    for c in connections:
         if c is not None:
             c.disconnect()
 
-    if display is not None:  # type: ignore
-        display.conclusion()  # type: ignore
-
-
-def detect_assignment_name(conn, uuid):
-    sql = """
-SELECT assignment_name
-FROM AssignmentName
-         INNER JOIN
-     (SELECT COUNT(pkghash) as countPkg, uuid
-      FROM Assignment_buffer
-      WHERE pkghash IN
-            (SELECT pkghash FROM Assignment_buffer WHERE uuid = %(uuid)s)
-      GROUP BY uuid) AS cpkg USING uuid
-ORDER BY countPkg DESC
-LIMIT 10"""
-
-    result = conn.execute(sql, {"uuid": uuid})
-    return tuple({i[0] for i in result})
+    if display is not None:
+        display.conclusion()
 
 
 def get_args():
@@ -1351,23 +1052,10 @@ def get_args():
         action="store_true",
         help="Force to load repository with same name and date as existing one in database",
     )
-    parser.add_argument(
-        "-E", "--exclude", type=str, help="Exclude filename from search"
-    )
-    parser.add_argument(
-        "-C", "--constraint", type=str, help="Use constraint for searching"
-    )
-    parser.add_argument(
-        "-R",
-        "--repair",
-        type=str,
-        choices=["check", "full-check", "repair", "full-repair"],
-        help="check or restore database from rpm package",
-    )
     return parser.parse_args()
 
 
-def set_config(args):
+def get_config(args):
     if args.config is not None:
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
@@ -1394,7 +1082,7 @@ def set_config(args):
 
 def main():
     args = get_args()
-    args = set_config(args)
+    args = get_config(args)
     # avoid repository name accidentally contains capital letters
     args.pkgset = args.pkgset.lower()
     logger = get_logger(NAME, args.pkgset, args.date)
