@@ -69,7 +69,7 @@ class LockedIterator:
             return next(self.it)
 
 
-class GeneratorWrapper(Generator):
+class GeneratorWrapper:
     """Wraps generator function and allow to test it's emptyness at any time."""
 
     def __init__(self, iter: Generator):
