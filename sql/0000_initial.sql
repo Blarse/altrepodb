@@ -906,19 +906,25 @@ INNER JOIN
 -- populate for migration with SELECT from mv_packages_source_and_binaries below
 CREATE TABLE PackagesSourceAndBinaries
 (
+    buildtime       SimpleAggregateFunction(max, UInt32),
     src_pkg_name    String,
     bin_pkg_name    String
 )
-ENGINE = ReplacingMergeTree ORDER BY (src_pkg_name, bin_pkg_name);
+ENGINE = AggregatingMergeTree
+ORDER BY (src_pkg_name, bin_pkg_name);
 
 -- MV for PackagesSourceAndBinaries
 CREATE MATERIALIZED VIEW mv_packages_source_and_binaries TO PackagesSourceAndBinaries AS
 SELECT DISTINCT
+    max(pkg_buildtime) AS buildtime,
     arrayStringConcat(arrayPopBack(arrayPopBack(splitByChar('-', pkg_sourcerpm))), '-') AS src_pkg_name,
     pkg_name AS bin_pkg_name
 FROM Packages
 WHERE pkg_srcrpm_hash != 0
-    AND pkg_name NOT LIKE 'i586-%';
+    AND pkg_name NOT LIKE 'i586-%'
+GROUP BY
+    src_pkg_name,
+    pkg_name;
 
 
 -- VIEW to JOIN binary and source package
