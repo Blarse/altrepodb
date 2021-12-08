@@ -26,8 +26,8 @@ from collections import namedtuple
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-from utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
-from htmllistparse import fetch_listing
+from altrepo_db.utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from altrepo_db.htmllistparse import fetch_listing
 
 
 NAME = "beehive"
@@ -197,14 +197,6 @@ def get_args():
         args.password = args.password or ""
 
     return args
-
-
-def tuples_list_to_dict(x: list) -> dict:
-    res = {}
-    for el in x:
-        res[int(el[0])] = tuple(el[1:])
-
-    return res
 
 
 def dump_to_json(content, prefix: str) -> None:
@@ -386,9 +378,9 @@ class Beehive:
         self.logger.info("Fetching latest Beehive results loaded to DB")
         res = self.conn.execute(self.sql.get_last_beehive_changed)
         self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
-        last_bh_updated = {(el[0], el[1]): el[2] for el in res}
+        last_bh_updated = {(el[0], el[1]): el[2] for el in res}  # type: ignore
         return last_bh_updated
 
     def _get_packages_from_db(self, t_key: TargetKey) -> dict:
@@ -402,10 +394,10 @@ class Beehive:
             params={"branch": t_key.branch, "date": modified},
         )
         self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
 
-        packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}
+        packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}  # type: ignore
 
         if not packages_from_db:
             self.logger.info(
@@ -418,14 +410,14 @@ class Beehive:
                 params={"branch": t_key.branch, "date": modified},
             )
             self.logger.debug(
-                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
             )
             if not sql_res:
                 self.logger.error(
                     f"Failed to find recent lodaded date for {t_key.branch} in DB"
                 )
                 return {}
-            modified = sql_res[0][0]
+            modified = sql_res[0][0]  # type: ignore
             # load packages from recent repository state
             self.logger.info(
                 f"Fetching packages for {t_key.branch} on date {modified} from DB"
@@ -435,10 +427,10 @@ class Beehive:
                 params={"branch": t_key.branch, "date": modified},
             )
             self.logger.debug(
-                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
             )
 
-            packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}
+            packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}  # type: ignore
 
         return packages_from_db
 
@@ -454,16 +446,16 @@ class Beehive:
             params={"packages": [pkg.name for pkg in packages_], "branch": branch},
         )
         self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
 
         if not sql_res:
             self.logger.error(f"No data found in DB for {packages_}")
             return {}
-        self.logger.info(f"Found {len(sql_res)} packages from DB")
+        self.logger.info(f"Found {len(sql_res)} packages from DB")  # type: ignore
 
         res = {}
-        for hsh, pkg in {(int(el[3]), Package(*el[4:])) for el in sql_res}:
+        for hsh, pkg in {(int(el[3]), Package(*el[4:])) for el in sql_res}:  # type: ignore
             if pkg in packages_:
                 res[pkg] = hsh
 
@@ -573,7 +565,7 @@ class Beehive:
             )
         self.conn.execute(self.sql.insert_into_beehive_status, result)
         self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"
+            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
         self.logger.info(
             f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB"

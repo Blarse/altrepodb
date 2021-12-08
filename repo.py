@@ -31,8 +31,8 @@ from collections import defaultdict
 from typing import Any, Iterable, Union
 
 from altrpm import rpm, extractSpecFromRPM, readHeaderListFromXZFile
-import mapper
-from utils import (
+import altrepo_db.mapper as mapper
+from altrepo_db.utils import (
     cvt,
     unxz,
     get_logger,
@@ -46,7 +46,7 @@ from utils import (
     Timing,
     Display,
 )
-from base import LockedIterator, NotImplementedError, PackageLoadError
+from altrepo_db.base import LockedIterator, NotImplementedError, PackageLoadError
 
 
 NAME = "extract"
@@ -762,6 +762,7 @@ def read_repo_structure(repo_name: str, repo_path: str, logger: logging.Logger) 
                     raise RuntimeError("File not found")
         # for binary files
         for k, v in repo["pkg_hashes"].items():
+            file_ = Path()
             if v["sha256"] is None:
                 logger.info(f"{k}'s SHA256 not found. Calculating it from file")
                 found_ = False

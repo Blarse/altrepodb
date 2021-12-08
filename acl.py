@@ -22,13 +22,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections import namedtuple
-
 import clickhouse_driver as chd
 from bs4 import BeautifulSoup
+from collections import namedtuple
 
-import htmllistparse
-from utils import get_logger, cvt, mmhash
+import altrepo_db.htmllistparse as htmllistparse
+from altrepo_db.utils import get_logger, cvt, mmhash
 
 NAME = 'acl'
 

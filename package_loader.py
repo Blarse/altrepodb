@@ -24,9 +24,9 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-from extract import PackageHandler
+from repo import PackageHandler # TODO: move to altrepo_db
 from altrpm import rpm, extractSpecAndHeadersFromRPM
-from utils import (
+from altrepo_db.utils import (
     cvt,
     get_logger,
     get_client,

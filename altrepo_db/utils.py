@@ -72,7 +72,7 @@ def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
     if isinstance(gpg, list):
         gpg_ = b""
         for k in gpg:
-            gpg_ += k
+            gpg_ += k  # type: ignore
         gpg = gpg_
 
     data = sha1 + md5 + gpg

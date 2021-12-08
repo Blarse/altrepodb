@@ -32,8 +32,8 @@ import clickhouse_driver as chd
 import rpm
 from bs4 import BeautifulSoup
 
-import htmllistparse
-from utils import get_logger, mmhash, cvt
+import altrepo_db.htmllistparse as htmllistparse
+from altrepo_db.utils import get_logger, mmhash, cvt
 
 os.environ['LANG'] = 'C'
 
@@ -88,7 +88,7 @@ def get_files_mktime(url):
             log.error('Can\'t get directory listing on '
                       'given URL {0}'.format(url.geturl()))
         files = [(f.name, int(time.mktime(f.modified))) for f in listing]
-    result.update(files)
+    result.update(files)  # type: ignore
     return result
 
 

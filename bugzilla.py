@@ -21,8 +21,9 @@ import requests
 import configparser
 from collections import namedtuple
 from clickhouse_driver import Client
+from typing import Iterable
 
-from utils import get_logger, get_client
+from altrepo_db.utils import get_logger, get_client
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"
@@ -69,7 +70,7 @@ def get_args():
     return args
 
 
-def tuples_list_to_dict(x: list) -> dict:
+def tuples_list_to_dict(x: Iterable) -> dict:
     res = {}
     for el in x:
         res[int(el[0])] = tuple(el[1:])
@@ -77,7 +78,7 @@ def tuples_list_to_dict(x: list) -> dict:
     return res
 
 
-def load(args, conn: Client, logger: logging.Logger) -> None:
+def load(conn: Client, logger: logging.Logger) -> None:
     # get bugs CSV from Bugzilla
     logger.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
@@ -106,8 +107,8 @@ GROUP BY bz_id"""
     bz_from_db = {}
 
     sql_res = conn.execute(sql)
-    logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
-    bz_from_db = {int(el[0]): el[1] for el in sql_res}
+    logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")  # type: ignore
+    bz_from_db = {int(el[0]): el[1] for el in sql_res}  # type: ignore
     logger.info(f"Found {len(bz_from_db)} bug records")
     # find updated bugs
     bz_diff = {}
@@ -137,7 +138,7 @@ GROUP BY bz_id"""
         payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
         sql_res = conn.execute("INSERT INTO Bugzilla (*) VALUES", payload_gen)
 
-        logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")
+        logger.info(f"SQL request elapsed {conn.last_query.elapsed:.3f} seconds")  # type: ignore
         logger.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
 
 
@@ -150,7 +151,7 @@ def main():
     conn = None
     try:
         conn = get_client(args)
-        load(args, conn, logger)
+        load(conn, logger)
     except Exception as error:
         logger.exception("Error occurred during Bugzilla information loading.")
         sys.exit(1)

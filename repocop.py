@@ -25,7 +25,7 @@ from clickhouse_driver import Client, errors
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from utils import get_logger, get_client
+from altrepo_db.utils import get_logger, get_client
 
 NAME = "repocop"
 
@@ -67,14 +67,6 @@ def get_args():
     return args
 
 
-def tuples_list_to_dict(x: list) -> dict:
-    res = {}
-    for el in x:
-        res[int(el[0])] = tuple(el[1:])
-
-    return res
-
-
 def load(args, conn: Client, logger: logging.Logger) -> None:
     logger.info("Check repocop updates...")
 
@@ -88,7 +80,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
 
     try:
         res = conn.execute("SELECT max(rc_test_date) FROM PackagesRepocop")
-        last_update = res[0][0]
+        last_update = res[0][0]  # type: ignore
     except Exception as exc:
         if issubclass(exc.__class__, (errors.Error,)):
             logger.error("Failed read data from database")
@@ -96,7 +88,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
         else:
             raise exc
 
-    last_db_update_date = last_update.replace(tzinfo=tz.tzutc())
+    last_db_update_date = last_update.replace(tzinfo=tz.tzutc())  # type: ignore
 
     if repocop_date > last_db_update_date:
         logger.info(f"Fetching Repocop data from {URL_REPOCOP}...")
@@ -115,7 +107,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
                 logger.info("Loading new repocop data to database...")
                 res = conn.execute("INSERT INTO PackagesRepocop (*) VALUES", data)
                 logger.info(
-                    f"Data loaded to database in {conn.last_query.elapsed:.3f} seconds"
+                    f"Data loaded to database in {conn.last_query.elapsed:.3f} seconds"  # type: ignore
                 )
             except Exception as exc:
                 if issubclass(exc.__class__, (errors.Error,)):

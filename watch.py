@@ -24,7 +24,7 @@ from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 from clickhouse_driver import Client, errors
 
-from utils import get_logger, get_client
+from altrepo_db.utils import get_logger, get_client
 
 NAME = "watch"
 
@@ -77,7 +77,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
 
     try:
         res_db = conn.execute('SELECT max(date_update) FROM PackagesWatch')
-        last_update = res_db[0][0]
+        last_update = res_db[0][0]  # type: ignore
     except Exception as exc:
         if issubclass(exc.__class__, (errors.Error,)):
             logger.error("Failed read data from database", exc_info=True)
@@ -85,7 +85,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
         else:
             raise exc
 
-    last_db_update_date = last_update.replace(tzinfo=tz.tzutc())
+    last_db_update_date = last_update.replace(tzinfo=tz.tzutc())  # type: ignore
 
     if watch_last_modified > last_db_update_date:
         logger.info('Loading new watch data to database...')

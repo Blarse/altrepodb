@@ -29,9 +29,9 @@ from pathlib import Path
 from collections import defaultdict, namedtuple
 from typing import Iterable
 
-from extract import PackageHandler
+from repo import PackageHandler
 from altrpm import rpm, readHeaderListFromXZFile
-from utils import (
+from altrepo_db.utils import (
     cvt,
     mmhash,
     get_logger,
@@ -49,7 +49,7 @@ from utils import (
     cvt_datetime_local_to_utc,
     set_datetime_timezone_to_utc,
 )
-from base import LockedIterator, GeneratorWrapper, RaisingTread, RaisingThreadError
+from altrepo_db.base import LockedIterator, GeneratorWrapper, RaisingTread, RaisingThreadError
 
 NAME = "task"
 
@@ -78,7 +78,9 @@ def init_cache(conn, packages, logger):
     return {i[0] for i in result}
 
 
-class TaskFromFS:
+class TaskFromFilesystem:
+    """Provides functions to read task's elements from filesystem."""
+
     def __init__(self, path: str, logger: logging.Logger):
         self.logger = logger
         self.path = Path(path)
@@ -184,7 +186,7 @@ class LogLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: chd.Client,
-        girar: TaskFromFS,
+        girar: TaskFromFilesystem,
         logger: logging.Logger,
         logs: Iterable,
         count_list: list,
@@ -278,7 +280,7 @@ class TaskIterationLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: chd.Client,
-        girar: TaskFromFS,
+        girar: TaskFromFilesystem,
         logger: logging.Logger,
         pkg_hashes_cache: set,
         task_pkg_hashes: dict,
@@ -514,7 +516,7 @@ class PackageLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: chd.Client,
-        girar: TaskFromFS,
+        girar: TaskFromFilesystem,
         logger: logging.Logger,
         pkg_hashes_cache: set,
         task_pkg_hashes: dict,
@@ -660,7 +662,9 @@ def package_load_worker_pool(
         )
 
 
-class Task:
+class TaskLoadHandler:
+    """Handles task structure loading to DB."""
+
     def __init__(self, conn, girar, logger, task, args):
         self.girar = girar
         self.conn = conn
@@ -1409,7 +1413,7 @@ def get_args():
 
 
 def load(args, conn, logger):
-    girar = TaskFromFS(args.url, logger)
+    girar = TaskFromFilesystem(args.url, logger)
     if girar.check():
         ts = time.time()
         logger.info(f"reading task structure for {args.url}")
@@ -1422,7 +1426,7 @@ def load(args, conn, logger):
                 p,
                 f"dump-{str(task_struct['task_state']['task_id'])}-{datetime.date.today().strftime('%Y-%m-%d')}.json",
             ).write_text(json.dumps(task_struct, indent=2, sort_keys=True, default=str))
-        task = Task(conn, girar, logger, task_struct, args)
+        task = TaskLoadHandler(conn, girar, logger, task_struct, args)
         logger.info(
             f"loading task {task_struct['task_state']['task_id']} to database {args.dbname}"
         )
