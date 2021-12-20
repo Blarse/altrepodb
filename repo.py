@@ -14,6 +14,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import rpm
 import time
 import base64
 import logging
@@ -26,13 +27,12 @@ import multiprocessing
 import clickhouse_driver as chd
 from uuid import uuid4
 from pathlib import Path
-from rpm import TransactionSet
 from collections import defaultdict
 from typing import Any, Iterable, Union
 
-from altrpm import rpm, extractSpecFromRPM, readHeaderListFromXZFile
-import altrepo_db.mapper as mapper
-from altrepo_db.utils import (
+import altrepodb.mapper as mapper
+from altrpm import rpm as rpmt, extractSpecFromRPM, readHeaderListFromXZFile
+from altrepodb.utils import (
     cvt,
     unxz,
     get_logger,
@@ -46,7 +46,8 @@ from altrepo_db.utils import (
     Timing,
     Display,
 )
-from altrepo_db.base import LockedIterator, NotImplementedError, PackageLoadError
+from altrepodb.base import LockedIterator
+from altrepodb.exceptions import NotImplementedError, PackageLoadError
 
 
 NAME = "extract"
@@ -79,7 +80,7 @@ class PackageHandler:
     @staticmethod
     def get_header(rpmfile: str) -> Any:
         # return readHeaderFromRPM(rpmfile)
-        ts = TransactionSet()
+        ts = rpm.TransactionSet()
         return ts.hdrFromFdno(rpmfile)
 
     @Timing.timeit(NAME)
@@ -556,9 +557,9 @@ def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
         src_list = False
     hsh = {}
     for hdr in hdrs:
-        pkg_name = cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYFILENAME])
-        pkg_md5 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYMD5]))
-        pkg_blake2b = bytes.fromhex(cvt(hdr[rpm.RPMTAG_APTINDEXLEGACYBLAKE2B]))
+        pkg_name = cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYFILENAME])
+        pkg_md5 = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYMD5]))
+        pkg_blake2b = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYBLAKE2B]))
         hsh[pkg_name] = (pkg_md5, pkg_blake2b)
     return src_list, fname, hsh
 
