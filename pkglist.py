@@ -32,8 +32,8 @@ import clickhouse_driver as chd
 import rpm
 from bs4 import BeautifulSoup
 
-import altrepo_db.htmllistparse as htmllistparse
-from altrepo_db.utils import get_logger, mmhash, cvt
+import altrepodb.htmllistparse as htmllistparse
+from altrepodb.utils import get_logger, mmhash, cvt
 
 os.environ['LANG'] = 'C'
 

@@ -26,7 +26,7 @@ from clickhouse_driver import Client
 
 from repo import PackageHandler # TODO: move to altrepo_db
 from altrpm import rpm, extractSpecAndHeadersFromRPM
-from altrepo_db.utils import (
+from altrepodb.utils import (
     cvt,
     get_logger,
     get_client,

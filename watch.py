@@ -24,7 +24,7 @@ from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 from clickhouse_driver import Client, errors
 
-from altrepo_db.utils import get_logger, get_client
+from altrepodb.utils import get_logger, get_client
 
 NAME = "watch"
 

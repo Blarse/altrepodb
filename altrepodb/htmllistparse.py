@@ -15,11 +15,10 @@
 
 import os
 import re
+import bs4
 import time
 import collections
 import urllib.parse
-
-import bs4
 
 RE_ISO8601 = re.compile(r'\d{4}-\d+-\d+T\d+:\d{2}:\d{2}Z')
 DATETIME_FMTs = (

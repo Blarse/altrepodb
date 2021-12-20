@@ -26,8 +26,8 @@ from collections import namedtuple
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-from altrepo_db.utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
-from altrepo_db.htmllistparse import fetch_listing
+from altrepodb.utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from altrepodb.htmllistparse import fetch_listing
 
 
 NAME = "beehive"

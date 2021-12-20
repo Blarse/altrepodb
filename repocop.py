@@ -25,7 +25,7 @@ from clickhouse_driver import Client, errors
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from altrepo_db.utils import get_logger, get_client
+from altrepodb.utils import get_logger, get_client
 
 NAME = "repocop"
 

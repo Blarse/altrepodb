@@ -23,7 +23,7 @@ import configparser
 import urllib.request as req
 from lxml import etree
 from io import BytesIO
-from altrepo_db.utils import get_logger
+from altrepodb.utils import get_logger
 
 
 NAME = 'bdu'

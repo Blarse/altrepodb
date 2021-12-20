@@ -31,7 +31,7 @@ from typing import Iterable
 
 from repo import PackageHandler
 from altrpm import rpm, readHeaderListFromXZFile
-from altrepo_db.utils import (
+from altrepodb.utils import (
     cvt,
     mmhash,
     get_logger,
@@ -49,7 +49,7 @@ from altrepo_db.utils import (
     cvt_datetime_local_to_utc,
     set_datetime_timezone_to_utc,
 )
-from altrepo_db.base import LockedIterator, GeneratorWrapper, RaisingTread, RaisingThreadError
+from altrepodb.base import LockedIterator, GeneratorWrapper, RaisingTread, RaisingThreadError
 
 NAME = "task"
 

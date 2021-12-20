@@ -26,8 +26,8 @@ import clickhouse_driver as chd
 from bs4 import BeautifulSoup
 from collections import namedtuple
 
-import altrepo_db.htmllistparse as htmllistparse
-from altrepo_db.utils import get_logger, cvt, mmhash
+import altrepodb.htmllistparse as htmllistparse
+from altrepodb.utils import get_logger, cvt, mmhash
 
 NAME = 'acl'
 

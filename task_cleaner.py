@@ -23,7 +23,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from clickhouse_driver import Client
 
-from altrepo_db.utils import get_logger, cvt_datetime_local_to_utc
+from altrepodb.utils import get_logger, cvt_datetime_local_to_utc
 
 
 NAME = "task_cleaner"

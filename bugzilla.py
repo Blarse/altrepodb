@@ -23,7 +23,7 @@ from collections import namedtuple
 from clickhouse_driver import Client
 from typing import Iterable
 
-from altrepo_db.utils import get_logger, get_client
+from altrepodb.utils import get_logger, get_client
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"
