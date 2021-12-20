@@ -14,42 +14,11 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import threading
+from pathlib import Path
 from typing import Generator
+from dataclasses import dataclass
 
-
-# Exceptions
-class PackageLoadError(Exception):
-    def __init__(self, message=None):
-        self.message = message
-        super().__init__()
-
-
-class NotImplementedError(Exception):
-    """Exception raised for not implemented functional
-
-    Attributes:
-        function - not implemented function description
-    """
-
-    def __init__(self, message="Function not implemented", function=None):
-        self.message = message
-        self.function = function
-        super().__init__()
-
-
-class RaisingThreadError(Exception):
-    """Custom exception class used in RaisingThread subclasses
-
-    Args:
-        message (string): exception message
-        traceback (string): traceback of exception that raised in thread
-    """
-
-    def __init__(self, message=None, traceback=None) -> None:
-        self.message = message
-        self.traceback = traceback
-        super().__init__()
-
+from .exceptions import RaisingThreadError
 
 #  Classes
 class RaisingTread(threading.Thread):
@@ -109,3 +78,35 @@ class GeneratorWrapper:
             self.stored = False
             return self.value
         return next(self.source)
+
+# Dataclasses
+@dataclass(frozen=True)
+class Package:
+    hash: int
+    name: str
+    arch: str
+    iname: Path
+    epoch: int
+    version: str
+    release: str
+    disttag: str
+    is_srpm: bool
+    buildtime: int
+
+
+@dataclass(frozen=True)
+class File:
+    md5: bytes
+    name: str
+    size: int
+    linkto: str
+    flag: int
+    lang: str
+    mode: int
+    rdev: int
+    mtime: int
+    class_: str
+    device: int
+    username: str
+    groupname: str
+    verifyflag: int
