@@ -15,10 +15,18 @@
 
 import threading
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Protocol, Union, Any
 from dataclasses import dataclass
 
+from .logger import _LoggerOptional, FakeLogger, ConsoleLogger
 from .exceptions import RaisingThreadError
+
+# Logger
+# DEFAULT_LOGGER = FakeLogger
+DEFAULT_LOGGER = ConsoleLogger
+
+# Types
+_StringOrPath = Union[str, Path]
 
 #  Classes
 class RaisingTread(threading.Thread):
@@ -110,3 +118,48 @@ class File:
     username: str
     groupname: str
     verifyflag: int
+
+
+@dataclass
+class DatabaseConfig:
+    host: str = "localhost"
+    port: int = 9000
+    name: str = "default"
+    user: str = "default"
+    password: str = ""
+
+
+@dataclass
+class TaskProcessorConfig:
+    id: int
+    path: _StringOrPath
+    dbconfig: DatabaseConfig
+    logger: _LoggerOptional
+    debug: bool = False
+    flush: bool = True
+    force: bool = False
+    workers: int = 4
+    dumpjson: bool = False
+
+
+@dataclass
+class RepoProcessorConfig:
+    name: str
+    path: _StringOrPath
+    date: str
+    dbconfig: DatabaseConfig
+    logger: _LoggerOptional
+    tag: str = ""
+    debug: bool = False
+    force: bool = False
+    verbose: bool = False
+    workers: int = 8
+
+
+@dataclass
+class ISOProcessorConfig:
+    name: str
+    path: _StringOrPath
+    logger: _LoggerOptional
+    debug: bool = False
+    force: bool = False
