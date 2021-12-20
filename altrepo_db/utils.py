@@ -22,20 +22,26 @@ import logging
 import argparse
 import datetime
 import threading
+import subprocess
 from time import time
 from dateutil import tz
 from pathlib import Path
 from functools import wraps
 from logging import handlers
 from dataclasses import dataclass
-from hashlib import sha256, md5, blake2b
+from hashlib import sha1, sha256, md5, blake2b
 from clickhouse_driver import Client
 from typing import Any, Iterable, Union, Hashable, Generator
 
 from altrpm import rpm
+from .logger import FakeLogger, _LoggerOptional
+from .exceptions import RunCommandError
 
 # custom types
 _FileName = Union[str, os.PathLike]
+
+
+DEFAULT_LOGGER = FakeLogger
 
 
 def mmhash(val: Any) -> int:
@@ -44,12 +50,22 @@ def mmhash(val: Any) -> int:
     a, b = mmh3.hash64(val, signed=False)
     return a ^ b
 
+def _snowflake_id(timestamp: int, lower_32bit: int, epoch: int) -> int:
+    """Snowflake-like ID generation base function.
+    Returns Returns 64 bit wide unsigned integer:
+        - most significant 32 bits timestamp time delta from epoch
+        - less significant 32 bits from 'lower_32bits' argument
+    """
+    sf_ts = timestamp - epoch
+    sf_id = (sf_ts << 32) | (lower_32bit & 0xFFFFFFFF)
+    return sf_id
 
-def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
+
+def snowflake_id_pkg(hdr: dict, epoch: int = 1_000_000_000) -> int:
     """Genarates showflake-like ID using data from RPM package header object.
     Returns 64 bit wide unsigned integer:
         - most significant 32 bits package build time delta from epoch
-        - less significant bits are mutmurHash from package sign header (SHA1 + MD5 + GPG)
+        - less significant 32 bits are mutmurHash from package sign header (SHA1 + MD5 + GPG)
 
     Args:
         hdr (dict): RPM package header object
@@ -77,10 +93,27 @@ def snowflake_id(hdr: dict, epoch: int = 1_000_000_000) -> int:
 
     data = sha1 + md5 + gpg
     sf_hash = mmh3.hash(data, signed=False)
-    sf_ts = buildtime - epoch
-    sf_id = (sf_ts << 32) | (sf_hash & 0xFFFFFFFF)
+    return _snowflake_id(timestamp=buildtime, lower_32bit=sf_hash, epoch=epoch)
 
-    return sf_id
+
+def snowflake_id_sqfs(mtime: int, sha1: bytes, size: int, epoch: int = 1_000_000_000) -> int:
+    """Generates snowflake-like ID for SquashFS image identification."""
+
+    data = sha1 \
+        + (mtime).to_bytes((mtime.bit_length() + 7) // 8, byteorder="little") \
+        + (size).to_bytes((size.bit_length() + 7) // 8, byteorder="little")
+    sf_hash = mmh3.hash(data, signed=False) & 0xFFFFFFFF
+
+    return _snowflake_id(timestamp=mtime, lower_32bit=sf_hash, epoch=epoch)
+
+
+def detect_arch(hdr):
+    """Converts package architecture from header."""
+
+    package_name = cvt(hdr[rpm.RPMTAG_NAME])
+    if package_name.startswith("i586-"):
+        return "x86_64-i586"
+    return cvt(hdr[rpm.RPMTAG_ARCH])
 
 
 def valid_date(s: str) -> datetime.datetime:
@@ -304,6 +337,23 @@ def packager_parse(packager: str) -> Union[tuple[str, str], None]:
         email_ = m.group(3).strip().replace(" at ", "@")
         return name_, email_
     return None
+
+
+def sha1_from_file(
+    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
+) -> Union[bytes, str]:
+    """Calculates SHA1 hash from file."""
+
+    hash = sha1()
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
+            hash.update(byte_block)
+    if as_bytes:
+        return hash.digest()
+    if capitalized:
+        return hash.hexdigest().upper()
+    else:
+        return hash.hexdigest()
 
 
 def sha256_from_file(
@@ -650,3 +700,31 @@ def parse_pkglist_diff(diff_file: _FileName, is_src_list: bool) -> tuple[list, l
                     PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch)
                 )
     return p_added, p_deleted
+
+
+def run_command(
+    *args, raise_on_error: bool = False, logger: _LoggerOptional = None
+) -> tuple[str, str, str, int]:
+    """Run command from args. Raises exception if rsubprocess returns non zero code."""
+
+    if logger is None:
+        logger = DEFAULT_LOGGER()
+    cmdline = " ".join([*args])
+    logger.debug(f"Run command: {cmdline}")
+    try:
+        sub = subprocess.run(
+            [*args], capture_output=True, text=True, check=raise_on_error
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"subprocess commandline: {e.cmd} returned {e.returncode}")
+        logger.error(f"subprocess stdout: {e.stdout}")
+        logger.error(f"subprocess stderr: {e.stderr}")
+        raise RunCommandError("Subrocess returned non zero code.") from e
+    return cmdline, sub.stdout, sub.stderr, sub.returncode
+
+
+def dump_to_json(object: Any, file: _FileName) -> None:
+    """Dumps object to JSON file in current directory."""
+
+    f = Path.joinpath(Path.cwd(), file)
+    f.write_text(json.dumps(object, indent=2, sort_keys=True, default=str))
