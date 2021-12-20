@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Union
 from pathlib import Path
 
-from altrepodb.base import File, Package
+from altrepodb.base import File, Package, DEFAULT_LOGGER
 from altrepodb.rpmdb import RPMDBPackages, RPMDBOpenError
 from altrepodb.logger import ConsoleLogger, FakeLogger, LoggerProtocol, _LoggerOptional
 from altrepodb.exceptions import (
@@ -41,9 +41,6 @@ from altrepodb.utils import (
     sha1_from_file,
 )
 
-
-DEFAULT_LOGGER = FakeLogger
-# DEFAULT_LOGGER = ConsoleLogger
 
 #  custom types
 _StringOrPath = Union[str, Path]
