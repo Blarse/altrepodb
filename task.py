@@ -37,7 +37,7 @@ from altrepo_db.utils import (
     get_logger,
     get_client,
     log_parser,
-    snowflake_id,
+    snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
@@ -314,7 +314,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         kw = {}
         hdr = self.girar.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
+        hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
         pkg_name = Path(pkg).name
 
         kw["pkg_hash"] = hashes["mmh"]
@@ -542,7 +542,7 @@ class PackageLoaderWorker(RaisingTread):
         kw = {}
         hdr = self.girar.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
-        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
+        hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
         pkg_name = Path(pkg).name
 
         if self.pkg_hashes[pkg_name]["md5"]:

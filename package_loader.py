@@ -30,7 +30,7 @@ from altrepo_db.utils import (
     cvt,
     get_logger,
     get_client,
-    snowflake_id,
+    snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
@@ -140,7 +140,7 @@ class PackageLoader:
         self.logger.info(f"Got {spec_file.name} spec file {spec_file.size} bytes long")  # type: ignore
         st = time.time()
         kw = {
-            "pkg_hash": snowflake_id(hdr),
+            "pkg_hash": snowflake_id_pkg(hdr),
             "pkg_name": cvt(hdr[rpm.RPMTAG_NAME]),
             "pkg_epoch": cvt(hdr[rpm.RPMTAG_EPOCH], int),
             "pkg_version": cvt(hdr[rpm.RPMTAG_VERSION]),
@@ -162,7 +162,7 @@ class PackageLoader:
             raise ValueError("Binary package files loading not supported yet")
 
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
-        hashes = {"sha1": sha1, "mmh": snowflake_id(hdr)}
+        hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
