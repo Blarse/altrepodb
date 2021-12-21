@@ -23,11 +23,10 @@ import datetime
 import configparser
 from pathlib import Path
 
-from altrepodb.utils import (
-    get_logger,
-    get_client,
-)
+from altrepodb.utils import get_logger
 from altrepodb.task import TaskFromFilesystem, TaskLoadHandler, init_task_structure_from_task
+from altrepodb.base import DatabaseConfig, TaskProcessorConfig
+from altrepodb.database import DatabaseClient
 
 
 NAME = "task"
@@ -131,10 +130,19 @@ def main():
     logger.info(f"run with args: {args}")
     conn = None
     try:
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         load(args, conn, logger)
     except Exception as error:
-        logger.error(error, exc_info=True)
+        logger.error(str(error), exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:
