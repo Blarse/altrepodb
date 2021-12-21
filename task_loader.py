@@ -91,25 +91,26 @@ def main():
     if args.debug:
         logger.setLevel("DEBUG")
     logger.info(f"run with args: {args}")
-    tp_config = TaskProcessorConfig(
-        id=int(tag),
-        path=args.url,
-        logger=logger,
-        debug=args.debug,
-        flush=args.flush_buffers,
-        force=args.force,
-        workers=args.workers,
-        dumpjson=args.dumpjson,
-        dbconfig=DatabaseConfig(
-            host=args.host,
-            port=args.port,
-            name=args.dbname,
-            user=args.user,
-            password=args.password,
-        ),
-    )
     try:
-        tp = TaskProcessor(config=tp_config, logger=logger)
+        tp = TaskProcessor(
+            TaskProcessorConfig(
+                id=int(tag),
+                path=args.url,
+                logger=logger,
+                debug=args.debug,
+                flush=args.flush_buffers,
+                force=args.force,
+                workers=args.workers,
+                dumpjson=args.dumpjson,
+                dbconfig=DatabaseConfig(
+                    host=args.host,
+                    port=args.port,
+                    name=args.dbname,
+                    user=args.user,
+                    password=args.password,
+                ),
+            )
+        )
         tp.run()
     except Exception as error:
         logger.error(str(error), exc_info=True)
