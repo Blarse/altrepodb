@@ -54,7 +54,7 @@ class DatabaseClient:
 
     def _get_connection(self):
         client = Client(
-            self.config.name,
+            self.config.host,
             port=self.config.port,
             database=self.config.name,
             user=self.config.user,
