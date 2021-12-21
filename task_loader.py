@@ -101,7 +101,24 @@ def load(args, conn, logger):
                 p,
                 f"dump-{str(task_struct['task_state']['task_id'])}-{datetime.date.today().strftime('%Y-%m-%d')}.json",
             ).write_text(json.dumps(task_struct, indent=2, sort_keys=True, default=str))
-        task = TaskLoadHandler(conn, girar, logger, task_struct, args)
+        tp_config = TaskProcessorConfig(
+            id=task_struct['task_state']['task_id'],
+            path=args.url,
+            logger=logger,
+            debug=args.debug,
+            flush=args.flush_buffers,
+            force=args.force,
+            workers=args.workers,
+            dumpjson=args.dumpjson,
+            dbconfig=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            )
+        )
+        task = TaskLoadHandler(conn, girar, logger, task_struct, tp_config)
         logger.info(
             f"loading task {task_struct['task_state']['task_id']} to database {args.dbname}"
         )
