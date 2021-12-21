@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Generator, Optional, Union, Any
 from dataclasses import dataclass, field
 
-from .logger import _LoggerOptional, FakeLogger, ConsoleLogger
+from .logger import LoggerProtocol, _LoggerOptional, FakeLogger, ConsoleLogger
 from .exceptions import RaisingThreadError
 
 # Logger
