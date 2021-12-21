@@ -30,11 +30,10 @@ from functools import wraps
 from logging import handlers
 from dataclasses import dataclass
 from hashlib import sha1, sha256, md5, blake2b
-from clickhouse_driver import Client
 from typing import Any, Iterable, Union, Hashable, Generator
 
 from altrpm import rpm
-from .logger import FakeLogger, _LoggerOptional
+from .logger import LoggerProtocol, FakeLogger, _LoggerOptional
 from .exceptions import RunCommandError
 
 # custom types
@@ -134,24 +133,9 @@ def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
     return None
 
 
-def get_client(args: Any) -> Client:
-    """Get Clickhouse client instance."""
-
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-
-    return client
-
-
 def get_logger(
     name: str, tag: str = "", date: Union[datetime.date, None] = None
-) -> logging.Logger:
+) -> LoggerProtocol:
     """Create and configure logger."""
 
     logger = logging.getLogger(name)
@@ -708,7 +692,7 @@ def run_command(
     """Run command from args. Raises exception if rsubprocess returns non zero code."""
 
     if logger is None:
-        logger = DEFAULT_LOGGER()
+        logger = DEFAULT_LOGGER(name="run_command")
     cmdline = " ".join([*args])
     logger.debug(f"Run command: {cmdline}")
     try:

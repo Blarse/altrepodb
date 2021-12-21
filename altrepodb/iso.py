@@ -66,7 +66,7 @@ class ImageMounter:
         if logger is not None:
             self._log = logger
         else:
-            self._log = DEFAULT_LOGGER()
+            self._log = DEFAULT_LOGGER(name="ImageMounter")
 
         self.name = image_name
         self.type = image_type
@@ -182,7 +182,7 @@ class ISO:
         if logger is not None:
             self._log = logger
         else:
-            self._log = DEFAULT_LOGGER()
+            self._log = DEFAULT_LOGGER(name="ISO")
         self.iso_name = iso_name
         self.iso_path = str(iso_path)
         self._sqfs: list[SquashFSImage] = []

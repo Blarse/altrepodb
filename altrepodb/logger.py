@@ -14,24 +14,27 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from datetime import datetime
-from typing import Optional, Protocol, Union
+from typing import Optional, Protocol, Union, Any
 
 
 # Logger protocol and instances
 class LoggerProtocol(Protocol):
-    def debug(self, message: str, *args, **kwargs) -> None:
+    def __init__(self,  name: str, level: Any) -> None:
         raise NotImplementedError
 
-    def info(self, message: str, *args, **kwargs) -> None:
+    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError
 
-    def warning(self, message: str, *args, **kwargs) -> None:
+    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError
 
-    def error(self, message: str, *args, **kwargs) -> None:
+    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError
 
-    def critical(self, message: str, *args, **kwargs) -> None:
+    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        raise NotImplementedError
+
+    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError
 
     def setLevel(self, level: Union[int, str]) -> None:
@@ -41,19 +44,22 @@ class LoggerProtocol(Protocol):
 class FakeLogger(LoggerProtocol):
     """Fake logger class."""
 
-    def debug(self, message: str, *args, **kwargs) -> None:
+    def __init__(self,  name: str, level: Any = None) -> None:
         pass
 
-    def info(self, message: str, *args, **kwargs) -> None:
+    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def warning(self, message: str, *args, **kwargs) -> None:
+    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def error(self, message: str, *args, **kwargs) -> None:
+    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def critical(self, message: str, *args, **kwargs) -> None:
+    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
         pass
 
     def setLevel(self, level: Union[int, str]) -> None:
@@ -90,25 +96,29 @@ class ConsoleLogger(LoggerProtocol):
     }
     _level = NOTSET
 
+    def __init__(self, name: str, level: Union[int, str] = "DEBUG") -> None:
+        self.name = name
+        self.setLevel(level)
+
     def _log(self, severity: int, message: str) -> None:
         if severity >= self._level:
             timestamp = datetime.now().isoformat(sep=" ", timespec="milliseconds")
             print(f"{timestamp} : {severity:8} : {message}")
 
-    def debug(self, message: str, *args, **kwargs) -> None:
-        self._log(self.DEBUG, message)
+    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        self._log(self.DEBUG, msg)
 
-    def info(self, message: str, *args, **kwargs) -> None:
-        self._log(self.INFO, message)
+    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        self._log(self.INFO, msg)
 
-    def warning(self, message: str, *args, **kwargs) -> None:
-        self._log(self.WARNING, message)
+    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        self._log(self.WARNING, msg)
 
-    def error(self, message: str, *args, **kwargs) -> None:
-        self._log(self.ERROR, message)
+    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        self._log(self.ERROR, msg)
 
-    def critical(self, message: str, *args, **kwargs) -> None:
-        self._log(self.CRITICAL, message)
+    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        self._log(self.CRITICAL, msg)
 
     def setLevel(self, level: Union[int, str]) -> None:
         if isinstance(level, int):
