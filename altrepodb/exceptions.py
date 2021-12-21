@@ -1,19 +1,20 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from typing import Any
+
 
 class RunCommandError(Exception):
     """Raises when subprocess command returned non zero code."""
@@ -37,10 +38,11 @@ class NotImplementedError(Exception):
         function - not implemented function description
     """
 
-    def __init__(self, message: str ="Function not implemented", function: Any = None):
+    def __init__(self, message: str = "Function not implemented", function: Any = None):
         self.message = message
         self.function = function
         super().__init__()
+
 
 # Threaded workers exception
 class RaisingThreadError(Exception):
@@ -55,6 +57,7 @@ class RaisingThreadError(Exception):
         self.message = message
         self.traceback = traceback
         super().__init__()
+
 
 # ISO processing exceptions
 class ISOProcessingError(Exception):
@@ -122,3 +125,23 @@ class ImageMounterRunCommandError(ISOProcessingError):
     """Rises when subprocess commandline exited with non zero code."""
 
     pass
+
+
+# Task loding xceptions
+class TaskLoaderError(Exception):
+    pass
+
+
+class TaskLoaderInvalidPathError(TaskLoaderError):
+    def __init__(self, path: str):
+        self.path = path
+        super().__init__(f"Invalid path invalid {self.path}")
+
+
+class TaskLoaderProcessingError(TaskLoaderError):
+    def __init__(self, id: int, exc: Exception):
+        self.id = id
+        self.exc = exc
+        super().__init__(
+            f"An error occured while loadint task {id} to database. Error: {exc}"
+        )
