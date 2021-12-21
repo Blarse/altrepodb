@@ -17,21 +17,19 @@ import time
 import datetime
 import threading
 import traceback
-import clickhouse_driver as chd
 from copy import deepcopy
 from pathlib import Path
 from collections import defaultdict, namedtuple
 from typing import Iterable
 
-from repo import PackageHandler
 from altrpm import rpm, readHeaderListFromXZFile
+from .repo import PackageHandler
 from .logger import _LoggerOptional, LoggerProtocol
 from .utils import (
     cvt,
     mmhash,
-    # get_logger,
-    get_client,
     log_parser,
+    dump_to_json,
     snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
@@ -43,7 +41,6 @@ from .utils import (
     check_package_in_cache,
     cvt_datetime_local_to_utc,
     set_datetime_timezone_to_utc,
-    dump_to_json
 )
 from .base import (
     DEFAULT_LOGGER,
@@ -1259,12 +1256,14 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                 for pkg in (
                     x.split("\t")[-1].strip() for x in t.split("\n") if len(x) > 0
                 ):
+                    # FIXME: useless data due to packages stored with snowflake hash now!
                     build_dict["titer_chroot_base"].append(mmhash(bytes.fromhex(pkg)))
             t = girar.get("/".join((arch_dir, "chroot_BR")))
             if t:
                 for pkg in (
                     x.split("\t")[-1].strip() for x in t.split("\n") if len(x) > 0
                 ):
+                    # FIXME: useless data due to packages stored with snowflake hash now!
                     build_dict["titer_chroot_br"].append(mmhash(bytes.fromhex(pkg)))
             # get src and bin packages
             t = girar.get("/".join((arch_dir, "srpm")))
@@ -1370,7 +1369,7 @@ class TaskProcessor:
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER()
+            self.logger = DEFAULT_LOGGER(name="task")
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
@@ -1380,7 +1379,7 @@ class TaskProcessor:
         self._check_config()
 
     def _check_config(self) -> None:
-        # check if config is correct here
+        # FIXME: check if config is correct here
         pass
         # create DB client and check connection
         self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
