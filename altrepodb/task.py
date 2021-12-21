@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import time
@@ -52,6 +52,7 @@ from .base import (
     TaskProcessorConfig,
 )
 from .database import DatabaseClient
+from .exceptions import TaskLoaderInvalidPathError, TaskLoaderProcessingError
 
 
 NAME = "task"
@@ -187,7 +188,7 @@ class LogLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        girar: TaskFromFilesystem,
+        taskfs: TaskFromFilesystem,
         logger: LoggerProtocol,
         logs: Iterable,
         count_list: list,
@@ -195,7 +196,7 @@ class LogLoaderWorker(RaisingTread):
         **kwargs,
     ) -> None:
         self.conn = conn
-        self.girar = girar
+        self.taskfs = taskfs
         self.logger = logger
         self.logs = logs
         self.count_list = count_list
@@ -210,9 +211,9 @@ class LogLoaderWorker(RaisingTread):
                 st = time.time()
                 log_type, log_name, log_hash, _ = log
                 # log_subtask, log_arch = log_file.split('/')[1:3]
-                log_start_time = self.girar.get_file_mtime(log_name)
-                log_file_size = self.girar.get_file_size(log_name)
-                log_file = self.girar.get_file_path(log_name)
+                log_start_time = self.taskfs.get_file_mtime(log_name)
+                log_file_size = self.taskfs.get_file_size(log_name)
+                log_file = self.taskfs.get_file_path(log_name)
                 log_parsed = GeneratorWrapper(
                     log_parser(self.logger, log_file, log_type, log_start_time)  # type: ignore
                 )
@@ -245,19 +246,25 @@ class LogLoaderWorker(RaisingTread):
         self.count_list.append(count)
 
 
-def log_load_worker_pool(args: TaskProcessorConfig, girar: TaskFromFilesystem, logger: LoggerProtocol, logs_list: Iterable, num_of_workers=0):
+def log_load_worker_pool(
+    conf: TaskProcessorConfig,
+    taskfs: TaskFromFilesystem,
+    logger: LoggerProtocol,
+    logs_list: Iterable,
+    num_of_workers=0,
+):
     st = time.time()
     workers: list[LogLoaderWorker] = []
     connections: list[DatabaseClient] = []
     logs = LockedIterator((log for log in logs_list))
     logs_count: list[int] = []
     if not num_of_workers:
-        num_of_workers = args.workers
+        num_of_workers = conf.workers
 
     for i in range(num_of_workers):
-        conn = DatabaseClient(args.dbconfig, logger)
+        conn = DatabaseClient(conf.dbconfig, logger)
         connections.append(conn)
-        worker = LogLoaderWorker(conn, girar, logger, logs, logs_count)
+        worker = LogLoaderWorker(conn, taskfs, logger, logs, logs_count)
         worker.start()
         workers.append(worker)
 
@@ -281,7 +288,7 @@ class TaskIterationLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        girar: TaskFromFilesystem,
+        taskfs: TaskFromFilesystem,
         logger: LoggerProtocol,
         pkg_hashes_cache: set,
         task_pkg_hashes: dict,
@@ -293,7 +300,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         **kwargs,
     ) -> None:
         self.conn = conn
-        self.girar = girar
+        self.taskfs = taskfs
         self.logger = logger
         self.cache = pkg_hashes_cache
         self.pkg_hashes = task_pkg_hashes
@@ -302,25 +309,25 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = lock
-        self.ph = PackageHandler(conn, logger)  # FIXME: fix connection and logging types in repo.py
+        self.ph = PackageHandler(conn=conn, logger=logger)
         super().__init__(*args, **kwargs)
 
-    def _calculate_hash_from_array_by_CH(self, hashes):
+    def _calculate_hash_from_array_by_CH(self, hashes: list) -> int:
         sql = "SELECT murmurHash3_64(%(hashes)s)"
         r = self.conn.execute(sql, {"hashes": hashes})
-        return int(r[0][0])  # type: ignore
+        return int(r[0][0])
 
-    def _insert_package(self, pkg, srpm_hash, is_srpm):
+    def _insert_package(self, pkg: str, srpm_hash: int, is_srpm: bool) -> int:
         st = time.time()
         kw = {}
-        hdr = self.girar.get_header(pkg)
+        hdr = self.taskfs.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
         pkg_name = Path(pkg).name
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
-        kw["pkg_filesize"] = self.girar.get_file_size(pkg)
+        kw["pkg_filesize"] = self.taskfs.get_file_size(pkg)
         if is_srpm:
             kw["pkg_sourcerpm"] = pkg_name
             kw["pkg_srcrpm_hash"] = hashes["mmh"]
@@ -333,7 +340,7 @@ class TaskIterationLoaderWorker(RaisingTread):
             else:
                 self.logger.debug(f"calculate MD5 for {pkg_name} file")
                 hashes["md5"] = md5_from_file(
-                    self.girar.get_file_path(pkg), as_bytes=True
+                    self.taskfs.get_file_path(pkg), as_bytes=True
                 )
 
             if self.pkg_hashes[pkg_name]["sha256"]:
@@ -341,7 +348,7 @@ class TaskIterationLoaderWorker(RaisingTread):
             else:
                 self.logger.debug(f"calculate SHA256 for {pkg_name} file")
                 hashes["sha256"] = sha256_from_file(
-                    self.girar.get_file_path(pkg), as_bytes=True
+                    self.taskfs.get_file_path(pkg), as_bytes=True
                 )
 
             if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
@@ -349,10 +356,10 @@ class TaskIterationLoaderWorker(RaisingTread):
             else:
                 self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
                 hashes["blake2b"] = blake2b_from_file(
-                    self.girar.get_file_path(pkg), as_bytes=True
+                    self.taskfs.get_file_path(pkg), as_bytes=True
                 )
 
-            self.ph.insert_package(hdr, self.girar.get_file_path(pkg), **kw)
+            self.ph.insert_package(hdr, self.taskfs.get_file_path(pkg), **kw)
             self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -366,7 +373,7 @@ class TaskIterationLoaderWorker(RaisingTread):
 
         return hashes["mmh"]
 
-    def run(self):
+    def run(self) -> None:
         self.logger.debug(f"thread {self.ident} start")
         count = 0
         for titer in self.titers:
@@ -448,9 +455,9 @@ class TaskIterationLoaderWorker(RaisingTread):
 
 
 def titer_load_worker_pool(
-    args: TaskProcessorConfig,
+    conf: TaskProcessorConfig,
     conn: DatabaseClient,
-    girar: TaskFromFilesystem,
+    taskfs: TaskFromFilesystem,
     logger: LoggerProtocol,
     task_pkg_hashes: dict,
     task_logs: list,
@@ -465,7 +472,7 @@ def titer_load_worker_pool(
     src_load_lock = threading.Lock()
 
     if not num_of_workers:
-        num_of_workers = args.workers
+        num_of_workers = conf.workers
 
     packages_ = []
     for titer in task_iterations:
@@ -474,17 +481,17 @@ def titer_load_worker_pool(
         for pkg in titer["titer_rpms"]:
             packages_.append(pkg)
 
-    if not args.force:
+    if not conf.force:
         pkg_hashes_cache = init_cache(conn, packages_, logger)
     else:
         pkg_hashes_cache = set()
 
     for i in range(num_of_workers):
-        conn = DatabaseClient(args.dbconfig, logger)
+        conn = DatabaseClient(conf.dbconfig, logger)
         connections.append(conn)
         worker = TaskIterationLoaderWorker(
             conn,
-            girar,
+            taskfs,
             logger,
             pkg_hashes_cache,
             task_pkg_hashes,
@@ -501,7 +508,6 @@ def titer_load_worker_pool(
             w.join()
         except RaisingThreadError as e:
             logger.error(e.message)
-            # print(e.traceback)
             raise e
 
     for c in connections:
@@ -517,7 +523,7 @@ class PackageLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        girar: TaskFromFilesystem,
+        taskfs: TaskFromFilesystem,
         logger: LoggerProtocol,
         pkg_hashes_cache: set,
         task_pkg_hashes: dict,
@@ -527,7 +533,7 @@ class PackageLoaderWorker(RaisingTread):
         **kwargs,
     ) -> None:
         self.conn = conn
-        self.girar = girar
+        self.taskfs = taskfs
         self.logger = logger
         self.cache = pkg_hashes_cache
         self.pkg_hashes = task_pkg_hashes
@@ -535,13 +541,15 @@ class PackageLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = threading.Lock()
-        self.ph = PackageHandler(conn, logger)  # FIXME: fix connection and logging types in repo.py
+        self.ph = PackageHandler(
+            conn, logger
+        )  # FIXME: fix connection and logging types in repo.py
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
         st = time.time()
         kw = {}
-        hdr = self.girar.get_header(pkg)
+        hdr = self.taskfs.get_header(pkg)
         sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))
         hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
         pkg_name = Path(pkg).name
@@ -550,14 +558,14 @@ class PackageLoaderWorker(RaisingTread):
             hashes["md5"] = self.pkg_hashes[pkg_name]["md5"]
         else:
             self.logger.debug(f"calculate MD5 for {pkg_name} file")
-            hashes["md5"] = md5_from_file(self.girar.get_file_path(pkg), as_bytes=True)
+            hashes["md5"] = md5_from_file(self.taskfs.get_file_path(pkg), as_bytes=True)
 
         if self.pkg_hashes[pkg_name]["sha256"]:
             hashes["sha256"] = self.pkg_hashes[pkg_name]["sha256"]
         else:
             self.logger.debug(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
-                self.girar.get_file_path(pkg), as_bytes=True
+                self.taskfs.get_file_path(pkg), as_bytes=True
             )
 
         if self.pkg_hashes[pkg_name]["blake2b"] not in (b"", None):
@@ -565,12 +573,12 @@ class PackageLoaderWorker(RaisingTread):
         else:
             self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
-                self.girar.get_file_path(pkg), as_bytes=True
+                self.taskfs.get_file_path(pkg), as_bytes=True
             )
 
         kw["pkg_hash"] = hashes["mmh"]
         kw["pkg_filename"] = pkg_name
-        kw["pkg_filesize"] = self.girar.get_file_size(pkg)
+        kw["pkg_filesize"] = self.taskfs.get_file_size(pkg)
         if is_srpm:
             kw["pkg_sourcerpm"] = pkg_name
             kw["pkg_srcrpm_hash"] = hashes["mmh"]
@@ -578,7 +586,7 @@ class PackageLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if not check_package_in_cache(self.cache, hashes["mmh"]):
-            self.ph.insert_package(hdr, self.girar.get_file_path(pkg), **kw)
+            self.ph.insert_package(hdr, self.taskfs.get_file_path(pkg), **kw)
             self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.count += 1
@@ -608,9 +616,9 @@ class PackageLoaderWorker(RaisingTread):
 
 
 def package_load_worker_pool(
-    args: TaskProcessorConfig,
+    conf: TaskProcessorConfig,
     conn: DatabaseClient,
-    girar: TaskFromFilesystem,
+    taskfs: TaskFromFilesystem,
     logger: LoggerProtocol,
     task_pkg_hashes: dict,
     packages_: Iterable,
@@ -623,20 +631,20 @@ def package_load_worker_pool(
     connections = []
     packages = LockedIterator((pkg for pkg in packages_))
 
-    if not args.force:
+    if not conf.force:
         pkg_hashes_cache = init_cache(conn, packages_, logger)
     else:
         pkg_hashes_cache = set()
 
     if not num_of_workers:
-        num_of_workers = args.workers
+        num_of_workers = conf.workers
 
     for i in range(num_of_workers):
-        conn = DatabaseClient(args.dbconfig, logger)
+        conn = DatabaseClient(conf.dbconfig, logger)
         connections.append(conn)
         worker = PackageLoaderWorker(
             conn,
-            girar,
+            taskfs,
             logger,
             pkg_hashes_cache,
             task_pkg_hashes,
@@ -666,12 +674,19 @@ def package_load_worker_pool(
 class TaskLoadHandler:
     """Handles task structure loading to DB."""
 
-    def __init__(self, conn: DatabaseClient, girar: TaskFromFilesystem, logger: LoggerProtocol, task: dict, args: TaskProcessorConfig):
-        self.girar = girar
+    def __init__(
+        self,
+        conn: DatabaseClient,
+        taskfs: TaskFromFilesystem,
+        logger: LoggerProtocol,
+        task: dict,
+        conf: TaskProcessorConfig,
+    ):
+        self.taskfs = taskfs
         self.conn = conn
         self.logger = logger
         self.task = task
-        self.args = args
+        self.conf = conf
         # self.cache = extract.init_cache(self.conn)
         self.approvals = []
 
@@ -745,8 +760,8 @@ class TaskLoadHandler:
         # 4 - load all logs
         if self.task["logs"]:
             log_load_worker_pool(
-                self.args,
-                self.girar,
+                self.conf,
+                self.taskfs,
                 self.logger,
                 self.task["logs"],
                 num_of_workers=None,
@@ -754,9 +769,9 @@ class TaskLoadHandler:
         # 5 - proceed with TaskIterations
         if self.task["task_iterations"]:
             titer_load_worker_pool(
-                self.args,
+                self.conf,
                 self.conn,
-                self.girar,
+                self.taskfs,
                 self.logger,
                 self.task["pkg_hashes"],
                 self.task["logs"],
@@ -768,9 +783,9 @@ class TaskLoadHandler:
         #     self._insert_package(pkg, 0, is_srpm=False)
         if self.task["arepo"]:
             package_load_worker_pool(
-                self.args,
+                self.conf,
                 self.conn,
-                self.girar,
+                self.taskfs,
                 self.logger,
                 self.task["pkg_hashes"],
                 self.task["arepo"],
@@ -902,7 +917,9 @@ INSERT INTO Depends SELECT * FROM
         self._update_dependencies_table()
 
 
-def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProtocol) -> dict:
+def init_task_structure_from_task(
+    taksfs: TaskFromFilesystem, logger: LoggerProtocol
+) -> dict:
     """Loads all available contents from task to dictionary
 
     Args:
@@ -922,38 +939,38 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
         "pkg_hashes": defaultdict(lambda: defaultdict(lambda: None, key=None)),
     }
     # parse '/task' and '/info.json' for 'TaskStates'
-    if girar.check_file("task/state"):
-        task["task_state"]["task_changed"] = girar.get_file_mtime("task/state")
-        t = girar.get_file_mtime("info.json")
+    if taksfs.check_file("task/state"):
+        task["task_state"]["task_changed"] = taksfs.get_file_mtime("task/state")
+        t = taksfs.get_file_mtime("info.json")
         if t and t > task["task_state"]["task_changed"]:
             task["task_state"]["task_changed"] = t
     else:
         # skip tasks with uncertain state for God sake
         return task
-    task["task_state"]["task_id"] = int(girar.get_file_path("").name)
-    t = girar.get("task/state")
+    task["task_state"]["task_id"] = int(taksfs.get_file_path("").name)
+    t = taksfs.get("task/state")
     task["task_state"]["task_state"] = t.strip() if t else ""
-    t = girar.get("task/run")
+    t = taksfs.get("task/run")
     task["task_state"]["task_runby"] = t.strip() if t else ""
-    t = girar.get("task/depends")
+    t = taksfs.get("task/depends")
     task["task_state"]["task_depends"] = (
         [int(x) for x in t.split("\n") if len(x) > 0] if t else []
     )
-    t = girar.get("task/try")
+    t = taksfs.get("task/try")
     task["task_state"]["task_try"] = int(t.strip()) if t else 0
-    t = girar.get("task/iter")
+    t = taksfs.get("task/iter")
     task["task_state"]["task_iter"] = int(t.strip()) if t else 0
-    task["task_state"]["task_testonly"] = 1 if girar.check_file("task/test-only") else 0
+    task["task_state"]["task_testonly"] = 1 if taksfs.check_file("task/test-only") else 0
     task["task_state"]["task_failearly"] = (
-        1 if girar.check_file("task/fail-early") else 0
+        1 if taksfs.check_file("task/fail-early") else 0
     )
-    t = val_from_json_str(girar.get("info.json"), "shared")
+    t = val_from_json_str(taksfs.get("info.json"), "shared")
     task["task_state"]["task_shared"] = 1 if t else 0
-    t = girar.get("task/message")
+    t = taksfs.get("task/message")
     task["task_state"]["task_message"] = t.strip() if t else ""
-    t = girar.get("task/version")
+    t = taksfs.get("task/version")
     task["task_state"]["task_version"] = t.strip() if t else ""
-    t = girar.get_symlink_target("build/repo/prev", name_only=True)
+    t = taksfs.get_symlink_target("build/repo/prev", name_only=True)
     task["task_state"]["task_prev"] = int(t.strip()) if t else 0
     # parse '/plan' and '/build/repo' for diff lists and hashes
     # FIXME: check if task '/plan' is up to date. Workaround for bug #40728
@@ -964,9 +981,9 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
     load_plan = False
     if task["task_state"]["task_try"] != 0 and task["task_state"]["task_iter"] != 0:
         task_tryiter_time = max(
-            girar.get_file_mtime("task/try"), girar.get_file_mtime("task/iter")  # type: ignore
+            taksfs.get_file_mtime("task/try"), taksfs.get_file_mtime("task/iter")  # type: ignore
         )
-        task_plan_time = girar.get_file_mtime("plan")
+        task_plan_time = taksfs.get_file_mtime("plan")
         if task_plan_time > task_tryiter_time:  # type: ignore
             load_plan = True
     # always load plan if task in 'DONE' state
@@ -974,7 +991,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
         load_plan = True
     if load_plan:
         # -1 - get binary packages add and delete from plan
-        t = girar.get("plan/add-bin")
+        t = taksfs.get("plan/add-bin")
         pkgadd = {}
         if t:
             pkgadd = {}
@@ -987,7 +1004,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     # old tasksk without component in plan
                     pkgadd[f[3]] = (f[2], "", int(f[5]))
 
-        t = girar.get("plan/rm-bin")
+        t = taksfs.get("plan/rm-bin")
         pkgdel = {}
         if t:
             for f in (x for x in t.split("\n") if len(x) > 0):
@@ -1000,7 +1017,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     pkgdel[f[3]] = (f[2], "", 0)
 
         # 0 - get packages list diffs
-        for pkgdiff in (x for x in girar.get_file_path("plan").glob("*.list.diff")):
+        for pkgdiff in (x for x in taksfs.get_file_path("plan").glob("*.list.diff")):
             if pkgdiff.name == "src.list.diff":
                 p_add, p_del = parse_pkglist_diff(pkgdiff, is_src_list=True)
             else:
@@ -1020,7 +1037,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     task["plan"]["pkg_del"][p.arch] = {}
                 task["plan"]["pkg_del"][p.arch].update(p_info)
         # 1 - get SHA256 hashes from '/plan/*.hash.diff'
-        for hashdiff in (x for x in girar.get_file_path("plan").glob("*.hash.diff")):
+        for hashdiff in (x for x in taksfs.get_file_path("plan").glob("*.hash.diff")):
             h_add, h_del = parse_hash_diff(hashdiff)
             h_arch = hashdiff.name.split(".")[0]
             task["plan"]["hash_add"][h_arch] = h_add
@@ -1029,7 +1046,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                 task["pkg_hashes"][k]["sha256"] = v
     # 2 - get MD5 hashes from '/build/repo/%arch%/base/pkglist.task.xz'
     for pkglist in (
-        x for x in girar.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
+        x for x in taksfs.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
     ):
         hdrs = readHeaderListFromXZFile(pkglist)
         for hdr in hdrs:
@@ -1045,7 +1062,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     )
                     t = [
                         x
-                        for x in girar.get_file_path("build/repo").glob(
+                        for x in taksfs.get_file_path("build/repo").glob(
                             f"*/RPMS.task/{pkg_name}"
                         )
                     ]
@@ -1080,12 +1097,12 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
     # 0 - iterate through 'acl/approved'
     for subtask in (
         x.name
-        for x in girar.get_file_path("acl/disapproved").glob("[0-7]*")
+        for x in taksfs.get_file_path("acl/disapproved").glob("[0-7]*")
         if x.is_dir()
     ):
         subtask_dir = "/".join(("acl/approved", subtask))
-        for approver in (x.name for x in girar.get(subtask_dir) if x.is_file()):
-            t = girar.parse_approval_file("/".join((subtask_dir, approver)))
+        for approver in (x.name for x in taksfs.get(subtask_dir) if x.is_file()):
+            t = taksfs.parse_approval_file("/".join((subtask_dir, approver)))
             if t:
                 approval = {
                     "task_id": task["task_state"]["task_id"],
@@ -1100,12 +1117,12 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
     # 1 - iterate through 'acl/dsiapproved'
     for subtask in (
         x.name
-        for x in girar.get_file_path("acl/disapproved").glob("[0-7]*")
+        for x in taksfs.get_file_path("acl/disapproved").glob("[0-7]*")
         if x.is_dir()
     ):
         subtask_dir = "/".join(("acl/disapproved", subtask))
-        for approver in (x.name for x in girar.get(subtask_dir) if x.is_file()):
-            t = girar.parse_approval_file("/".join((subtask_dir, approver)))
+        for approver in (x.name for x in taksfs.get(subtask_dir) if x.is_file()):
+            t = taksfs.parse_approval_file("/".join((subtask_dir, approver)))
             if t:
                 approval = {
                     "task_id": task["task_state"]["task_id"],
@@ -1119,20 +1136,20 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                 task["task_approvals"].append(approval)
     # parse '/gears' for 'Tasks'
     for subtask in (
-        x.name for x in girar.get_file_path("gears").glob("[0-7]*") if x.is_dir()
+        x.name for x in taksfs.get_file_path("gears").glob("[0-7]*") if x.is_dir()
     ):
         subtask_dir = "/".join(("gears", subtask))
-        files = set((x.name for x in girar.get(subtask_dir)))
-        sid = girar.get("/".join((subtask_dir, "sid")))
+        files = set((x.name for x in taksfs.get(subtask_dir)))
+        sid = taksfs.get("/".join((subtask_dir, "sid")))
 
         subtask_dict = {
             "task_id": task["task_state"]["task_id"],
             "subtask_id": int(subtask),
-            "task_repo": girar.get("task/repo").strip(),
-            "task_owner": girar.get("task/owner").strip(),
+            "task_repo": taksfs.get("task/repo").strip(),
+            "task_owner": taksfs.get("task/owner").strip(),
             "task_changed": task["task_state"]["task_changed"],
             "subtask_changed": None,
-            "subtask_userid": girar.get("/".join((subtask_dir, "userid"))).strip(),
+            "subtask_userid": taksfs.get("/".join((subtask_dir, "userid"))).strip(),
             "subtask_sid": sid.split(":")[1].strip() if sid else "",
             "subtask_dir": "",
             "subtask_package": "",
@@ -1146,12 +1163,12 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
             "subtask_srpm_evr": "",
         }
 
-        if girar.check_file("/".join((subtask_dir, "userid"))):
-            subtask_dict["subtask_changed"] = girar.get_file_mtime(
+        if taksfs.check_file("/".join((subtask_dir, "userid"))):
+            subtask_dict["subtask_changed"] = taksfs.get_file_mtime(
                 "/".join((subtask_dir, "userid"))
             )
         else:
-            subtask_dict["subtask_changed"] = girar.get_file_mtime(subtask_dir)
+            subtask_dict["subtask_changed"] = taksfs.get_file_mtime(subtask_dir)
 
         if "dir" not in files and "srpm" not in files and "package" not in files:
             # deleted subtask
@@ -1160,42 +1177,42 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
         else:
             subtask_dict["subtask_deleted"] = 0
             # logic from girar-task-run check_copy_del()
-            if girar.file_exists_and_not_empty(
+            if taksfs.file_exists_and_not_empty(
                 "/".join((subtask_dir, "package"))
-            ) and not girar.file_exists_and_not_empty("/".join((subtask_dir, "dir"))):
-                if girar.file_exists_and_not_empty(
+            ) and not taksfs.file_exists_and_not_empty("/".join((subtask_dir, "dir"))):
+                if taksfs.file_exists_and_not_empty(
                     "/".join((subtask_dir, "copy_repo"))
                 ):
-                    t = girar.get("/".join((subtask_dir, "copy_repo")))
+                    t = taksfs.get("/".join((subtask_dir, "copy_repo")))
                     subtask_dict["subtask_type"] = "copy"
                     subtask_dict["subtask_pkg_from"] = t.strip()
                 else:
                     subtask_dict["subtask_type"] = "delete"
 
-            if girar.check_file("/".join((subtask_dir, "rebuild"))):
-                t = girar.get("/".join((subtask_dir, "rebuild")))
+            if taksfs.check_file("/".join((subtask_dir, "rebuild"))):
+                t = taksfs.get("/".join((subtask_dir, "rebuild")))
                 subtask_dict["subtask_type"] = "rebuild"
                 subtask_dict["subtask_pkg_from"] = t.strip()
             # changed in girar @ e74d8067009d
-            if girar.check_file("/".join((subtask_dir, "rebuild_from"))):
-                t = girar.get("/".join((subtask_dir, "rebuild_from")))
+            if taksfs.check_file("/".join((subtask_dir, "rebuild_from"))):
+                t = taksfs.get("/".join((subtask_dir, "rebuild_from")))
                 subtask_dict["subtask_type"] = "rebuild"
                 subtask_dict["subtask_pkg_from"] = t.strip()
             if subtask_dict["subtask_type"] == "":
                 subtask_dict["subtask_type"] = "unknown"
-            t = girar.get("/".join((subtask_dir, "dir")))
+            t = taksfs.get("/".join((subtask_dir, "dir")))
             subtask_dict["subtask_dir"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "package")))
+            t = taksfs.get("/".join((subtask_dir, "package")))
             subtask_dict["subtask_package"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "tag_author")))
+            t = taksfs.get("/".join((subtask_dir, "tag_author")))
             subtask_dict["subtask_tag_author"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "tag_id")))
+            t = taksfs.get("/".join((subtask_dir, "tag_id")))
             subtask_dict["subtask_tag_id"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "tag_name")))
+            t = taksfs.get("/".join((subtask_dir, "tag_name")))
             subtask_dict["subtask_tag_name"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "srpm")))
+            t = taksfs.get("/".join((subtask_dir, "srpm")))
             subtask_dict["subtask_srpm"] = t.strip() if t else ""
-            t = girar.get("/".join((subtask_dir, "nevr")))
+            t = taksfs.get("/".join((subtask_dir, "nevr")))
             if t:
                 subtask_dict["subtask_srpm_name"] = t.split("\t")[0].strip()
                 subtask_dict["subtask_srpm_evr"] = t.split("\t")[1].strip()
@@ -1204,11 +1221,11 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
     # 0 - get src and packages from plan
     src_pkgs = {}
     bin_pkgs = defaultdict(lambda: defaultdict(list))
-    t = girar.get("plan/add-src")
+    t = taksfs.get("plan/add-src")
     if t:
         for *_, pkg, n in [x.split("\t") for x in t.split("\n") if len(x) > 0]:
             src_pkgs[n] = pkg
-    t = girar.get("plan/add-bin")
+    t = taksfs.get("plan/add-bin")
     if t:
         for _, _, arch, _, pkg, n, *_ in [
             x.split("\t") for x in t.split("\n") if len(x) > 0
@@ -1216,12 +1233,12 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
             bin_pkgs[n][arch].append(pkg)
     # 1 - get contents from /build/%subtask_id%/%arch%
     for subtask in (
-        x.name for x in girar.get_file_path("build").glob("[0-7]*") if x.is_dir()
+        x.name for x in taksfs.get_file_path("build").glob("[0-7]*") if x.is_dir()
     ):
         subtask_dir = "/".join(("build", subtask))
         # follow order of architectures from ARCHS list to prefer
         # source package from 'x86_64' and 'i586' architectures if there is no plan
-        archs_fs = set((x.name for x in girar.get(subtask_dir) if x.is_dir()))
+        archs_fs = set((x.name for x in taksfs.get(subtask_dir) if x.is_dir()))
         archs = [x for x in ("x86_64", "i586") if x in archs_fs]
         archs += [x for x in archs_fs if x not in archs]
         for arch in archs:
@@ -1240,25 +1257,25 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                 "titer_chroot_base": [],
                 "titer_chroot_br": [],
             }
-            if girar.check_file("/".join((arch_dir, "status"))):
-                t = girar.get_file_mtime("/".join((arch_dir, "status")))
-                tt = girar.get("/".join((arch_dir, "status")))
+            if taksfs.check_file("/".join((arch_dir, "status"))):
+                t = taksfs.get_file_mtime("/".join((arch_dir, "status")))
+                tt = taksfs.get("/".join((arch_dir, "status")))
                 build_dict["titer_status"] = tt.strip() if tt else "failed"
             else:
-                t = girar.get_file_mtime(arch_dir)
+                t = taksfs.get_file_mtime(arch_dir)
                 build_dict["titer_status"] = "failed"
             build_dict["titer_ts"] = t
             build_dict["task_try"] = task["task_state"]["task_try"]
             build_dict["task_iter"] = task["task_state"]["task_iter"]
             # read chroots
-            t = girar.get("/".join((arch_dir, "chroot_base")))
+            t = taksfs.get("/".join((arch_dir, "chroot_base")))
             if t:
                 for pkg in (
                     x.split("\t")[-1].strip() for x in t.split("\n") if len(x) > 0
                 ):
                     # FIXME: useless data due to packages stored with snowflake hash now!
                     build_dict["titer_chroot_base"].append(mmhash(bytes.fromhex(pkg)))
-            t = girar.get("/".join((arch_dir, "chroot_BR")))
+            t = taksfs.get("/".join((arch_dir, "chroot_BR")))
             if t:
                 for pkg in (
                     x.split("\t")[-1].strip() for x in t.split("\n") if len(x) > 0
@@ -1266,7 +1283,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     # FIXME: useless data due to packages stored with snowflake hash now!
                     build_dict["titer_chroot_br"].append(mmhash(bytes.fromhex(pkg)))
             # get src and bin packages
-            t = girar.get("/".join((arch_dir, "srpm")))
+            t = taksfs.get("/".join((arch_dir, "srpm")))
             if t and len(t) > 0:
                 build_dict["titer_status"] = "built"
                 # skip srpm if got it from 'plan/add-src'
@@ -1276,7 +1293,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
             if subtask in src_pkgs:
                 build_dict["titer_srpm"] = src_pkgs[subtask]
 
-            t = girar.get("/".join((arch_dir, "rpms")))
+            t = taksfs.get("/".join((arch_dir, "rpms")))
             if t and len(t) > 0:
                 build_dict["titer_status"] = "built"
                 bin_pkgs[subtask][arch] = []
@@ -1290,7 +1307,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
             task["task_iterations"].append(build_dict)
             # save build logs
             for log_file in ("log", "srpm.log"):
-                if girar.file_exists_and_not_empty("/".join((arch_dir, log_file))):
+                if taksfs.file_exists_and_not_empty("/".join((arch_dir, log_file))):
                     log_hash = (
                         ""
                         + str(build_dict["task_id"])
@@ -1330,7 +1347,7 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                     "task_changed": task["task_state"]["task_changed"],
                     "subtask_id": t["subtask_id"],
                     "subtask_arch": "x86_64",
-                    "titer_ts": girar.get_file_mtime("build"),
+                    "titer_ts": taksfs.get_file_mtime("build"),
                     "titer_status": "deleted",
                     "task_try": task["task_state"]["task_try"],
                     "task_iter": task["task_state"]["task_iter"],
@@ -1341,11 +1358,11 @@ def init_task_structure_from_task(girar: TaskFromFilesystem, logger: LoggerProto
                 }
                 task["task_iterations"].append(build_dict)
     # parse '/arepo' for packages
-    t = girar.get("arepo/x86_64-i586/rpms")
+    t = taksfs.get("arepo/x86_64-i586/rpms")
     for pkg in (x.name for x in t if t and x.suffix == ".rpm"):
         task["arepo"].append(f"arepo/x86_64-i586/rpms/{pkg}")
     # parse '/logs' for event logs
-    for log_file in (x.name for x in girar.get_file_path("logs").glob("events.*.log")):
+    for log_file in (x.name for x in taksfs.get_file_path("logs").glob("events.*.log")):
         log_hash = (
             "events"
             + str(task["task_state"]["task_id"])
@@ -1376,47 +1393,59 @@ class TaskProcessor:
         else:
             self.logger.setLevel("INFO")
 
+        self.taskfs = TaskFromFilesystem(self.config.path, self.logger)
         self._check_config()
 
     def _check_config(self) -> None:
-        # FIXME: check if config is correct here
-        pass
+        # check if config is correct here
+        if not self.taskfs.check():
+            self.logger.error(f"Invlaid task path {self.config.path}")
+            raise TaskLoaderInvalidPathError(str(self.config.path))
         # create DB client and check connection
         self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
 
     def run(self) -> None:
-        girar = TaskFromFilesystem(self.config.path, self.logger)
-        if girar.check():
-            ts = time.time()
-            self.logger.info(f"reading task structure for {self.config.path}")
-            task_struct = init_task_structure_from_task(girar, self.logger)
-            self.logger.info(f"task structure loaded in {(time.time() - ts):.3f} seconds")
-            if self.config.dumpjson:
-                p = Path.joinpath(Path.cwd(), "JSON")
-                p.mkdir(exist_ok=True)
-                dump_to_json(
-                    task_struct,
-                    Path.joinpath(
-                        p,
-                        (
-                            f"dump-{str(task_struct['task_state']['task_id'])}-"
-                            f"{datetime.date.today().strftime('%Y-%m-%d')}.json"
-                        ),
-                    )
-                )
-            task = TaskLoadHandler(self.conn, girar, self.logger, task_struct, self.config)
-            self.logger.info(
-                f"loading task {task_struct['task_state']['task_id']} to database {self.config.dbconfig.name}"
+        ts = time.time()
+        self.logger.info(f"reading task structure for {self.config.path}")
+        task_struct = init_task_structure_from_task(self.taskfs, self.logger)
+        self.logger.info(f"task structure loaded in {(time.time() - ts):.3f} seconds")
+        if self.config.dumpjson:
+            p = Path.joinpath(Path.cwd(), "JSON")
+            p.mkdir(exist_ok=True)
+            dump_to_json(
+                task_struct,
+                Path.joinpath(
+                    p,
+                    (
+                        f"dump-{str(task_struct['task_state']['task_id'])}-"
+                        f"{datetime.date.today().strftime('%Y-%m-%d')}.json"
+                    ),
+                ),
             )
+        task = TaskLoadHandler(
+            self.conn, self.taskfs, self.logger, task_struct, self.config
+        )
+        self.logger.info(
+            f"loading task {self.config.id} to database {self.config.dbconfig.name}"
+        )
+        try:
             task.save()
             if self.config.flush:
                 self.logger.info("Flushing buffer tables")
                 task.flush()
             # update Depends table
             task.update_depends()
-            ts = time.time() - ts
-            self.logger.info(
-                f"task {task_struct['task_state']['task_id']} loaded in {ts:.3f} seconds"
+        except RaisingThreadError as exc:
+            self.logger.error(
+                f"An error ocured while loding task {self.config.id} to DB"
             )
+            raise TaskLoaderProcessingError(self.config.id, exc) from exc
+        except Exception as exc:
+            self.logger.error(
+                f"An error ocured while loding task {self.config.id} to DB",
+                exc_info=True,
+            )
+            raise exc
         else:
-            raise ValueError("task not found: {0}".format(self.config.path))
+            ts = time.time() - ts
+            self.logger.info(f"task {self.config.id} loaded in {ts:.3f} seconds")
