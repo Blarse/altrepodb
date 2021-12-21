@@ -24,7 +24,7 @@ from typing import Iterable
 
 from altrpm import rpm, readHeaderListFromXZFile
 from .repo import PackageHandler
-from .logger import _LoggerOptional, LoggerProtocol
+from .logger import LoggerProtocol
 from .utils import (
     cvt,
     mmhash,

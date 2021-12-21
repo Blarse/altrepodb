@@ -135,7 +135,7 @@ class TaskLoaderError(Exception):
 class TaskLoaderInvalidPathError(TaskLoaderError):
     def __init__(self, path: str):
         self.path = path
-        super().__init__(f"Invalid path invalid {self.path}")
+        super().__init__(f"Invalid task path {self.path}")
 
 
 class TaskLoaderProcessingError(TaskLoaderError):

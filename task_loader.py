@@ -60,7 +60,7 @@ def get_args():
         help="Force to flush buffer tables after task loaded",
     )
     args = parser.parse_args()
-    args.workers = args.workers or 10
+    args.workers = args.workers or 4
     if args.config is not None:
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
@@ -72,6 +72,12 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            # get 'workers' from 'DEFAULT' config file section
+            try:
+                workers = int(section_db.get("workers", ""))
+            except ValueError:
+                workers = 0
+            args.workers = max(workers, args.workers)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
