@@ -1379,12 +1379,12 @@ def init_task_structure_from_task(
 class TaskProcessor:
     """Process and load Task to DB."""
 
-    def __init__(self, config: TaskProcessorConfig, logger: _LoggerOptional) -> None:
+    def __init__(self, config: TaskProcessorConfig) -> None:
         self.conn: DatabaseClient
         self.config = config
 
-        if logger is not None:
-            self.logger = logger
+        if self.config.logger is not None:
+            self.logger = self.config.logger
         else:
             self.logger = DEFAULT_LOGGER(name="task")
 

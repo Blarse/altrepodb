@@ -24,7 +24,7 @@ from .exceptions import RaisingThreadError
 
 # Logger
 # DEFAULT_LOGGER = FakeLogger
-DEFAULT_LOGGER = ConsoleLogger
+DEFAULT_LOGGER = ConsoleLogger  # FIXME: change it before release 
 
 # Types
 _StringOrPath = Union[str, Path]
