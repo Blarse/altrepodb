@@ -13,6 +13,8 @@
 # You should have received a copy of the GNU General Public License 
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+from typing import Any
+
 class RunCommandError(Exception):
     """Raises when subprocess command returned non zero code."""
 
@@ -23,7 +25,7 @@ class RunCommandError(Exception):
 class PackageLoadError(Exception):
     """Raised from PackageLoader worker."""
 
-    def __init__(self, message=None):
+    def __init__(self, message: str):
         self.message = message
         super().__init__()
 
@@ -35,7 +37,7 @@ class NotImplementedError(Exception):
         function - not implemented function description
     """
 
-    def __init__(self, message="Function not implemented", function=None):
+    def __init__(self, message: str ="Function not implemented", function: Any = None):
         self.message = message
         self.function = function
         super().__init__()
@@ -49,7 +51,7 @@ class RaisingThreadError(Exception):
         traceback (string): traceback of exception that raised in thread
     """
 
-    def __init__(self, message=None, traceback=None) -> None:
+    def __init__(self, message: str, traceback: Any = None) -> None:
         self.message = message
         self.traceback = traceback
         super().__init__()

@@ -15,8 +15,9 @@
 
 import threading
 from pathlib import Path
-from typing import Generator, Protocol, Union, Any
-from dataclasses import dataclass
+from datetime import datetime
+from typing import Generator, Optional, Union, Any
+from dataclasses import dataclass, field
 
 from .logger import _LoggerOptional, FakeLogger, ConsoleLogger
 from .exceptions import RaisingThreadError
@@ -33,9 +34,9 @@ class RaisingTread(threading.Thread):
     """Base threading class that raises exception stored in self.exc at join()"""
 
     def __init__(self, *args, **kwargs):
-        self.exc = None
-        self.exc_message = None
-        self.exc_traceback = None
+        self.exc: Optional[Exception] = None
+        self.exc_message: str = ""
+        self.exc_traceback: Any = None
         super().__init__(*args, **kwargs)
 
     def join(self):
@@ -43,7 +44,7 @@ class RaisingTread(threading.Thread):
         if self.exc:
             raise RaisingThreadError(
                 message=self.exc_message, traceback=self.exc_traceback
-            ) from self.exc  # type: ignore
+            ) from self.exc
 
 
 class LockedIterator:
@@ -163,3 +164,110 @@ class ISOProcessorConfig:
     logger: _LoggerOptional
     debug: bool = False
     force: bool = False
+
+
+@dataclass
+class PkgHash:
+    sf: Optional[bytes] = None
+    md5: Optional[bytes] = None
+    sha1: Optional[bytes] = None
+    sha256: Optional[bytes] = None
+    blake2b: Optional[bytes] = None
+
+@dataclass(frozen=True)
+class PkgInfo:
+    name: str
+    evr: str
+    file: str
+    srpm: str
+    arch: str
+
+@dataclass
+class TaskSubtask:
+    task_id: int
+    subtask_id: int
+    task_repo: str = ""
+    task_owner: str = ""
+    task_changed: Optional[datetime] = None
+    subtask_changed: Optional[datetime] = None
+    userid: str = ""
+    type: str = ""
+    sid: str = ""
+    dir: str = ""
+    package: str = ""
+    pkg_from: str = ""
+    tag_author: str = ""
+    tag_id: str = ""
+    tag_name: str = ""
+    srpm: str = ""
+    srpm_name: str = ""
+    srpm_evr: str = ""
+
+@dataclass
+class TaskState:
+    task_id: int
+    task_try: int
+    task_iter: int
+    state: str
+    changed: Optional[datetime] = None
+    runby: str = ""
+    depends: list[int] = field(default_factory=list)
+    prev: int = 0
+    shared: int = 0
+    testonly: int = 0
+    failearly: int = 0
+    message: str = ""
+    version: str = ""
+
+@dataclass
+class TaskApprovals:
+    task_id: int
+    subtask_id: int
+    type: str
+    name: str = ""
+    date: Optional[datetime] = None
+    message: str = ""
+    revoked: int = 0
+
+@dataclass
+class TaskIteration:
+    task_id: int
+    subtask_id: int
+    subtask_arch: str
+    task_changed: Optional[datetime] = None
+    titer_ts: Optional[datetime] = None
+    titer_status: str = ""
+    task_try: int = 0
+    task_iter: int = 0
+    titer_srpm: str = ""
+    titer_rpms: list[str] = field(default_factory=list)
+    # FIXME: mmh(SHA1) should be replaced by something to work with snowflake_id's
+    titer_chroot_base: list[int] = field(default_factory=list) 
+    titer_chroot_br: list[int] = field(default_factory=list)
+
+@dataclass
+class TaskPlan:
+    hashes: dict[str, int]
+    pkg_add: dict[str, dict[str, PkgInfo]]
+    pkg_del: dict[str, dict[str, PkgInfo]]
+    hash_add: dict[str, dict[str, bytes]]
+    hash_del: dict[str, dict[str, bytes]]
+
+@dataclass
+class TaskLog:
+    type: str
+    path: str
+    hash: int
+    hash_string: str
+
+@dataclass
+class Task:
+    id: int
+    subtasks: list[TaskSubtask]
+    state: TaskState
+    approvals: TaskApprovals
+    iterations: list[TaskIteration]
+    logs: list[TaskLog]
+    arepo: list[str]
+    plan: TaskPlan
+    pkg_hashes: dict[str, PkgHash]
