@@ -13,7 +13,6 @@
 # You should have received a copy of the GNU General Public License 
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import logging
 import sys
 import argparse
 import requests
@@ -22,9 +21,10 @@ import configparser
 from dateutil import tz
 from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
-from clickhouse_driver import Client, errors
 
-from altrepodb.utils import get_logger, get_client
+from altrepodb.utils import get_logger
+from altrepodb.logger import LoggerProtocol
+from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 NAME = "watch"
 
@@ -65,7 +65,7 @@ def get_args():
     return args
 
 
-def load(args, conn: Client, logger: logging.Logger) -> None:
+def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
     logger.info("Check watch updates...")
 
     try:
@@ -79,7 +79,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
         res_db = conn.execute('SELECT max(date_update) FROM PackagesWatch')
         last_update = res_db[0][0]  # type: ignore
     except Exception as exc:
-        if issubclass(exc.__class__, (errors.Error,)):
+        if issubclass(exc.__class__, (DatabaseError,)):
             logger.error("Failed read data from database", exc_info=True)
             raise RuntimeError("Failed get data from database") from exc
         else:
@@ -107,7 +107,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
         try:
             conn.execute('INSERT INTO PackagesWatch (*) VALUES', result)
         except Exception as exc:
-            if issubclass(exc.__class__, (errors.Error,)):
+            if issubclass(exc.__class__, (DatabaseError,)):
                 logger.error("Failed load data to database", exc_info=True)
                 raise RuntimeError("Failed load data to database") from exc
             else:
@@ -123,13 +123,22 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         load(args, conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during Watch information loading.")
+        logger.error(f"Error occurred during Watch information loading: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

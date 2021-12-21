@@ -16,14 +16,14 @@
 from datetime import datetime
 import os
 import sys
-import logging
 import argparse
 import configparser
 from pathlib import Path
 from dataclasses import dataclass
-from clickhouse_driver import Client
 
 from altrepodb.utils import get_logger, cvt_datetime_local_to_utc
+from altrepodb.logger import LoggerProtocol
+from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 
 NAME = "task_cleaner"
@@ -150,19 +150,6 @@ class TaskCleaner:
         self.conn.execute(self.sql.flush_tables_buffer)
 
 
-def get_client(args) -> Client:
-    """Get Clickhouse client instance."""
-    client = Client(
-        args.host,
-        port=args.port,
-        database=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-    client.connection.connect()
-    return client
-
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=str, help="Path to tasks directory")
@@ -205,7 +192,7 @@ def get_args():
     return args
 
 
-def load(args, conn: Client, logger: logging.Logger) -> None:
+def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
     tc = TaskCleaner(args, conn, logger)
     tc.process_tasks()
     if not args.dry_run:
@@ -217,12 +204,21 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="clean")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
         logger.info("Start checking for deleted tasks")
         logger.info("=" * 60)
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         if not Path(args.path).is_dir():
             raise ValueError(f"{args.path} not a directory")
         if args.task_id is not None and args.task_id <= 0:
@@ -231,7 +227,7 @@ def main():
             args.task_id = 0
         load(args, conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during task processing")
+        logger.error(f"Error occurred during task processing: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

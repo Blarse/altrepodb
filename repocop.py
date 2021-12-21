@@ -16,16 +16,16 @@
 import sys
 import bz2
 import json
-import logging
 import argparse
 import requests
 import configparser
 from dateutil import tz
-from clickhouse_driver import Client, errors
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from altrepodb.utils import get_logger, get_client
+from altrepodb.utils import get_logger
+from altrepodb.logger import LoggerProtocol
+from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 NAME = "repocop"
 
@@ -67,7 +67,7 @@ def get_args():
     return args
 
 
-def load(args, conn: Client, logger: logging.Logger) -> None:
+def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
     logger.info("Check repocop updates...")
 
     try:
@@ -82,7 +82,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
         res = conn.execute("SELECT max(rc_test_date) FROM PackagesRepocop")
         last_update = res[0][0]  # type: ignore
     except Exception as exc:
-        if issubclass(exc.__class__, (errors.Error,)):
+        if issubclass(exc.__class__, (DatabaseError,)):
             logger.error("Failed read data from database")
             raise RuntimeError("Failed get data from database") from exc
         else:
@@ -110,7 +110,7 @@ def load(args, conn: Client, logger: logging.Logger) -> None:
                     f"Data loaded to database in {conn.last_query.elapsed:.3f} seconds"  # type: ignore
                 )
             except Exception as exc:
-                if issubclass(exc.__class__, (errors.Error,)):
+                if issubclass(exc.__class__, (DatabaseError,)):
                     logger.error("Failed load data to database", exc_info=True)
                     raise RuntimeError("Failed load data to database") from exc
                 else:
@@ -126,13 +126,22 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         load(args, conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during Repocop information loading.")
+        logger.error(f"Error occurred during Repocop information loading: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

@@ -169,7 +169,7 @@ class Display:
     """Show information about progress."""
 
     def __init__(
-        self, log: logging.Logger, timer_init_delta: float = 0, step: int = 1000
+        self, log: LoggerProtocol, timer_init_delta: float = 0, step: int = 1000
     ):
         self.lock = threading.Lock()
         self.log = log

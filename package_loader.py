@@ -17,19 +17,18 @@ import os
 import sys
 import time
 import base64
-import logging
 import argparse
 import configparser
 from pathlib import Path
 from dataclasses import dataclass
-from clickhouse_driver import Client
 
-from repo import PackageHandler # TODO: move to altrepo_db
 from altrpm import rpm, extractSpecAndHeadersFromRPM
+from altrepodb.base import LoggerProtocol
+from altrepodb.repo import PackageHandler
+from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import (
     cvt,
     get_logger,
-    get_client,
     snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
@@ -216,7 +215,7 @@ class PackageLoader:
             self.conn.execute(self.sql.flush_tables_buffer.format(buffer=buffer))
 
 
-def load(args, conn: Client, logger: logging.Logger) -> None:
+def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
     pkgl = PackageLoader(args.file, conn, logger, args)
     pkgl.load_package()
     if args.flush_buffers:
@@ -228,17 +227,26 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
         logger.info("Start loading RPM package to database")
         logger.info("=" * 60)
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         if not Path(args.file).is_file():
             raise ValueError(f"{args.file} not a file")
         load(args, conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during package loading")
+        logger.error(f"Error occurred during package loading: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

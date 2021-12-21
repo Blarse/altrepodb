@@ -15,15 +15,15 @@
 
 import sys
 import csv
-import logging
 import argparse
 import requests
 import configparser
 from collections import namedtuple
-from clickhouse_driver import Client
 from typing import Iterable
 
-from altrepodb.utils import get_logger, get_client
+from altrepodb.utils import get_logger
+from altrepodb.logger import LoggerProtocol
+from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"
@@ -78,7 +78,7 @@ def tuples_list_to_dict(x: Iterable) -> dict:
     return res
 
 
-def load(conn: Client, logger: logging.Logger) -> None:
+def load(conn: DatabaseClient, logger: LoggerProtocol) -> None:
     # get bugs CSV from Bugzilla
     logger.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
@@ -147,13 +147,22 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
-        conn = get_client(args)
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         load(conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during Bugzilla information loading.")
+        logger.error(f"Error occurred during Bugzilla information loading: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

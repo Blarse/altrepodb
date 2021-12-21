@@ -320,7 +320,7 @@ def main():
         conn = get_client(args)
         load(args, conn)
     except Exception as error:
-        logger.error(error, exc_info=True)
+        logger.error(str(error), exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

@@ -143,7 +143,7 @@ class Vul:
 
 def read_xml(xmldata):
     log.info('read xml')
-    return etree.XML(xmldata)
+    return etree.XML(xmldata)  # type: ignore
 
 
 def download(url):
@@ -255,7 +255,7 @@ def main():
         conn = get_client(args)
         load(conn)
     except Exception as error:
-        logger.error(error, exc_info=True)
+        logger.error(str(error), exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:

@@ -15,7 +15,6 @@
 
 import sys
 import json
-import logging
 import argparse
 import requests
 import datetime
@@ -24,10 +23,11 @@ from pathlib import Path
 from requests import HTTPError
 from collections import namedtuple
 from dataclasses import dataclass
-from clickhouse_driver import Client
 
-from altrepodb.utils import get_logger, get_client, cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from altrepodb.utils import get_logger, cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from altrepodb.htmllistparse import fetch_listing
+from altrepodb.database import DatabaseConfig, DatabaseClient
+from altrepodb.logger import LoggerProtocol
 
 
 NAME = "beehive"
@@ -214,8 +214,8 @@ class Beehive:
         branches: tuple,
         archs: tuple,
         endpoints: tuple,
-        conn: Client,
-        logger: logging.Logger,
+        conn: DatabaseClient,
+        logger: LoggerProtocol,
         timeout: int,
         dump_beehive: bool = False,
     ) -> None:
@@ -677,16 +677,24 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel("DEBUG")
     conn = None
     try:
         logger.info("Start loading data from Beehive")
         logger.info("=" * 60)
-        conn = get_client(args)
-        conn.connection.connect()
+        conn = DatabaseClient(
+            config=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password
+            ),
+            logger=logger
+        )
         load(args, conn, logger)
     except Exception as error:
-        logger.exception("Error occurred during Beehive information loading.")
+        logger.error("Error occurred during Beehive information loading: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:
