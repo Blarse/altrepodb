@@ -16,7 +16,7 @@
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Generator, Optional, Union, Any
+from typing import Generator, Optional, Union, Any, DefaultDict
 from dataclasses import dataclass, field
 
 from .logger import LoggerProtocol, _LoggerOptional, FakeLogger, ConsoleLogger
@@ -181,6 +181,9 @@ class PkgInfo:
     file: str
     srpm: str
     arch: str
+    comp: str
+    path: str
+    subtask_id: int
 
 @dataclass
 class TaskSubtask:
@@ -202,6 +205,7 @@ class TaskSubtask:
     srpm: str = ""
     srpm_name: str = ""
     srpm_evr: str = ""
+    deleted: int = 0
 
 @dataclass
 class TaskState:
@@ -220,14 +224,14 @@ class TaskState:
     version: str = ""
 
 @dataclass
-class TaskApprovals:
+class TaskApproval:
     task_id: int
     subtask_id: int
     type: str
-    name: str = ""
     date: Optional[datetime] = None
+    name: str = ""
     message: str = ""
-    revoked: int = 0
+    revoked: Optional[int] = None
 
 @dataclass
 class TaskIteration:
@@ -265,9 +269,9 @@ class Task:
     id: int
     subtasks: list[TaskSubtask]
     state: TaskState
-    approvals: TaskApprovals
+    approvals: list[TaskApproval]
     iterations: list[TaskIteration]
     logs: list[TaskLog]
     arepo: list[str]
     plan: TaskPlan
-    pkg_hashes: dict[str, PkgHash]
+    pkg_hashes: DefaultDict[str, PkgHash]

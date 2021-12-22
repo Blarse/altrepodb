@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
@@ -28,7 +28,7 @@ from dateutil import tz
 from pathlib import Path
 from functools import wraps
 from logging import handlers
-from dataclasses import dataclass
+from collections import namedtuple
 from hashlib import sha1, sha256, md5, blake2b
 from typing import Any, Iterable, Union, Hashable, Generator
 
@@ -48,6 +48,7 @@ def mmhash(val: Any) -> int:
 
     a, b = mmh3.hash64(val, signed=False)
     return a ^ b
+
 
 def _snowflake_id(timestamp: int, lower_32bit: int, epoch: int) -> int:
     """Snowflake-like ID generation base function.
@@ -95,12 +96,16 @@ def snowflake_id_pkg(hdr: dict, epoch: int = 1_000_000_000) -> int:
     return _snowflake_id(timestamp=buildtime, lower_32bit=sf_hash, epoch=epoch)
 
 
-def snowflake_id_sqfs(mtime: int, sha1: bytes, size: int, epoch: int = 1_000_000_000) -> int:
+def snowflake_id_sqfs(
+    mtime: int, sha1: bytes, size: int, epoch: int = 1_000_000_000
+) -> int:
     """Generates snowflake-like ID for SquashFS image identification."""
 
-    data = sha1 \
-        + (mtime).to_bytes((mtime.bit_length() + 7) // 8, byteorder="little") \
+    data = (
+        sha1
+        + (mtime).to_bytes((mtime.bit_length() + 7) // 8, byteorder="little")
         + (size).to_bytes((size.bit_length() + 7) // 8, byteorder="little")
+    )
     sf_hash = mmh3.hash(data, signed=False) & 0xFFFFFFFF
 
     return _snowflake_id(timestamp=mtime, lower_32bit=sf_hash, epoch=epoch)
@@ -469,221 +474,6 @@ def unxz(fname: _FileName, mode_binary: bool = False) -> Union[bytes, str]:
         with lzma.open(fname, "rt") as f:
             res = f.read()
         return res
-
-
-def log_parser(
-    logger: logging.Logger,
-    log_file: _FileName,
-    log_type: str,
-    log_start_time: datetime.datetime,
-) -> Generator:
-    """Task logs parser generator
-
-    Args:
-        logger (logger): Logger instance object
-        log_file (str): log file name
-        log_type (str): log type ('events'|'build'|'srpm')
-        log_start_time (datetime): log start time for logs with partial or none timestamps included
-
-    Returns:
-        generator(tuple(tuple(int, datetime, str),)): return parsed log as generator of tuples of line number, timestamp and message
-    """
-    # matches with '2020-May-15 10:30:00 '
-    events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")  # type: ignore
-    # matches with '<13>Sep 13 17:53:14 '
-    srpm_pattern = re.compile("^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")  # type: ignore
-    # matches with '[00:03:15] '
-    build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
-
-    if not Path(log_file).is_file():
-        logger.error(f"File '{log_file}' not found")
-        return tuple()
-    else:
-        with Path(log_file).open("r", encoding="utf-8", errors="backslashreplace") as f:
-            first_line = True
-            line_cnt = 0
-            for line in f:
-                if len(line) > 0:
-                    if log_type == "events":
-                        line_cnt += 1
-                        if first_line:
-                            dt = events_pattern.findall(line)
-                            if not dt:
-                                logger.error(
-                                    f"File '{log_file}' first line doesn't contain valid datetime."
-                                    f" Log file parsing aborted."
-                                )
-                                return tuple()
-                            dt = dt[0]
-                            msg = (
-                                events_pattern.split(line)[-1].split(" :: ")[-1].strip()
-                            )
-                            last_dt = dt
-                            first_line = False
-                            yield (
-                                line_cnt,
-                                datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
-                                msg,
-                            )
-                        else:
-                            dt = events_pattern.findall(line)
-                            msg = (
-                                events_pattern.split(line)[-1].split(" :: ")[-1].strip()
-                            )
-                            if dt:
-                                dt = dt[0]
-                                last_dt = dt
-                                yield (
-                                    line_cnt,
-                                    datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
-                                    msg,
-                                )
-                            else:
-                                yield (
-                                    line_cnt,
-                                    datetime.datetime.strptime(
-                                        last_dt, "%Y-%b-%d %H:%M:%S"  # type: ignore
-                                    ),
-                                    msg,
-                                )
-                    elif log_type == "srpm":
-                        if not isinstance(log_start_time, datetime.datetime):
-                            logger.error(
-                                f"Valid 'log_start_time' value is required to parse 'srpm.log'"
-                                f" type file {log_file}. Log file parsing aborted."
-                            )
-                            return ()
-                        line_cnt += 1
-                        dt = srpm_pattern.findall(line)
-                        msg = srpm_pattern.split(line)[-1].strip()
-                        if dt:
-                            dt = dt[0]
-                            last_dt = dt
-                            first_line = False
-                            # FIXME: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
-                            ts_str = f"{str(log_start_time.year)} " + " ".join(
-                                [x for x in dt[4:].split(" ") if len(x) > 0]
-                            )
-                            ts = datetime.datetime.strptime(ts_str, "%Y %b %d %H:%M:%S")
-                            yield (
-                                line_cnt,
-                                ts,
-                                msg,
-                            )
-                        else:
-                            if first_line:
-                                logger.debug(
-                                    f"File '{log_file}' first line doesn't contain valid datetime."
-                                    f" Using 'log_start_time' as timestamp."
-                                )
-                                ts = log_start_time
-                            else:
-                                ts_str = f"{str(log_start_time.year)} " + " ".join(
-                                    [x for x in last_dt[4:].split(" ") if len(x) > 0]  # type: ignore
-                                )
-                                ts = datetime.datetime.strptime(
-                                    ts_str, "%Y %b %d %H:%M:%S"
-                                )
-                            yield (
-                                line_cnt,
-                                ts,
-                                msg,
-                            )
-                    elif log_type == "build":
-                        line_cnt += 1
-                        ts = build_pattern.findall(line)
-                        msg = build_pattern.split(line)[-1].strip()
-                        if ts:
-                            ts = ts[0][1:-1].split(":")
-                            ts = log_start_time + datetime.timedelta(
-                                hours=int(ts[0]), minutes=int(ts[1]), seconds=int(ts[2])
-                            )
-                        else:
-                            ts = log_start_time
-                        yield (
-                            line_cnt,
-                            ts,
-                            msg,
-                        )
-                    else:
-                        logger.error(
-                            f"Unknown log format specifier '{log_type}'.  Log file parsing aborted."
-                        )
-                        return tuple()
-
-
-def parse_hash_diff(hash_file: _FileName) -> tuple[dict, dict]:
-    """Parse hash diff file. Returns added and deleted hashes as dictionaries."""
-
-    hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")  # type: ignore
-    h_added = {}
-    h_deleted = {}
-    try:
-        contents = Path(hash_file).read_text()
-        contents = (x for x in contents.split("\n") if len(x) > 0)
-    except FileNotFoundError:
-        return {}, {}
-    for line in contents:
-        h = hash_pattern.findall(line)
-        if h:
-            sign = h[0][0]
-            sha256 = h[0][1:].strip()
-            pkg_name = hash_pattern.split(line)[-1].strip()
-            if sign == "+":
-                h_added[pkg_name] = bytes.fromhex(sha256)
-            else:
-                h_deleted[pkg_name] = bytes.fromhex(sha256)
-    return h_added, h_deleted
-
-
-def parse_pkglist_diff(diff_file: _FileName, is_src_list: bool) -> tuple[list, list]:
-    """Parse package list diff file. Returns tuple of added and deleted packages lists."""
-
-    @dataclass(frozen=True)
-    class PkgInfo:
-        """Represents package info from task plan"""
-
-        name: str
-        evr: str
-        file: str
-        srpm: str
-        arch: str
-
-    diff_pattern = re.compile("^[+-]+[a-zA-Z0-9]+\S+")  # type: ignore
-    p_added: list[PkgInfo] = []
-    p_deleted: list[PkgInfo] = []
-    try:
-        contents = Path(diff_file).read_text()
-        contents = (x for x in contents.split("\n") if len(x) > 0)
-    except FileNotFoundError:
-        return [], []
-    for line in contents:
-        p = diff_pattern.findall(line)
-        if p:
-            sign = p[0][0]
-            if is_src_list:
-                pkg_name = p[0][1:].strip()
-                pkg_evr, pkg_file = [
-                    x.strip()
-                    for x in diff_pattern.split(line)[-1].split("\t")
-                    if len(x) > 0
-                ]
-                pkg_src = pkg_file
-                pkg_arch = "src"
-            else:
-                pkg_name = p[0][1:].strip()
-                pkg_evr, pkg_arch, pkg_file, pkg_src = [
-                    x.strip()
-                    for x in diff_pattern.split(line)[-1].split("\t")
-                    if len(x) > 0
-                ]
-            if sign == "+":
-                p_added.append(PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch))
-            else:
-                p_deleted.append(
-                    PkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch)
-                )
-    return p_added, p_deleted
 
 
 def run_command(

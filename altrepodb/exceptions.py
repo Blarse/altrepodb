@@ -145,3 +145,8 @@ class TaskLoaderProcessingError(TaskLoaderError):
         super().__init__(
             f"An error occured while loadint task {id} to database. Error: {exc}"
         )
+
+class TaskLoaderParserError(TaskLoaderError):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
