@@ -117,8 +117,8 @@ CREATE TABLE TaskIterations
     task_iter           UInt8,  -- from /task/iter
     titer_srcrpm_hash   UInt64,
     titer_pkgs_hash     Array(UInt64),
-    titer_chroot_base   UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
-    titer_chroot_br     UInt64, -- change to UInt64 hash if 'TaskChroots' implemented
+    titer_chroot_base   UInt64, -- tch_hash from TaskChroots
+    titer_chroot_br     UInt64, -- tch_hash from TaskChroots
     titer_buildlog_hash UInt64, -- build log hash
     titer_srpmlog_hash  UInt64  -- srpm build log hash
 ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, task_changed, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
@@ -130,7 +130,7 @@ CREATE TABLE TaskIterations_buffer AS TaskIterations ENGINE = Buffer(currentData
 CREATE TABLE TaskChroots
 (
     tch_hash        UInt64 MATERIALIZED murmurHash3_64(tch_chroot),
-    tch_chroot      Array(UInt64)
+    tch_chroot      Array(UInt64)  -- array of mmh3(SHA1)
 ) ENGINE = ReplacingMergeTree ORDER BY (tch_chroot);
 
 CREATE TABLE TaskChroots_buffer AS TaskChroots ENGINE = Buffer(currentDatabase(), TaskChroots, 16, 10, 100, 1000, 100000, 1000000, 10000000);
