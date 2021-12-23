@@ -74,7 +74,7 @@ TaskPlanDiffPkgInfo = namedtuple(
 )
 TaskPlanAddRmPkgInfo = namedtuple(
     "TaskPlanAddRmPkgInfo",
-    ["name", "evr", "arch", "file", "path", "subtask_id", "comp"]
+    ["name", "evr", "arch", "file", "path", "subtask_id", "comp"],
 )
 
 
@@ -100,7 +100,7 @@ def init_cache(conn: DatabaseClient, packages: Iterable[str], logger: LoggerProt
     return {i[0] for i in result}
 
 
-class TaskFromFilesystem:
+class TaskFromFileSystem:
     """Provides functions to read task's elements from filesystem."""
 
     def __init__(self, path: _StringOrPath, logger: LoggerProtocol):
@@ -181,7 +181,9 @@ class TaskFromFilesystem:
         else:
             return False
 
-    def get_symlink_target(self, path: _StringOrPath, name_only: bool = False) -> Union[None, str]:
+    def get_symlink_target(
+        self, path: _StringOrPath, name_only: bool = False
+    ) -> Union[None, str]:
         symlink = Path.joinpath(self.path, path)
         if symlink.is_symlink():
             if name_only:
@@ -196,15 +198,15 @@ class TaskFilesParser:
     def __init__(self, logger: LoggerProtocol):
         self.logger = logger
 
-    def parse_approval_file(self, path: _StringOrPath) -> Union[None, tuple[str, datetime.datetime, str]]:
-        p = Path(path)
+    def parse_approval_file(
+        self, path: _StringOrPath
+    ) -> Union[None, tuple[str, datetime.datetime, str]]:
         try:
             content = Path(path).read_text()
         except (FileNotFoundError, IsADirectoryError):
-            return None 
+            return None
         n = d = m = None
         if content:
-            content = cvt(content)
             try:
                 d, *m = [x for x in content.split("\n") if len(x) > 0]
                 d, n = [x.strip() for x in d.split("::") if len(x) > 0]
@@ -255,11 +257,15 @@ class TaskFilesParser:
                     ]
                 if sign == "+":
                     p_added.append(
-                        TaskPlanDiffPkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch)
+                        TaskPlanDiffPkgInfo(
+                            pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch
+                        )
                     )
                 else:
                     p_deleted.append(
-                        TaskPlanDiffPkgInfo(pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch)
+                        TaskPlanDiffPkgInfo(
+                            pkg_name, pkg_evr, pkg_file, pkg_src, pkg_arch
+                        )
                     )
         return p_added, p_deleted
 
@@ -268,6 +274,7 @@ class TaskFilesParser:
         fname: _StringOrPath, is_add: bool, is_src: bool
     ) -> list[TaskPlanAddRmPkgInfo]:
         """Parse task plan package add/delete files. Return list of packages."""
+
         res: list[TaskPlanAddRmPkgInfo] = []
         try:
             contents = Path(fname).read_text()
@@ -278,26 +285,22 @@ class TaskFilesParser:
             s = line.split("\t")
             if is_add:
                 # parse 'add-src' or 'add-bin' file
-                if is_src:
-                    # parse 'add-src' file
+                if is_src:  # parse 'add-src' file
                     res.append(
-                        TaskPlanAddRmPkgInfo(*s[0:2], "" ,*s[2:4], int(s[4]), "")  # type: ignore
+                        TaskPlanAddRmPkgInfo(*s[0:2], "", *s[2:4], int(s[4]), "")  # type: ignore
                     )
-                else:
-                    # parse 'add-bin' file
+                else:  # parse 'add-bin' file
                     if len(s) >= 7:
                         res.append(TaskPlanAddRmPkgInfo(*s[0:5], int(s[5]), s[6]))  # type: ignore
                     else:
                         res.append(TaskPlanAddRmPkgInfo(*s[0:5], int(s[5]), ""))  # type: ignore
             else:
                 # parse 'rm-src' or 'rm-bin' file
-                if is_src:
-                    # parse 'rm-src' file
+                if is_src:  # parse 'rm-src' file
                     res.append(
-                        TaskPlanAddRmPkgInfo(*s[0:2], "" ,s[2], "", 0, "")  # type: ignore
+                        TaskPlanAddRmPkgInfo(*s[0:2], "", s[2], "", 0, "")  # type: ignore
                     )
-                else:
-                    # parse 'rm-bin' file
+                else:  # parse 'rm-bin' file
                     if len(s) >= 5:
                         res.append(TaskPlanAddRmPkgInfo(*s[0:4], "", 0, s[4]))  # type: ignore
                     else:
@@ -309,8 +312,8 @@ class TaskFilesParser:
         """Parse hash diff file. Returns added and deleted hashes as dictionaries."""
 
         hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")  # type: ignore
-        h_added = {}
-        h_deleted = {}
+        h_added: dict[str, bytes] = {}
+        h_deleted: dict[str, bytes] = {}
         try:
             contents = Path(hash_file).read_text()
             contents = (x for x in contents.split("\n") if len(x) > 0)
@@ -337,13 +340,14 @@ class TaskFilesParser:
         """Task logs parser generator
 
         Args:
-            logger (logger): Logger instance object
             log_file (str): log file name
             log_type (str): log type ('events'|'build'|'srpm')
-            log_start_time (datetime): log start time for logs with partial or none timestamps included
+            log_start_time (datetime): log start time for logs with
+            partial or none timestamps included
 
         Returns:
-            generator(tuple(tuple(int, datetime, str),)): return parsed log as generator of tuples of line number, timestamp and message
+            generator(tuple(int, datetime, str)): return parsed log as
+            generator of tuples of line number, timestamp and message
         """
         # matches with '2020-May-15 10:30:00 '
         events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")  # type: ignore
@@ -352,128 +356,136 @@ class TaskFilesParser:
         # matches with '[00:03:15] '
         build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
 
+        LogLine = namedtuple("LogLine", ["line", "ts", "message"])
+
         if not Path(log_file).is_file():
             self.logger.error(f"File '{log_file}' not found")
             return tuple()
-        else:
-            with Path(log_file).open("r", encoding="utf-8", errors="backslashreplace") as f:
-                first_line = True
-                line_cnt = 0
-                for line in f:
-                    if len(line) > 0:
-                        if log_type == "events":
-                            line_cnt += 1
-                            if first_line:
-                                dt = events_pattern.findall(line)
-                                if not dt:
-                                    self.logger.error(
-                                        f"File '{log_file}' first line doesn't contain valid datetime."
-                                        f" Log file parsing aborted."
-                                    )
-                                    return tuple()
-                                dt = dt[0]
-                                msg = (
-                                    events_pattern.split(line)[-1].split(" :: ")[-1].strip()
-                                )
-                                last_dt = dt
-                                first_line = False
-                                yield (
-                                    line_cnt,
-                                    datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
-                                    msg,
-                                )
-                            else:
-                                dt = events_pattern.findall(line)
-                                msg = (
-                                    events_pattern.split(line)[-1].split(" :: ")[-1].strip()
-                                )
-                                if dt:
-                                    dt = dt[0]
-                                    last_dt = dt
-                                    yield (
-                                        line_cnt,
-                                        datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S"),
-                                        msg,
-                                    )
-                                else:
-                                    yield (
-                                        line_cnt,
-                                        datetime.datetime.strptime(
-                                            last_dt, "%Y-%b-%d %H:%M:%S"  # type: ignore
-                                        ),
-                                        msg,
-                                    )
-                        elif log_type == "srpm":
-                            if not isinstance(log_start_time, datetime.datetime):
-                                self.logger.error(
-                                    f"Valid 'log_start_time' value is required to parse 'srpm.log'"
-                                    f" type file {log_file}. Log file parsing aborted."
-                                )
-                                return ()
-                            line_cnt += 1
-                            dt = srpm_pattern.findall(line)
-                            msg = srpm_pattern.split(line)[-1].strip()
-                            if dt:
-                                dt = dt[0]
-                                last_dt = dt
-                                first_line = False
-                                # FIXME: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
-                                ts_str = f"{str(log_start_time.year)} " + " ".join(
-                                    [x for x in dt[4:].split(" ") if len(x) > 0]
-                                )
-                                ts = datetime.datetime.strptime(ts_str, "%Y %b %d %H:%M:%S")
-                                yield (
-                                    line_cnt,
-                                    ts,
-                                    msg,
-                                )
-                            else:
-                                if first_line:
-                                    self.logger.debug(
-                                        f"File '{log_file}' first line doesn't contain valid datetime."
-                                        f" Using 'log_start_time' as timestamp."
-                                    )
-                                    ts = log_start_time
-                                else:
-                                    ts_str = f"{str(log_start_time.year)} " + " ".join(
-                                        [x for x in last_dt[4:].split(" ") if len(x) > 0]  # type: ignore
-                                    )
-                                    ts = datetime.datetime.strptime(
-                                        ts_str, "%Y %b %d %H:%M:%S"
-                                    )
-                                yield (
-                                    line_cnt,
-                                    ts,
-                                    msg,
-                                )
-                        elif log_type == "build":
-                            line_cnt += 1
-                            ts = build_pattern.findall(line)
-                            msg = build_pattern.split(line)[-1].strip()
-                            if ts:
-                                ts = ts[0][1:-1].split(":")
-                                ts = log_start_time + datetime.timedelta(
-                                    hours=int(ts[0]), minutes=int(ts[1]), seconds=int(ts[2])
-                                )
-                            else:
-                                ts = log_start_time
-                            yield (
-                                line_cnt,
-                                ts,
-                                msg,
-                            )
-                        else:
-                            self.logger.error(
-                                f"Unknown log format specifier '{log_type}'.  Log file parsing aborted."
-                            )
-                            return tuple()
+
+        if log_type == "srpm" and not isinstance(log_start_time, datetime.datetime):
+            self.logger.error(
+                f"Valid 'log_start_time' value is required to parse 'srpm.log'"
+                f" type file {log_file}. Log file parsing aborted."
+            )
+            return tuple()
+
+        first_line = True
+        line_cnt = 0
+
+        # srpm build log parser
+        def srpm_log(line: str) -> tuple:
+            nonlocal line_cnt
+            nonlocal first_line
+
+            line_cnt += 1
+            dt = srpm_pattern.findall(line)
+            msg = srpm_pattern.split(line)[-1].strip()
+
+            if dt:
+                dt = dt[0]
+                srpm_log.last_dt = dt
+                first_line = False
+                # XXX: workaround for 'Feb 29' (https://bugs.python.org/issue26460)
+                ts_str = f"{str(log_start_time.year)} " + " ".join(
+                    [x for x in dt[4:].split(" ") if len(x) > 0]
+                )
+                ts = datetime.datetime.strptime(ts_str, "%Y %b %d %H:%M:%S")
+            else:
+                if first_line:
+                    self.logger.debug(
+                        f"File '{log_file}' first line doesn't contain valid datetime."
+                        f" Using 'log_start_time' as timestamp."
+                    )
+                    ts = log_start_time
+                else:
+                    ts_str = f"{str(log_start_time.year)} " + " ".join(
+                        [x for x in srpm_log.last_dt[4:].split(" ") if len(x) > 0]  # type: ignore
+                    )
+                    ts = datetime.datetime.strptime(ts_str, "%Y %b %d %H:%M:%S")
+
+            return LogLine(line_cnt, ts, msg)
+
+        # static-like function variable
+        srpm_log.last_dt = None
+
+        # build log parser
+        def build_log(line: str) -> tuple:
+            nonlocal line_cnt
+            nonlocal first_line
+
+            line_cnt += 1
+            ts = build_pattern.findall(line)
+            msg = build_pattern.split(line)[-1].strip()
+            if ts:
+                ts = ts[0][1:-1].split(":")
+                ts = log_start_time + datetime.timedelta(
+                    hours=int(ts[0]), minutes=int(ts[1]), seconds=int(ts[2])
+                )
+            else:
+                ts = log_start_time
+
+            return LogLine(line=line_cnt, ts=ts, message=msg)
+
+        # events log parser
+        def events_log(line: str) -> tuple:
+            nonlocal line_cnt
+            nonlocal first_line
+
+            line_cnt += 1
+            dt = events_pattern.findall(line)
+            msg = events_pattern.split(line)[-1].split(" :: ")[-1].strip()
+
+            if first_line:
+                if not dt:
+                    self.logger.error(
+                        f"File '{log_file}' first line doesn't contain"
+                        f" valid datetime. Log file parsing aborted."
+                    )
+                    return tuple()
+                dt = dt[0]
+                events_log.last_dt = dt
+                first_line = False
+                ts = datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S")
+            else:
+                if dt:
+                    dt = dt[0]
+                    events_log.last_dt = dt
+                    ts = datetime.datetime.strptime(dt, "%Y-%b-%d %H:%M:%S")
+                else:
+                    ts = datetime.datetime.strptime(
+                        events_log.last_dt, "%Y-%b-%d %H:%M:%S"
+                    )
+
+            return LogLine(line=line_cnt, ts=ts, message=msg)
+
+        # static-like function variable
+        events_log.last_dt = None
+
+        type_to_parser = {"srpm": srpm_log, "build": build_log, "events": events_log}
+
+        parser = type_to_parser.get(log_type, None)
+        if parser is None:
+            self.logger.error(
+                f"Unknown log format specifier '{log_type}'."
+                " Log file parsing aborted."
+            )
+            return tuple()
+
+        with Path(log_file).open("r", encoding="utf-8", errors="backslashreplace") as f:
+            for line in f:
+                if len(line) > 0:  # skip an empty lines
+                    p = parser(line)
+                    if not p:
+                        return p
+                    else:
+                        yield p
 
 
 class LogLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        taskfs: TaskFromFilesystem,
+        taskfs: TaskFromFileSystem,
         taskfp: TaskFilesParser,
         logger: LoggerProtocol,
         logs: Iterator[TaskLog],
@@ -517,7 +529,8 @@ class LogLoaderWorker(RaisingTread):
                         ),
                     )
                     self.logger.debug(
-                        f"Logfile loaded in {(time.time() - st):.3f} seconds : {log.path} : {log_file_size} bytes"
+                        f"Logfile loaded in {(time.time() - st):.3f} seconds "
+                        f": {log.path} : {log_file_size} bytes"
                     )
                 else:
                     self.logger.debug(f"Logfile parsing failed for {log.path}")
@@ -533,7 +546,7 @@ class LogLoaderWorker(RaisingTread):
 
 def log_load_worker_pool(
     conf: TaskProcessorConfig,
-    taskfs: TaskFromFilesystem,
+    taskfs: TaskFromFileSystem,
     logger: LoggerProtocol,
     logs_list: list[TaskLog],
     num_of_workers=0,
@@ -557,7 +570,7 @@ def log_load_worker_pool(
             taskfs=taskfs,
             taskfp=taskfp,
             logs=logs,
-            count_list=logs_count
+            count_list=logs_count,
         )
         worker.start()
         workers.append(worker)
@@ -582,7 +595,7 @@ class TaskIterationLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        taskfs: TaskFromFilesystem,
+        taskfs: TaskFromFileSystem,
         logger: LoggerProtocol,
         pkg_hashes_cache: set[int],
         task_pkg_hashes: dict[str, PkgHash],
@@ -658,11 +671,13 @@ class TaskIterationLoaderWorker(RaisingTread):
             self.cache.add(hashes["mmh"])
             self.count += 1
             self.logger.debug(
-                f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+                f"package loaded in {(time.time() - st):.3f} seconds :"
+                f" {hashes['sha1'].hex()} : {kw['pkg_filename']}"
             )
         else:
             self.logger.debug(
-                f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+                f"package already loaded : {hashes['sha1'].hex()} :"
+                f" {kw['pkg_filename']}"
             )
 
         return hashes["mmh"]
@@ -710,9 +725,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 # 2 - save build log hashes
                 titer["titer_buildlog_hash"] = 0
                 titer["titer_srpmlog_hash"] = 0
-                for log in [
-                    x for x in self.task_logs if x.type in ("srpm", "build")
-                ]:
+                for log in [x for x in self.task_logs if x.type in ("srpm", "build")]:
                     log_subtask, log_arch = log.path.split("/")[1:3]
                     if log_subtask == subtask and log_arch == arch:
                         if log.type == "srpm":
@@ -748,7 +761,10 @@ class TaskIterationLoaderWorker(RaisingTread):
             except Exception as error:
                 self.logger.error(str(error), exc_info=True)
                 self.exc = error
-                self.exc_message = f"Exception in thread {self.name} for task iteration {titer['task_id']} {titer['subtask_id']}"
+                self.exc_message = (
+                    f"Exception in thread {self.name} for task iteration "
+                    f"{titer['task_id']} {titer['subtask_id']}"
+                )
                 self.exc_traceback = traceback.format_exc()
                 break
             self.logger.info(
@@ -763,7 +779,7 @@ class TaskIterationLoaderWorker(RaisingTread):
 def titer_load_worker_pool(
     conf: TaskProcessorConfig,
     conn: DatabaseClient,
-    taskfs: TaskFromFilesystem,
+    taskfs: TaskFromFileSystem,
     logger: LoggerProtocol,
     task: Task,
     num_of_workers=0,
@@ -773,7 +789,7 @@ def titer_load_worker_pool(
     workers: list[TaskIterationLoaderWorker] = []
     connections: list[DatabaseClient] = []
     titer_count: list[int] = []
-    titers: Iterator[TaskIteration] = LockedIterator((titer for titer in task.iterations))  # type: ignore
+    titers: Iterator[TaskIteration] = LockedIterator((t for t in task.iterations))  # type: ignore
     src_load_lock = threading.Lock()
 
     if not num_of_workers:
@@ -828,7 +844,7 @@ class PackageLoaderWorker(RaisingTread):
     def __init__(
         self,
         conn: DatabaseClient,
-        taskfs: TaskFromFilesystem,
+        taskfs: TaskFromFileSystem,
         logger: LoggerProtocol,
         pkg_hashes_cache: set[int],
         task_pkg_hashes: dict[str, PkgHash],
@@ -893,11 +909,13 @@ class PackageLoaderWorker(RaisingTread):
             self.cache.add(hashes["mmh"])
             self.count += 1
             self.logger.debug(
-                f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+                f"package loaded in {(time.time() - st):.3f} seconds :"
+                f" {hashes['sha1'].hex()} : {kw['pkg_filename']}"
             )
         else:
             self.logger.debug(
-                f"package already loaded : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+                f"package already loaded : {hashes['sha1'].hex()} : "
+                f"{kw['pkg_filename']}"
             )
 
         return hashes["mmh"]
@@ -920,7 +938,7 @@ class PackageLoaderWorker(RaisingTread):
 def package_load_worker_pool(
     conf: TaskProcessorConfig,
     conn: DatabaseClient,
-    taskfs: TaskFromFilesystem,
+    taskfs: TaskFromFileSystem,
     logger: LoggerProtocol,
     task: Task,
     num_of_workers: int = 0,
@@ -969,7 +987,8 @@ def package_load_worker_pool(
             c.disconnect()
     if sum(pkg_count):
         logger.info(
-            f"{sum(pkg_count)} packages loaded in {(time.time() - st):.3f} seconds from {loaded_from}"
+            f"{sum(pkg_count)} packages loaded in {(time.time() - st):.3f}"
+            f" seconds from {loaded_from}"
         )
 
 
@@ -979,7 +998,7 @@ class TaskLoadHandler:
     def __init__(
         self,
         conn: DatabaseClient,
-        taskfs: TaskFromFilesystem,
+        taskfs: TaskFromFileSystem,
         logger: LoggerProtocol,
         task: Task,
         conf: TaskProcessorConfig,
@@ -1010,11 +1029,9 @@ class TaskLoadHandler:
             "task_message": self.task.state.message,
             "task_version": self.task.state.version,
             "task_prev": self.task.state.prev,
-            "task_eventlog_hash": eventlog_hash
+            "task_eventlog_hash": eventlog_hash,
         }
-        self.conn.execute(
-            "INSERT INTO TaskStates_buffer (*) VALUES", [state]
-        )
+        self.conn.execute("INSERT INTO TaskStates_buffer (*) VALUES", [state])
         # 2 - proceed with TaskApprovals
         # 2.1 - collect task approvals from DB
         Approval = namedtuple(
@@ -1046,7 +1063,7 @@ class TaskLoadHandler:
                 "tapp_revoked": x.revoked,
                 "tapp_date": x.date,
                 "tapp_name": x.name,
-                "tapp_message": x.message
+                "tapp_message": x.message,
             }
             for x in self.task.approvals
         ]
@@ -1103,7 +1120,7 @@ class TaskLoadHandler:
                     "subtask_tag_name": sub.tag_name,
                     "subtask_srpm": sub.srpm,
                     "subtask_srpm_name": sub.srpm_name,
-                    "subtask_srpm_evr": sub.srpm_evr
+                    "subtask_srpm_evr": sub.srpm_evr,
                 }
             )
         if subtasks:
@@ -1272,7 +1289,7 @@ INSERT INTO Depends SELECT * FROM
 
 class TaskParser:
     def __init__(self, task_path: _StringOrPath, logger: LoggerProtocol) -> None:
-        self.tf = TaskFromFilesystem(path=task_path, logger=logger)
+        self.tf = TaskFromFileSystem(path=task_path, logger=logger)
         self.tfp = TaskFilesParser(logger=logger)
         self.logger = logger
         self.task = Task(
@@ -1292,9 +1309,7 @@ class TaskParser:
         # get task ID
         self.task.id = self.tf.get_int("task/id")
         if self.task.id == 0:
-            raise TaskLoaderParserError(
-                f"Failed to get task ID. Aborting"
-            )
+            raise TaskLoaderParserError(f"Failed to get task ID. Aborting")
         self.task.state.task_id = self.task.id
         # get task state
         if self.tf.check_file("task/state"):
@@ -1320,12 +1335,8 @@ class TaskParser:
             [int(x) for x in t.split("\n") if len(x) > 0] if t else []
         )
 
-        self.task.state.testonly = (
-            1 if self.tf.check_file("task/test-only") else 0
-        )
-        self.task.state.failearly = (
-            1 if self.tf.check_file("task/fail-early") else 0
-        )
+        self.task.state.testonly = 1 if self.tf.check_file("task/test-only") else 0
+        self.task.state.failearly = 1 if self.tf.check_file("task/fail-early") else 0
 
         self.task.state.shared = (
             1 if val_from_json_str(self.tf.get("info.json"), "shared") else 0
@@ -1354,15 +1365,13 @@ class TaskParser:
             pkgadd = {}
             if self.tf.check_file("plan/add-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
-                    self.tf.get_file_path("plan/add-src"),
-                    is_add=True, is_src=True
+                    self.tf.get_file_path("plan/add-src"), is_add=True, is_src=True
                 )
                 for pkg in pkg_add:
                     pkgadd[pkg.file] = pkg
             if self.tf.check_file("plan/add-bin"):
                 pkg_add = self.tfp.parse_add_rm_plan(
-                    self.tf.get_file_path("plan/add-bin"),
-                    is_add=True, is_src=False
+                    self.tf.get_file_path("plan/add-bin"), is_add=True, is_src=False
                 )
                 for pkg in pkg_add:
                     pkgadd[pkg.file] = pkg
@@ -1370,26 +1379,30 @@ class TaskParser:
             pkgdel = {}
             if self.tf.check_file("plan/rm-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
-                    self.tf.get_file_path("plan/rm-src"),
-                    is_add=False, is_src=True
+                    self.tf.get_file_path("plan/rm-src"), is_add=False, is_src=True
                 )
                 for pkg in pkg_add:
                     pkgdel[pkg.file] = pkg
             if self.tf.check_file("plan/rm-bin"):
                 pkg_add = self.tfp.parse_add_rm_plan(
-                    self.tf.get_file_path("plan/rm-bin"),
-                    is_add=False, is_src=False
+                    self.tf.get_file_path("plan/rm-bin"), is_add=False, is_src=False
                 )
                 for pkg in pkg_add:
                     pkgdel[pkg.file] = pkg
 
             # 2 - get packages list diffs
             empty_pkg_ = TaskPlanAddRmPkgInfo("", "", "", "", "", 0, "")
-            for pkgdiff in (x for x in self.tf.get_file_path("plan").glob("*.list.diff")):
+            for pkgdiff in (
+                x for x in self.tf.get_file_path("plan").glob("*.list.diff")
+            ):
                 if pkgdiff.name == "src.list.diff":
-                    p_add, p_del = self.tfp.parse_pkglist_diff(pkgdiff, is_src_list=True)
+                    p_add, p_del = self.tfp.parse_pkglist_diff(
+                        pkgdiff, is_src_list=True
+                    )
                 else:
-                    p_add, p_del = self.tfp.parse_pkglist_diff(pkgdiff, is_src_list=False)
+                    p_add, p_del = self.tfp.parse_pkglist_diff(
+                        pkgdiff, is_src_list=False
+                    )
 
                 for p in p_add:
                     pp = pkgadd.get(p.file, empty_pkg_)
@@ -1402,7 +1415,7 @@ class TaskParser:
                             arch=p.arch,
                             comp=pp.comp,
                             path=pp.path,
-                            subtask_id=pp.subtask_id
+                            subtask_id=pp.subtask_id,
                         )
                     }
                     if p.arch not in self.task.plan.pkg_add:
@@ -1420,7 +1433,7 @@ class TaskParser:
                             arch=p.arch,
                             comp=pp.comp,
                             path=pp.path,
-                            subtask_id=pp.subtask_id
+                            subtask_id=pp.subtask_id,
                         )
                     }
                     if p.arch not in self.task.plan.pkg_del:
@@ -1428,7 +1441,9 @@ class TaskParser:
                     self.task.plan.pkg_del[p.arch].update(p_info)
 
             # 3 - get SHA256 hashes from '/plan/*.hash.diff'
-            for hashdiff in (x for x in self.tf.get_file_path("plan").glob("*.hash.diff")):
+            for hashdiff in (
+                x for x in self.tf.get_file_path("plan").glob("*.hash.diff")
+            ):
                 h_add, h_del = self.tfp.parse_hash_diff(hashdiff)
                 h_arch = hashdiff.name.split(".")[0]
                 self.task.plan.hash_add[h_arch] = h_add
@@ -1438,9 +1453,8 @@ class TaskParser:
 
         # 2 - get MD5 and blake2b hashes from '/build/repo/%arch%/base/pkglist.task.xz'
         for pkglist in (
-            x for x in self.tf.get_file_path("build/repo").glob(
-                "*/base/pkglist.task.xz"
-            )
+            x
+            for x in self.tf.get_file_path("build/repo").glob("*/base/pkglist.task.xz")
         ):
             hdrs = readHeaderListFromXZFile(pkglist)
             for hdr in hdrs:
@@ -1500,11 +1514,7 @@ class TaskParser:
             if x.is_dir()
         ):
             subtask_dir = "/".join(("acl/approved", subtask))
-            for approver in (
-                x.name
-                for x in self.tf.get(subtask_dir)
-                if x.is_file()
-            ):
+            for approver in (x.name for x in self.tf.get(subtask_dir) if x.is_file()):
                 t = self.tfp.parse_approval_file(
                     self.tf.get_file_path("/".join((subtask_dir, approver)))
                 )
@@ -1517,7 +1527,7 @@ class TaskParser:
                             name=t[0],
                             date=t[1],
                             message=t[2],
-                            revoked=None
+                            revoked=None,
                         )
                     )
         # 2 - iterate through 'acl/dsiapproved'
@@ -1527,11 +1537,7 @@ class TaskParser:
             if x.is_dir()
         ):
             subtask_dir = "/".join(("acl/disapproved", subtask))
-            for approver in (
-                x.name
-                for x in self.tf.get(subtask_dir)
-                if x.is_file()
-            ):
+            for approver in (x.name for x in self.tf.get(subtask_dir) if x.is_file()):
                 t = self.tfp.parse_approval_file(
                     self.tf.get_file_path("/".join((subtask_dir, approver)))
                 )
@@ -1544,16 +1550,14 @@ class TaskParser:
                             name=t[0],
                             date=t[1],
                             message=t[2],
-                            revoked=None
+                            revoked=None,
                         )
                     )
 
     def _parse_subtasks(self) -> None:
         # parse '/gears' for 'Tasks'
         for subtask in (
-            x.name
-            for x in self.tf.get_file_path("gears").glob("[0-7]*")
-            if x.is_dir()
+            x.name for x in self.tf.get_file_path("gears").glob("[0-7]*") if x.is_dir()
         ):
             subtask_dir = "/".join(("gears", subtask))
             files = set((x.name for x in self.tf.get(subtask_dir)))
@@ -1602,9 +1606,7 @@ class TaskParser:
 
                 if self.tf.check_file("/".join((subtask_dir, "rebuild"))):
                     sub.type = "rebuild"
-                    sub.pkg_from = self.tf.get_text(
-                        "/".join((subtask_dir, "rebuild"))
-                    )
+                    sub.pkg_from = self.tf.get_text("/".join((subtask_dir, "rebuild")))
                 # changed in girar @ e74d8067009d
                 if self.tf.check_file("/".join((subtask_dir, "rebuild_from"))):
                     sub.type = "rebuild"
@@ -1658,7 +1660,7 @@ class TaskParser:
                     task_id=self.task.state.task_id,
                     task_changed=self.task.state.changed,
                     subtask_id=int(subtask),
-                    subtask_arch=arch
+                    subtask_arch=arch,
                 )
 
                 if self.tf.check_file("/".join((arch_dir, "status"))):
@@ -1712,7 +1714,9 @@ class TaskParser:
                 self.task.iterations.append(ti)
                 # save build logs
                 for log_file in ("log", "srpm.log"):
-                    if self.tf.file_exists_and_not_empty("/".join((arch_dir, log_file))):
+                    if self.tf.file_exists_and_not_empty(
+                        "/".join((arch_dir, log_file))
+                    ):
                         log_hash = (
                             ""
                             + str(ti.task_id)
@@ -1769,8 +1773,7 @@ class TaskParser:
     def _parse_event_logs(self) -> None:
         # parse '/logs' for event logs
         for log_file in (
-            x.name
-            for x in self.tf.get_file_path("logs").glob("events.*.log")
+            x.name for x in self.tf.get_file_path("logs").glob("events.*.log")
         ):
             log_hash = (
                 "events"
@@ -1783,7 +1786,7 @@ class TaskParser:
                     type="events",
                     path="/".join(("logs", log_file)),
                     hash=mmhash(log_hash),
-                    hash_string=log_hash
+                    hash_string=log_hash,
                 )
             )
 
