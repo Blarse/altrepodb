@@ -72,6 +72,26 @@ class ISOProcessingExecutableNotFoundError(ISOProcessingError):
         super().__init__(f"Executables [{self.executable}] not found in system path")
 
 
+class ISOProcessingBranchMismatchError(ISOProcessingError):
+    """Rises when provided branch mismatch with branch from RPM packages."""
+
+    def __init__(self, cfg_branch: str, pkg_branch: str):
+        self.cfg_branch = cfg_branch
+        self.pkg_branch = pkg_branch
+        super().__init__(
+            f"Branch '{self.cfg_branch}' from config not match with "
+            f"branch '{self.pkg_branch}' from ISO image packages"
+        )
+
+
+class ISOProcessingPackageNotInDBError(ISOProcessingError):
+    """Rises when RPM package not found in database."""
+
+    def __init__(self, missing: list):
+        self.missing = missing
+        super().__init__(f"{len(self.missing)} packages not found in database")
+
+
 class ISOImageInvalidError(ISOProcessingError):
     """Rises when provided path is not an valid ISO image."""
 

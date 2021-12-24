@@ -91,34 +91,34 @@ class GeneratorWrapper:
 # Dataclasses
 @dataclass(frozen=True)
 class Package:
-    hash: int
-    name: str
-    arch: str
-    iname: Path
-    epoch: int
-    version: str
-    release: str
-    disttag: str
-    is_srpm: bool
-    buildtime: int
+    hash: int = 0
+    name: str = ""
+    arch: str = ""
+    iname: Path = Path()
+    epoch: int = 0
+    version: str = ""
+    release: str = ""
+    disttag: str = ""
+    is_srpm: bool = False
+    buildtime: int = 0
 
 
 @dataclass(frozen=True)
 class File:
-    md5: bytes
-    name: str
-    size: int
-    linkto: str
-    flag: int
-    lang: str
-    mode: int
-    rdev: int
-    mtime: int
-    class_: str
-    device: int
-    username: str
-    groupname: str
-    verifyflag: int
+    md5: bytes = b""
+    name: str = ""
+    size: int = 0
+    linkto: str = ""
+    flag: int = 0
+    lang: str = ""
+    mode: int = 0
+    rdev: int = 0
+    mtime: int = 0
+    class_: str = ""
+    device: int = 0
+    username: str = ""
+    groupname: str = ""
+    verifyflag: int = 0
 
 
 @dataclass
@@ -158,17 +158,8 @@ class RepoProcessorConfig:
 
 
 @dataclass
-class ISOProcessorConfig:
-    name: str
-    path: _StringOrPath
-    logger: _LoggerOptional
-    debug: bool = False
-    force: bool = False
-
-
-@dataclass
 class PkgHash:
-    sf: Optional[bytes] = None
+    sf: Optional[int] = None
     md5: Optional[bytes] = None
     sha1: Optional[bytes] = None
     sha256: Optional[bytes] = None
@@ -275,3 +266,16 @@ class Task:
     arepo: list[str]
     plan: TaskPlan
     pkg_hashes: DefaultDict[str, PkgHash]
+
+
+@dataclass
+class ISOProcessorConfig:
+    name: str
+    date: datetime
+    path: _StringOrPath
+    branch: str
+    logger: _LoggerOptional
+    dbconfig: DatabaseConfig
+    debug: bool = False
+    force: bool = False
+    dryrun: bool = False
