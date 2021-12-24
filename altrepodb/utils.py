@@ -180,8 +180,8 @@ def get_logger(
     file_handler.setLevel(logging.DEBUG)
 
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter("%(asctime)s\t%(message)s"))
-    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(logging.Formatter("%(asctime)s\t%(threadName)s\t%(message)s"))
+    stream_handler.setLevel(logging.DEBUG)
 
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
