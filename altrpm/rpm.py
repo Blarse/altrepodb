@@ -337,6 +337,7 @@ def parse_xz_headers_list(filename):
         w.close()
         hdrs_file = io.BytesIO(r.read())
         r.close()
+        os.waitpid(pid, 0)
 
         hdrs = []
         while True:
