@@ -1876,12 +1876,12 @@ class TaskProcessor:
             task_loader.update_depends()
         except RaisingThreadError as exc:
             self.logger.error(
-                f"An error ocured while loding task {self.config.id} to DB"
+                f"An error ocured while loading task {self.config.id} to DB"
             )
             raise TaskLoaderProcessingError(self.config.id, exc) from exc
         except Exception as exc:
             self.logger.error(
-                f"An error ocured while loding task {self.config.id} to DB",
+                f"An error ocured while loading task {self.config.id} to DB",
                 exc_info=True,
             )
             raise exc

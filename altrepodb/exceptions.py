@@ -154,7 +154,7 @@ class ImageMounterRunCommandError(ISOProcessingError):
     pass
 
 
-# Task loding xceptions
+# Task loading exceptions
 class TaskLoaderError(Exception):
     pass
 
@@ -170,7 +170,7 @@ class TaskLoaderProcessingError(TaskLoaderError):
         self.id = id
         self.exc = exc
         super().__init__(
-            f"An error occured while loadint task {id} to database. Error: {exc}"
+            f"An error occured while loading task {id} to database. Error: {exc}"
         )
 
 class TaskLoaderParserError(TaskLoaderError):

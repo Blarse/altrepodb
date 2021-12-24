@@ -36,7 +36,7 @@ def get_args():
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
-    parser.add_argument("-p", "--port", type=str, help="Database password")
+    parser.add_argument("-p", "--port", type=str, help="Database port")
     parser.add_argument("-u", "--user", type=str, help="Database login")
     parser.add_argument("-P", "--password", type=str, help="Database password")
     parser.add_argument(
