@@ -156,6 +156,19 @@ class RepoProcessorConfig:
     verbose: bool = False
     workers: int = 8
 
+@dataclass
+class AMQPConfig:
+    host: str = "localhost"
+    port: int = 5672
+    vhost: str = "/"
+    queue: str = "default"
+    exchange: str = "amq.topic"
+    username: str =  "guest"
+    password: str = "guest"
+    cacert: str =  ""
+    key: str = ""
+    cert: str = ""
+
 
 @dataclass
 class PkgHash:
