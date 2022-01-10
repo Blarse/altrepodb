@@ -277,8 +277,8 @@ def load(args: Any, logger: LoggerProtocol):
 
 def get_args():
     parser = argparse.ArgumentParser(
-        prog="extract",
-        description="Load repository structure from file system or ISO image to database",
+        prog="repo_loader",
+        description="Load repository structure from file system to database",
     )
     parser.add_argument("pkgset", type=str, help="Repository name")
     parser.add_argument("path", type=str, help="Path to packages")
