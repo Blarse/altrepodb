@@ -92,6 +92,13 @@ class ISOProcessingPackageNotInDBError(ISOProcessingError):
         super().__init__(f"{len(self.missing)} packages not found in database")
 
 
+class ISOProcessingGuessBranchError(ISOProcessingError):
+    """Rises when failed to guess branch by set of packages."""
+
+    def __init__(self):
+        super().__init__(f"Failed to guess branch by packages.")
+
+
 class ISOImageInvalidError(ISOProcessingError):
     """Rises when provided path is not an valid ISO image."""
 
