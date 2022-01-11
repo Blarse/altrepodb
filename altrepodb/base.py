@@ -279,3 +279,17 @@ class ISOProcessorConfig:
     debug: bool = False
     force: bool = False
     dryrun: bool = False
+
+
+@dataclass
+class PackageSet:
+    name: str
+    date: datetime
+    uuid: str
+    puuid: str
+    ruuid: str
+    depth: int
+    complete: int
+    tag: str = ""
+    kw_args: dict[str, str] = field(default_factory=dict)
+    package_hashes: list[int] = field(default_factory=list)
