@@ -155,7 +155,7 @@ def load(args: Any, logger: LoggerProtocol):
         tag=args.tag,
         date=args.date,
         complete=1,
-        kv_args=tmp_d,
+        kw_args=tmp_d,
     )
 
     # level 2: architectures
@@ -175,7 +175,7 @@ def load(args: Any, logger: LoggerProtocol):
             tag=args.tag,
             date=args.date,
             complete=1,
-            kv_args=tmp_d,
+            kw_args=tmp_d,
         )
     # level 3: components
     for comp in repo["comp"]["comps"]:
@@ -240,7 +240,7 @@ def load(args: Any, logger: LoggerProtocol):
             tag=args.tag,
             date=args.date,
             complete=1,
-            kv_args=tmp_d,
+            kw_args=tmp_d,
         )
     # level 0 : repository
     tmp_d = {
@@ -264,7 +264,7 @@ def load(args: Any, logger: LoggerProtocol):
         tag=args.tag,
         date=args.date,
         complete=1,
-        kv_args=tmp_d,
+        kw_args=tmp_d,
     )
 
     for c in connections:
