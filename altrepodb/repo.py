@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import rpm
@@ -23,7 +23,7 @@ import multiprocessing
 from uuid import uuid4
 from pathlib import Path
 from collections import defaultdict
-from typing import Any, Iterable, Union
+from typing import Any, Iterable, Optional, Union
 
 import altrepodb.mapper as mapper
 from altrpm import rpm as rpmt, extractSpecFromRPM, readHeaderListFromXZFile
@@ -43,6 +43,7 @@ from altrepodb.database import DatabaseClient
 from altrepodb.misc import lut
 
 NAME = "repo"
+
 
 class PackageHandler:
     """Handle package header parsing and insertion to DB."""
@@ -224,7 +225,16 @@ class PackageSetHandler:
 
     @Timing.timeit(NAME)
     def insert_pkgset_name(
-        self, name, uuid, puuid, ruuid, depth, tag, date, complete, kv_args
+        self,
+        name: str,
+        uuid: str,
+        puuid: str,
+        ruuid: str,
+        depth: int,
+        tag: str,
+        date: Optional[datetime.datetime],
+        complete: int,
+        kw_args: dict[str, str],
     ):
         if date is None:
             date = datetime.datetime.now().replace(
@@ -240,14 +250,14 @@ class PackageSetHandler:
             "pkgset_date": date,
             "pkgset_tag": tag,
             "pkgset_complete": complete,
-            "pkgset_kv.k": [k for k, v in kv_args.items() if v is not None],
-            "pkgset_kv.v": [v for k, v in kv_args.items() if v is not None],
+            "pkgset_kv.k": [k for k, v in kw_args.items() if v is not None],
+            "pkgset_kv.v": [v for k, v in kw_args.items() if v is not None],
         }
         self.conn.execute(sql, [data])
         self.logger.debug("insert package set name uuid: {0}".format(uuid))
 
     @Timing.timeit(NAME)
-    def insert_pkgset(self, uuid, pkghash):
+    def insert_pkgset(self, uuid: str, pkghash: Union[list[int], set[int]]) -> None:
         self.conn.execute(
             "INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES",
             [dict(pkgset_uuid=uuid, pkg_hash=p) for p in pkghash],
@@ -411,14 +421,11 @@ def worker_pool(
         port=args.port,
         name=args.dbname,
         user=args.user,
-        password=args.password
+        password=args.password,
     )
 
     for i in range(args.workers):
-        conn = DatabaseClient(
-            config=db_config,
-            logger=logger
-        )
+        conn = DatabaseClient(config=db_config, logger=logger)
         connections.append(conn)
         worker = Worker(
             conn,
@@ -526,7 +533,9 @@ ON t1.md5 = t2.md5""",
             f"'PackagaeHash_buffer' table, {cnt2} packages not loaded yet."
         )
 
-    def check_repo_date_name_in_db(self, pkgset_name: str, pkgset_date: datetime.date) -> bool:
+    def check_repo_date_name_in_db(
+        self, pkgset_name: str, pkgset_date: datetime.date
+    ) -> bool:
         result = self.conn.execute(
             f"SELECT COUNT(*) FROM PackageSetName WHERE "
             f"pkgset_nodename='{pkgset_name}' AND pkgset_date='{pkgset_date}'"
