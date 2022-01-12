@@ -28,9 +28,8 @@ from dateutil import tz
 from pathlib import Path
 from functools import wraps
 from logging import handlers
-from collections import namedtuple
 from hashlib import sha1, sha256, md5, blake2b
-from typing import Any, Iterable, Union, Hashable, Generator
+from typing import Any, Iterable, Union, Hashable, Optional
 
 from altrpm import rpm
 from .logger import LoggerProtocol, FakeLogger, _LoggerOptional
@@ -127,6 +126,27 @@ def valid_date(s: str) -> datetime.datetime:
         return datetime.datetime.strptime(s, "%Y-%m-%d")
     except ValueError:
         msg = "Not a valid date: '{0}'.".format(s)
+        raise argparse.ArgumentTypeError(msg)
+
+
+def valid_version(version: str) -> tuple[int, int, int]:
+    """Split version string to tuple (major, minor, sub)."""
+
+    try:
+        major_ = minor_ = sub_ = 0
+        s = version.strip().split(".")
+        major_ = int(s[0])
+
+        if len(s) == 2:
+            minor_ = int(s[1])
+        if len(s) == 3:
+            sub_ = int(s[2])
+        if len(s) > 3:
+            raise ValueError
+
+        return major_, minor_, sub_
+    except ValueError:
+        msg = "Failed to parse version: '{0}'.".format(version)
         raise argparse.ArgumentTypeError(msg)
 
 
@@ -477,7 +497,10 @@ def unxz(fname: _FileName, mode_binary: bool = False) -> Union[bytes, str]:
 
 
 def run_command(
-    *args, raise_on_error: bool = False, logger: _LoggerOptional = None
+    *args,
+    raise_on_error: bool = False,
+    logger: _LoggerOptional = None,
+    timeout: Optional[float] = None,
 ) -> tuple[str, str, str, int]:
     """Run command from args. Raises exception if rsubprocess returns non zero code."""
 
@@ -487,13 +510,22 @@ def run_command(
     logger.debug(f"Run command: {cmdline}")
     try:
         sub = subprocess.run(
-            [*args], capture_output=True, text=True, check=raise_on_error
+            [*args],
+            capture_output=True,
+            text=True,
+            check=raise_on_error,
+            timeout=timeout,
         )
     except subprocess.CalledProcessError as e:
         logger.error(f"subprocess commandline: {e.cmd} returned {e.returncode}")
         logger.error(f"subprocess stdout: {e.stdout}")
         logger.error(f"subprocess stderr: {e.stderr}")
-        raise RunCommandError("Subrocess returned non zero code.") from e
+        raise RunCommandError("Subprocess returned non zero code") from e
+    except subprocess.TimeoutExpired as e:
+        logger.error(
+            f"subprocess commandline: {e.cmd}, {timeout} seconds timeout expired"
+        )
+        raise RunCommandError("Subprocess has timed out") from e
     return cmdline, sub.stdout, sub.stderr, sub.returncode
 
 
