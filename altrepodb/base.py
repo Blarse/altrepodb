@@ -270,10 +270,7 @@ class Task:
 
 @dataclass
 class ISOProcessorConfig:
-    name: str
-    date: datetime
     path: _StringOrPath
-    branch: str
     logger: _LoggerOptional
     dbconfig: DatabaseConfig
     debug: bool = False
