@@ -1084,7 +1084,8 @@ class ISOProcessor:
         if not self.config.force:
             if self._check_iso_date_name_in_db(self.name, self.meta.date):
                 self.logger.info(f"ISO image '{self.name}' already exists in database")
-                return
+                if not self.config.dryrun:
+                    return
         # 0. mount and parse ISO image
         self.iso.run()
         # 1. check ISO packages in branch
@@ -1100,7 +1101,7 @@ class ISOProcessor:
                     f"Branch '{self.meta.branch}' from config not match "
                     f"with branch '{branch}' from ISO image packages"
                 )
-                if not self.config.dryrun:
+                if not self.config.dryrun or self.config.force:
                     raise ISOProcessingBranchMismatchError(
                         cfg_branch=self.meta.branch, pkg_branch=branch
                     )
@@ -1113,7 +1114,7 @@ class ISOProcessor:
                     + "\n".join([p.name for p in missing])
                 )
                 self.logger.debug(f"Packages not found in database:\n{[p for p in missing]}")
-                if not self.config.dryrun:
+                if not self.config.dryrun or self.config.force:
                     raise ISOProcessingPackageNotInDBError(missing=missing)
         # 2. check SquashFS packages consistency
         for sqfs in self.iso.sqfs:
@@ -1127,7 +1128,7 @@ class ISOProcessor:
                     f"Branch '{self.meta.branch}' from config not match with "
                     f"branch '{branch}' from '{sqfs.name}' SquashFS image packages"
                 )
-                if not self.config.dryrun:
+                if not self.config.dryrun or self.config.force:
                     raise ISOProcessingBranchMismatchError(
                         cfg_branch=self.meta.branch, pkg_branch=branch
                     )
@@ -1141,7 +1142,7 @@ class ISOProcessor:
                     f"{len(missing)} packages not found in database\n"
                     + "\n".join([p.name for p in missing])
                 )
-                if not self.config.dryrun:
+                if not self.config.dryrun or self.config.force:
                     raise ISOProcessingPackageNotInDBError(missing=missing)
         # 3. Proceed with SquashFS images without packages
         for sqfs in self.iso.sqfs:
