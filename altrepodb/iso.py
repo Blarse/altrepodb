@@ -97,26 +97,24 @@ class ImageMounter:
                 *args, raise_on_error=True, logger=self._log, timeout=10
             )
         except RunCommandError as e:
-            raise ImageMounterRunCommandError(
-                "Subprocess commandline returned non zero code"
-            ) from e
+            raise ImageMounterRunCommandError("Subprocess returned an error") from e
 
     def _unmount(self, path: str) -> None:
-        self._log.info(f"unmounting {path}...")
+        self._log.info(f"Unmounting {path}...")
         try:
             self._run_command("umount", path)
         except ImageMounterRunCommandError as e:
             raise ImageMounterUnmountError(self._image_path, self.path) from e
 
     def _mount_iso(self, iso_path: str, mount_path: str) -> None:
-        self._log.info(f"mounting ISO image {iso_path} to {mount_path}")
+        self._log.info(f"Mounting ISO image {iso_path} to {mount_path}")
         try:
             self._run_command("fuseiso", iso_path, mount_path)
         except ImageMounterRunCommandError as e:
             raise ImageMounterMountError(self._image_path, self.path) from e
 
     def _mount_sqfs(self, iso_path: str, mount_path: str) -> None:
-        self._log.info(f"mounting SquashFS image {iso_path} to {mount_path}")
+        self._log.info(f"Mounting SquashFS image {iso_path} to {mount_path}")
         try:
             self._run_command("squashfuse", iso_path, mount_path)
         except ImageMounterRunCommandError as e:
@@ -135,7 +133,7 @@ class ImageMounter:
                 self.ismount = True
             except Exception as e:
                 self._log.error(
-                    f"failed to mount {self.type} image {self._image_path} to {self.path}"
+                    f"Failed to mount {self.type} image {self._image_path} to {self.path}"
                 )
                 self._tmpdir.cleanup()
                 raise e
@@ -145,7 +143,7 @@ class ImageMounter:
             try:
                 self._unmount(self.path)
             except Exception as e:
-                self._log.error(f"failed to mount {self.type} image at {self.path}")
+                self._log.error(f"Failed to mount {self.type} image at {self.path}")
                 raise e
             finally:
                 self.ismount = False
@@ -235,9 +233,6 @@ class ISO:
             mount=ImageMounter("ISO", self.iso_path, "iso", self.logger),
             packages=[],
         )
-
-    def __del__(self):
-        self._close()
 
     def _close(self) -> None:
         self.logger.info(f"Closing {self._iso.name} ISO image")
@@ -374,7 +369,6 @@ class ISO:
             logger=self.logger,
         )
         if errcode == 0:
-            # self._iso.meta.isoinfo = out.split("\n")
             self._iso.meta.isoinfo = out
         self.logger.debug(f"ISO image meta information: {self._iso.meta}")
         # parse ISO image packages
@@ -500,6 +494,52 @@ WHERE pkg_sourcepackage = 0
     )
 GROUP BY pkgset_name
 ORDER BY cnt DESC
+"""
+
+    get_branch_date_by_packages = """
+WITH
+PkgsetRoots AS
+(
+    SELECT pkgset_uuid, pkgset_date
+    FROM PackageSetName
+    WHERE pkgset_depth = 0
+        AND pkgset_nodename = '{branch}'
+),
+PkgsetUUIDs AS
+(
+    SELECT pkgset_uuid, R.pkgset_date AS pdate, R.pkgset_uuid AS ruuid
+    FROM PackageSetName
+    LEFT JOIN
+    (
+        SELECT pkgset_date, pkgset_uuid FROM PkgsetRoots
+    ) AS R ON R.pkgset_uuid = PackageSetName.pkgset_ruuid
+    WHERE pkgset_depth = 2
+        AND pkgset_ruuid IN
+        (
+            SELECT pkgset_uuid FROM PkgsetRoots
+        )
+),
+(
+    SELECT argMax(uuid, (cnt, date))
+    FROM
+    (
+        SELECT
+            PU.ruuid AS uuid, PU.pdate AS date, countDistinct(pkg_hash) AS cnt
+        FROM PackageSet
+        INNER JOIN
+        (
+            SELECT pkgset_uuid, pdate, ruuid
+            FROM PkgsetUUIDs
+        ) AS PU USING pkgset_uuid
+        WHERE pkgset_uuid IN (select pkgset_uuid FROM PkgsetUUIDs)
+            AND pkg_hash IN (select pkg_hash FROM {tmp_table})
+        GROUP BY uuid, date
+        ORDER BY cnt DESC, date DESC
+    )
+) AS branch_ruuid
+SELECT pkgset_nodename, toString(pkgset_date)
+FROM PackageSetName
+WHERE pkgset_uuid = branch_ruuid
 """
 
     get_tmp_pkgs_by_files = """
@@ -673,8 +713,8 @@ class ISOProcessor:
             )
         )
 
-    def _find_base_repo(self, packages: list[Package]) -> str:
-        # find base branch by packages list with last_packages
+    def _find_base_repo(self, packages: list[Package]) -> tuple[str, str]:
+        # find base branch by packages list
         # 1. create temporary table
         tmp_table = "_tmpPkgs"
         res = self.conn.execute(
@@ -687,23 +727,33 @@ class ISOProcessor:
             self.sql.insert_into_tmp_table.format(tmp_table=tmp_table),
             ({"pkg_hash": p.hash} for p in packages),
         )
-        # 3. get most likely base branch
-        # FIXME: try to find branch from PackageSet and PackageSetName
+        # 3. get most likely base branch from last package sets
         res = self.conn.execute(
             self.sql.get_branch_by_packages.format(tmp_table=tmp_table)
         )
+        if res:
+            self.logger.info(
+                f"Most likely branch from latest package sets: {res[0][0]}"
+            )
+        self.logger.debug(
+            f"Top 3 latest package sets matching by {len(packages)} packages: "
+            + "; ".join([f"{r[0]} [{r[1]}]" for i, r in enumerate(res) if i < 3])
+        )
+        # 4. get most likely branch date by packages list
+        res = self.conn.execute(
+            self.sql.get_branch_date_by_packages.format(
+                tmp_table=tmp_table, branch=self.meta.branch
+            )
+        )
         if not res:
             raise ISOProcessingGuessBranchError
-        branch = res[0][0]
-        # 4. cleaun-up
+        branch, date = res[0]
+        # 5. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
-        return branch
+        return branch, date
 
-    def _check_packages_in_db(
-        self, packages: list[Package]
-    ) -> tuple[bool, list[Package]]:
+    def _check_packages_in_db(self, packages: list[Package]) -> list[Package]:
         # check if packages is in database
-        all_ok: bool = False
         not_found: list[Package] = []
         # 1. create temporary table
         tmp_table = "_tmpPkgs"
@@ -720,16 +770,15 @@ class ISOProcessor:
         # 3. get packages not found in DB
         res = self.conn.execute(self.sql.get_pkgs_not_in_db.format(tmp_table=tmp_table))
         not_found_ = {r[0] for r in res}
-        if len(not_found_) == 0:
-            all_ok = True
-        else:
+        if not_found_:
             for p in packages:
-                if p.hash in not_found_:
+                # skip SquashFS meta packages
+                if p.hash in not_found_ and "_orphaned-files_" not in p.name:
                     not_found.append(p)
         # 4. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
 
-        return all_ok, not_found
+        return not_found
 
     def _find_packages_from_files(
         self, sqfs: SquashFSImage, branch: str = ""
@@ -970,7 +1019,6 @@ class ISOProcessor:
             self.logger.info(
                 f"Metapackage '{package.name}' for SquashFS '{sqfs.name}' inserted to DB"
             )
-        self.logger.debug(f"SquashFS '{sqfs.name}' metapackage: {pkg_}")
 
     def _make_iso_pkgset(self) -> list[PackageSet]:
         # build packageset structure from ISO image for PackageSetName table
@@ -1000,6 +1048,7 @@ class ISOProcessor:
         root.kw_args.update(asdict(self.iso.iso.meta))
         root.kw_args.update({"json": stringify_image_meta(self.meta)})
         iso_pkgsets.append(root)
+        self.logger.debug(f"PackageSet root {root}")
         # 2. ISO image RPM packages
         if self.iso.iso.packages:
             rpms = PackageSet(
@@ -1060,15 +1109,13 @@ class ISOProcessor:
             del psn["package_hashes"]
             if not self.config.dryrun:
                 self.logger.info(
-                    f"Inserting package set records for {pkgset.name} into DB"
+                    f"Inserting package set records for '{pkgset.name}' into database"
                 )
                 # 1. store PackageSetName record
                 psh.insert_pkgset_name(**psn)
                 # 2. store PackageSet record
                 if pkgset.package_hashes:
                     psh.insert_pkgset(pkgset.uuid, pkgset.package_hashes)
-
-            self.logger.debug(f"PackageSetName record to be inserted {psn}")
 
     def _check_iso_date_name_in_db(
         self, iso_name: str, pkgset_date: datetime.date
@@ -1088,68 +1135,62 @@ class ISOProcessor:
                     return
         # 0. mount and parse ISO image
         self.iso.run()
+        self.logger.info(f"ISO info:\n{self.iso.iso.meta.isoinfo}")
         # 1. check ISO packages in branch
-        all_ok: bool = False
         missing: list[Package] = []
 
         if self.iso.iso.packages:
             # 1.1 check branch mismatching
-            self.logger.info(f"Checking ISO image {self.iso.iso.name} branch")
-            branch = self._find_base_repo(self.iso.iso.packages)
-            if branch != self.meta.branch:
-                self.logger.warning(
-                    f"Branch '{self.meta.branch}' from config not match "
-                    f"with branch '{branch}' from ISO image packages"
-                )
-                if not self.config.dryrun or self.config.force:
-                    raise ISOProcessingBranchMismatchError(
-                        cfg_branch=self.meta.branch, pkg_branch=branch
-                    )
+            self.logger.info(f"Checking ISO image '{self.iso.iso.name}' branch")
+            branch, date = self._find_base_repo(self.iso.iso.packages)
+            self.logger.info(
+                f"Most likely branch for '{self.iso.iso.name}' is '{branch}' on '{date}'"
+            )
             #  1.2 check all RPM packages in database
-            self.logger.info(f"Checking ISO image packages")
-            all_ok, missing = self._check_packages_in_db(self.iso.iso.packages)
-            if not all_ok:
+            self.logger.info(f"Checking ISO image '{self.iso.iso.name}' packages")
+            missing = self._check_packages_in_db(self.iso.iso.packages)
+            if missing:
                 self.logger.error(
                     f"{len(missing)} packages not found in database\n"
-                    + "\n".join([p.name for p in missing])
-                )
-                self.logger.debug(f"Packages not found in database:\n{[p for p in missing]}")
-                if not self.config.dryrun or self.config.force:
-                    raise ISOProcessingPackageNotInDBError(missing=missing)
-        # 2. check SquashFS packages consistency
-        for sqfs in self.iso.sqfs:
-            if not sqfs.packages:
-                continue
-            # 2.1 check branch mismatching
-            self.logger.info(f"Checking SquashFS image '{sqfs.name}' branch")
-            branch = self._find_base_repo(sqfs.packages)
-            if branch != self.meta.branch:
-                self.logger.warning(
-                    f"Branch '{self.meta.branch}' from config not match with "
-                    f"branch '{branch}' from '{sqfs.name}' SquashFS image packages"
-                )
-                if not self.config.dryrun or self.config.force:
-                    raise ISOProcessingBranchMismatchError(
-                        cfg_branch=self.meta.branch, pkg_branch=branch
+                    + "\n".join(
+                        [
+                            f"[{p.hash}] {p.name}-{p.version}-{p.release} {p.arch}"
+                            for p in missing
+                        ]
                     )
-            #  2.2 check all RPM packages in database
-            all_ok = False
-            missing = []
-            self.logger.info(f"Checking SquashFS image '{sqfs.name}' packages")
-            all_ok, missing = self._check_packages_in_db(sqfs.packages)
-            if not all_ok:
-                self.logger.error(
-                    f"{len(missing)} packages not found in database\n"
-                    + "\n".join([p.name for p in missing])
+                )
+                self.logger.debug(
+                    f"Packages not found in database:\n{[p for p in missing]}"
                 )
                 if not self.config.dryrun or self.config.force:
                     raise ISOProcessingPackageNotInDBError(missing=missing)
-        # 3. Proceed with SquashFS images without packages
+        # 2. Proceed with SquashFS images without packages
         for sqfs in self.iso.sqfs:
             if sqfs.packages or not sqfs.files:
                 continue
             self.logger.info(f"Processing SquashFS image '{sqfs.name}' files")
             o_package, o_files = self._process_squashfs_files(sqfs)
             self._store_metapackage(sqfs, o_package, o_files)
+        # 3. check SquashFS packages consistency
+        for sqfs in self.iso.sqfs:
+            if not sqfs.packages:
+                continue
+            # 3.1 check branch mismatching
+            self.logger.info(f"Checking SquashFS image '{sqfs.name}' branch")
+            branch, date = self._find_base_repo(sqfs.packages)
+            self.logger.info(
+                f"Most likely branch for '{sqfs.name}' is '{branch}' on '{date}'"
+            )
+            # 3.2 check all RPM packages in database
+            missing = []
+            self.logger.info(f"Checking SquashFS image '{sqfs.name}' packages")
+            missing = self._check_packages_in_db(sqfs.packages)
+            if missing:
+                self.logger.error(
+                    f"{len(missing)} packages not found in database\n"
+                    + "\n".join([p.name for p in missing])
+                )
+                if not self.config.dryrun or self.config.force:
+                    raise ISOProcessingPackageNotInDBError(missing=missing)
         # 4. build and store ISO image pkgset
         self._store_iso_pkgset(self._make_iso_pkgset())
