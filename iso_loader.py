@@ -18,19 +18,51 @@ import sys
 import argparse
 import configparser
 from pathlib import Path
-from dataclasses import dataclass
 
 from altrepodb.base import ISOProcessorConfig, LoggerProtocol
-from altrepodb.iso import ISOProcessor
+from altrepodb.iso import ISOProcessor, ImageMeta
 from altrepodb.database import DatabaseConfig
 from altrepodb.utils import (
     get_logger,
     valid_date,
+    valid_version,
 )
 
 NAME = "iso"
+ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
+VARIANTS = ("", "install", "live", "rescue")
+RELEASES = ("alpha", "beta", "rc", "release")
+EDITIONS = (
+    "alt-sisyphus",
+    "altlinux-",
+    "regular-",
+    "alt-p8",
+    "alt-p9",
+    "alt-p10",
+    "alt-server",
+    "alt-server-v",
+    "alt-education",
+    "alt-workstation",
+    "alt-kworkstation",
+    "slinux",
+    "alt-simply",
+)
 
 os.environ["LANG"] = "C"
+
+
+def check_edition(edition: str) -> str:
+    """Check ISO image edition is starting with valid prefixes."""
+
+    matched = False
+    for ed in EDITIONS:
+        if edition.strip().startswith(ed):
+            matched = True
+            break
+    if not matched:
+        raise argparse.ArgumentTypeError("ISO image edition doesn't match with any valid prefixes")
+
+    return edition
 
 
 def get_args():
@@ -39,9 +71,13 @@ def get_args():
         description="Load ISO image structure to database",
     )
     parser.add_argument("path", type=str, help="Path to ISO image file")
-    parser.add_argument("name", type=str, help="ISO image name")
-    parser.add_argument("date", type=valid_date, help="ISO image date")
-    parser.add_argument("branch", type=str, help="ISO image base branch name")
+    parser.add_argument("--edition", required=True, type=check_edition, help="ISO image edition")
+    parser.add_argument("--version", required=True, type=valid_version, help="ISO image version (e.g. 9.2, 8.1.3, 20211205)")
+    parser.add_argument("--release", required=True, type=str, choices=RELEASES, help="ISO image release type")
+    parser.add_argument("--variant", required=True, type=str, choices=VARIANTS, help="ISO image variant")
+    parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="ISO image architecture")
+    parser.add_argument("--branch", required=True, type=str, help="ISO image base branch name")
+    parser.add_argument("--date", required=True, type=valid_date, help="ISO image date")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
@@ -88,17 +124,28 @@ def get_args():
 
 def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
     config = ISOProcessorConfig(
-        name=args.name,
-        date=args.date,
         path=args.path,
-        branch=args.branch,
         logger=logger,
         dbconfig=dbconfig,
         debug=args.debug,
         force=args.force,
         dryrun=args.dry_run,
     )
-    iso = ISOProcessor(config)
+    mj_, mn_, su_ = args.version
+    meta = ImageMeta(
+        file=Path(args.path).name,
+        arch=args.arch,
+        date=args.date,
+        branch=args.branch,
+        edition=args.edition,
+        release=args.release,
+        variant=args.variant,
+        version_major=mj_,
+        version_minor=mn_,
+        version_sub=su_,
+        image_type="iso",
+    )
+    iso = ISOProcessor(config=config, image_meta=meta)    
     iso.run()
 
 
