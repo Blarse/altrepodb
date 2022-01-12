@@ -13,15 +13,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from datetime import datetime
 import os
+import json
 import shutil
 import tempfile
-from dataclasses import dataclass
-from typing import Union
+import datetime
+from dataclasses import asdict, dataclass
+from collections import namedtuple
+from typing import Any, Union
 from pathlib import Path
+from uuid import uuid4
 
-from .base import File, Package, ISOProcessorConfig, DEFAULT_LOGGER, PkgHash
+from .repo import PackageSetHandler
+from .base import File, Package, ISOProcessorConfig, DEFAULT_LOGGER, PkgHash, PackageSet
 from .rpmdb import RPMDBPackages, RPMDBOpenError
 from .logger import LoggerProtocol, _LoggerOptional
 from .exceptions import (
@@ -33,6 +37,7 @@ from .exceptions import (
     ISOImageOpenError,
     ISOProcessingError,
     ISOImageInvalidError,
+    ISOProcessingGuessBranchError,
     ISOProcessingBranchMismatchError,
     ISOProcessingPackageNotInDBError,
     ISOProcessingExecutableNotFoundError,
@@ -43,6 +48,7 @@ from .utils import (
     snowflake_id_sqfs,
     md5_from_file,
     sha1_from_file,
+    cvt_ts_to_datetime,
 )
 from .database import DatabaseClient
 
@@ -87,7 +93,9 @@ class ImageMounter:
 
     def _run_command(self, *args):
         try:
-            _, _, _, _ = run_command(*args, raise_on_error=True, logger=self._log)
+            _, _, _, _ = run_command(
+                *args, raise_on_error=True, logger=self._log, timeout=10
+            )
         except RunCommandError as e:
             raise ImageMounterRunCommandError(
                 "Subprocess commandline returned non zero code"
@@ -167,16 +175,38 @@ class ISOImageMeta:
     date: str
     info: str
     commit: str
-    isoinfo: list[str]
+    isoinfo: str
 
 
 @dataclass
 class ISOImage:
     name: str
     path: str
+    size: int
     meta: ISOImageMeta
     mount: ImageMounter
     packages: list[Package]
+
+
+@dataclass
+class ImageMeta:
+    arch: str
+    date: datetime.datetime
+    file: str
+    branch: str
+    edition: str
+    variant: str
+    release: str
+    version_major: int
+    version_minor: int
+    version_sub: int
+    image_type: str
+
+
+def stringify_image_meta(meta: ImageMeta) -> str:
+    """Return image meta information class as string JSON dump."""
+
+    return json.dumps({k: str(v) for k, v in asdict(meta).items()})
 
 
 class ISO:
@@ -199,8 +229,9 @@ class ISO:
                 date="",
                 info="",
                 commit="",
-                isoinfo=[],
+                isoinfo="",
             ),
+            size=Path(self.iso_path).stat().st_size,
             mount=ImageMounter("ISO", self.iso_path, "iso", self.logger),
             packages=[],
         )
@@ -234,7 +265,7 @@ class ISO:
     def _open_iso(self) -> None:
         """Open ISO image for file processing."""
 
-        if os.path.isdir(self._iso.path):
+        if not os.path.isfile(self._iso.path):
             self.logger.error(f"{self._iso.path} is not an ISO image")
             raise ISOImageInvalidError(self._iso.path)
 
@@ -303,16 +334,17 @@ class ISO:
             try:
                 md5_ = md5_from_file(file, as_bytes=True)
             except Exception as e:
-                self.logger.error(
-                    f"Failed to calculate MD5 checksum from file {file.name}"
+                self.logger.info(
+                    f"Failed to calculate MD5 checksum for file : {str(file.relative_to(Path.cwd()))}"
                 )
         file_ = File(
             md5=md5_,  # type: ignore
-            name=str(Path(file).relative_to(Path.cwd())),
+            # restored file name as it would appear from FS root
+            name="/" + str(Path(file).relative_to(Path.cwd())),
             size=stat_.st_size,
             linkto=link_,
-            # flag=0,  # FIXME: st_flags not supported
-            # lang="",  # FIXME: get whatever suitable here
+            # flag=0,  # XXX: st_flags not supported
+            # lang="",  # TODO: get whatever suitable here
             mode=stat_.st_mode,
             rdev=stat_.st_rdev,
             mtime=int(stat_.st_mtime),
@@ -320,7 +352,7 @@ class ISO:
             device=stat_.st_dev,
             username=uid_lut.get(stat_.st_uid, ""),
             groupname=gid_lut.get(stat_.st_gid, ""),
-            # verifyflag=0,  # FIXME: get xattrs as UInt32 value somehow
+            # verifyflag=0,  # TODO: get xattrs as UInt32 value somehow
         )
         return file_
 
@@ -342,7 +374,8 @@ class ISO:
             logger=self.logger,
         )
         if errcode == 0:
-            self._iso.meta.isoinfo = out.split("\n")
+            # self._iso.meta.isoinfo = out.split("\n")
+            self._iso.meta.isoinfo = out
         self.logger.debug(f"ISO image meta information: {self._iso.meta}")
         # parse ISO image packages
         self.logger.info(f"Gathering ISO image RPM packages information")
@@ -383,7 +416,7 @@ class ISO:
                     f"No RPM packages found in '{sqfs.name}' SquashFS image"
                 )
             if not sqfs.packages:
-                self.logger.info(f"Collecting SquashFs image files information")
+                self.logger.info(f"Collecting SquashFS image files information")
                 # change dir to mounted SquashFS to handle symlink resolving
                 os.chdir(sqfs.mount.path)
                 # get uid and gid lookup tables from /etc/passwd and /etc/groups files
@@ -461,6 +494,7 @@ SELECT
     count(pkg_hash) AS cnt
 FROM static_last_packages
 WHERE pkg_sourcepackage = 0
+    AND pkgset_name NOT LIKE '%:%'
     AND pkg_hash IN (
         SELECT * FROM {tmp_table}
     )
@@ -536,7 +570,7 @@ CREATE TEMPORARY TABLE {tmp_table1} AS(
 """
 
     get_tmp_orphan_files = """
-SELECT * FROM {tpm_table1}
+SELECT * FROM {tmp_table1}
 WHERE (file_hashname, file_md5) NOT IN
 (
     SELECT file_hashname, file_md5
@@ -549,11 +583,61 @@ WHERE (file_hashname, file_md5) NOT IN
 )
 """
 
+    get_packages_info = """
+SELECT
+    pkg_hash,
+    pkg_name,
+    pkg_arch,
+    pkg_epoch,
+    pkg_version,
+    pkg_release,
+    pkg_disttag,
+    pkg_buildtime
+FROM Packages
+WHERE pkg_hash IN
+(
+    SELECT pkg_hash FROM {tmp_table}
+)
+"""
+
+    get_pkgs_not_in_db = """
+WITH
+PkgsInDB AS
+(
+    SELECT pkg_hash
+    FROM Packages
+    WHERE pkg_hash IN
+    (
+        SELECT * FROM {tmp_table}
+    )
+)
+SELECT DISTINCT pkg_hash
+FROM {tmp_table}
+WHERE pkg_hash NOT IN
+(
+    SELECT * FROM PkgsInDB
+)
+"""
+
+    insert_files = """
+INSERT INTO Files_insert (*) VALUES
+"""
+
+    insert_package = """
+INSERT INTO Packages_buffer (*) VALUES
+"""
+
+    insert_package_hashes = """
+INSERT INTO PackageHash_buffer (*) VALUES
+"""
+
 
 class ISOProcessor:
-    def __init__(self, config: ISOProcessorConfig) -> None:
+    def __init__(self, config: ISOProcessorConfig, image_meta: ImageMeta) -> None:
         self.config = config
+        self.meta = image_meta
         self.sql = SQL()
+        self.name = self._build_iso_name()
 
         if self.config.logger is not None:
             self.logger = self.config.logger
@@ -567,7 +651,26 @@ class ISOProcessor:
 
         self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
         self.iso = ISO(
-            iso_name=self.config.name, iso_path=self.config.path, logger=self.logger
+            iso_name=self.meta.file, iso_path=self.config.path, logger=self.logger
+        )
+
+    def _build_iso_name(self) -> str:
+        return ":".join(
+            (
+                self.meta.branch,
+                self.meta.edition,
+                ".".join(
+                    (
+                        self.meta.release,
+                        str(self.meta.version_major),
+                        str(self.meta.version_minor),
+                        str(self.meta.version_sub),
+                    )
+                ),
+                self.meta.arch,
+                self.meta.variant,
+                self.meta.image_type,
+            )
         )
 
     def _find_base_repo(self, packages: list[Package]) -> str:
@@ -585,66 +688,139 @@ class ISOProcessor:
             ({"pkg_hash": p.hash} for p in packages),
         )
         # 3. get most likely base branch
+        # FIXME: try to find branch from PackageSet and PackageSetName
         res = self.conn.execute(
             self.sql.get_branch_by_packages.format(tmp_table=tmp_table)
         )
+        if not res:
+            raise ISOProcessingGuessBranchError
         branch = res[0][0]
         # 4. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
         return branch
 
-    def _check_packages_in_db(self, packages: list[Package]) -> tuple[bool, list[Package]]:
+    def _check_packages_in_db(
+        self, packages: list[Package]
+    ) -> tuple[bool, list[Package]]:
         # check if packages is in database
         all_ok: bool = False
         not_found: list[Package] = []
-
-        return all_ok, not_found
-
-    def _find_packages_from_files(self, sqfs: SquashFSImage, branch: str = "") -> tuple[list[Package], list[File]]:
-        # find packages by files using branch constraint and orphaned files
-        packages: list[Package] = []
-        orphan_files: list[File] = []
-
-        if branch == "":
-            branch = self.config.branch
-
         # 1. create temporary table
-        tmp_table = "_tmpFiles"
+        tmp_table = "_tmpPkgs"
         res = self.conn.execute(
             self.sql.create_tmp_table.format(
-                tmp_table=tmp_table, columns="(file_hashname UInt64, file_md5 FixedString(16))"
+                tmp_table=tmp_table, columns="(pkg_hash UInt64)"
             )
         )
         # 2. insert package hashes
         res = self.conn.execute(
             self.sql.insert_into_tmp_table.format(tmp_table=tmp_table),
-            ({"file_hashname": mmhash(f.name), "file_md5": f.md5} for f in sqfs.files),
-            settings={"strings_as_bytes": True}
+            ({"pkg_hash": p.hash} for p in packages),
         )
-        # 3. get packages by files
-        pass
+        # 3. get packages not found in DB
+        res = self.conn.execute(self.sql.get_pkgs_not_in_db.format(tmp_table=tmp_table))
+        not_found_ = {r[0] for r in res}
+        if len(not_found_) == 0:
+            all_ok = True
+        else:
+            for p in packages:
+                if p.hash in not_found_:
+                    not_found.append(p)
+        # 4. cleaun-up
+        res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
+
+        return all_ok, not_found
+
+    def _find_packages_from_files(
+        self, sqfs: SquashFSImage, branch: str = ""
+    ) -> tuple[list[Package], list[File]]:
+        # find packages by files using branch constraint and orphaned files
+        packages: list[Package] = []
+        orphan_files: list[File] = []
+
+        if branch == "":
+            branch = self.meta.branch
+
+        # 1. create temporary table
+        tmp_files = "_tmpFiles"
+        res = self.conn.execute(
+            self.sql.create_tmp_table.format(
+                tmp_table=tmp_files,
+                columns="(file_hashname UInt64, file_md5 FixedString(16))",
+            )
+        )
+        # 2. insert package hashes
+        res = self.conn.execute(
+            self.sql.insert_into_tmp_table.format(tmp_table=tmp_files),
+            ({"file_hashname": mmhash(f.name), "file_md5": f.md5} for f in sqfs.files),
+            settings={"strings_as_bytes": True},
+        )
+        # 3. create tmp table with packages by files
+        tmp_packages = "_tmpPackages"
+        res = self.conn.execute(
+            self.sql.get_tmp_pkgs_by_files.format(
+                tmp_table1=tmp_packages, tmp_table2=tmp_files, branch=branch
+            )
+        )
+        # 4. get found packages
+        res = self.conn.execute(
+            self.sql.get_packages_info.format(tmp_table=tmp_packages)
+        )
+        for r in res:
+            packages.append(
+                Package(
+                    hash=r[0],
+                    name=r[1],
+                    arch=r[2],
+                    epoch=r[3],
+                    version=r[4],
+                    release=r[5],
+                    disttag=r[6],
+                    buildtime=r[7],
+                )
+            )
+
+        # 5. get orphaned files
+        res = self.conn.execute(
+            self.sql.get_tmp_orphan_files.format(
+                tmp_table1=tmp_files, tmp_table2=tmp_packages
+            )
+        )
+        files_md5 = {r[1] for r in res}
+
+        orphan_files = [f for f in sqfs.files if f.md5 in files_md5]
 
         return packages, orphan_files
 
-    def _process_squashfs_files(self, sqfs: SquashFSImage, branch: str = "") -> tuple[Package, list[File]]:
+    def _process_squashfs_files(
+        self, sqfs: SquashFSImage, branch: str = ""
+    ) -> tuple[Package, list[File]]:
         """Builds metapackage with orphaned files and updates SquashFS object packages and files."""
 
         # 1. get packages and orphaned files for SquashFS image
-        packages, orphan_files = self._find_packages_from_files(sqfs=sqfs, branch=branch)
-        self.logger.info(f"Found {len(packages)} packages for '{sqfs.name}' SquashFS image")
-        self.logger.info(f"Found {len(orphan_files)} orphaned files in '{sqfs.name}' SquashFS image")
+        packages, orphan_files = self._find_packages_from_files(
+            sqfs=sqfs, branch=branch
+        )
+        self.logger.info(
+            f"Found {len(packages)} packages for '{sqfs.name}' SquashFS image"
+        )
+        self.logger.info(
+            f"Found {len(orphan_files)} orphaned files in '{sqfs.name}' SquashFS image"
+        )
         # 2. make metapackage
-        iso_name_ = self.config.name.replace(" ", "_")
-        iso_date_ = self.config.date.strftime("%Y%m%d")
+        iso_name_ = self.meta.file
+        iso_date_ = self.meta.date.strftime("%Y%m%d")
         iso_date_ = self.iso.iso.meta.date or iso_date_
         orphan_package = Package(
             hash=sqfs.meta.hash,
-            name=f"{sqfs.name}-orphaned-files-{iso_name_}-{iso_date_}",
+            name=f"{sqfs.name}_orphaned-files_{iso_name_}_{iso_date_}",
             arch=self.iso.iso.meta.arch,
             buildtime=sqfs.meta.mtime,
-            is_srpm=False
+            is_srpm=False,
         )
-        self.logger.info(f"Built '{orphan_package.name}' metapackage for orphaned files in '{sqfs.name}' image")
+        self.logger.info(
+            f"Built '{orphan_package.name}' metapackage for orphaned files in '{sqfs.name}' image"
+        )
         # 3. update SquashFS object
         sqfs.files = orphan_files
         sqfs.packages = packages
@@ -652,35 +828,264 @@ class ISOProcessor:
 
         return orphan_package, orphan_files
 
-    def _store_orphaned(self, sqfs: SquashFSImage, package: Package, files: list[File]) -> None:
+    def _store_metapackage(
+        self, sqfs: SquashFSImage, package: Package, files: list[File]
+    ) -> None:
         # store SquashFS metapackage for orphaned files
         # files for metapackage are stored too
         # 1. make package hashes
         pkg_hash = PkgHash(
-            sf=sqfs.meta.hash,
-            md5=b"",
-            sha1=sqfs.meta.sha1,
-            sha256=b"",
-            blake2b=b""
+            sf=sqfs.meta.hash, md5=b"", sha1=sqfs.meta.sha1, sha256=b"", blake2b=b""
         )
-        # 2. store files
-        pass
-        # 3. store package
-        pass
+        # 2. store orphaned files
+        files_list: list[dict[str, Any]] = []
+        DBFile = namedtuple(
+            "DBFile",
+            [
+                "pkg_hash",
+                "file_name",
+                "file_linkto",
+                "file_md5",
+                "file_size",
+                "file_mode",
+                "file_rdev",
+                "file_mtime",
+                "file_flag",
+                "file_username",
+                "file_groupname",
+                "file_verifyflag",
+                "file_device",
+                "file_lang",
+                "file_class",
+            ],
+        )
+        if not self.config.dryrun:
+            for file in files:
+                files_list.append(
+                    DBFile(
+                        pkg_hash=pkg_hash.sf,
+                        file_name=file.name,
+                        file_md5=file.md5,
+                        file_flag=file.flag,
+                        file_lang=file.lang,
+                        file_mode=file.mode,
+                        file_rdev=file.rdev,
+                        file_size=file.size,
+                        file_class=file.class_,
+                        file_mtime=file.mtime,
+                        file_device=file.device,
+                        file_linkto=file.linkto,
+                        file_username=file.username,
+                        file_groupname=file.groupname,
+                        file_verifyflag=file.verifyflag,
+                    )._asdict()
+                )
+            res = self.conn.execute(self.sql.insert_files, files_list)
+            self.logger.info(
+                f"{len(files_list)} files inserted for package {package.name}"
+            )
+        else:
+            self.logger.info(
+                f"Found {len(files)} files to be inserted for package {package.name}"
+            )
+        # 3. store metapackage
+        pkg_ = {
+            "pkg_hash": sqfs.meta.hash,
+            "pkg_cs": sqfs.meta.sha1,
+            "pkg_packager": "ISO Loader",
+            "pkg_packager_email": "iso_loader@altlinux.org",
+            "pkg_name": package.name,
+            "pkg_arch": package.arch,
+            "pkg_version": "",
+            "pkg_release": "",
+            "pkg_epoch": 0,
+            "pkg_serial_": 0,
+            "pkg_buildtime": package.buildtime,
+            "pkg_buildhost": "",
+            "pkg_size": sqfs.meta.size,
+            "pkg_archivesize": sqfs.meta.size,
+            "pkg_filesize": sqfs.meta.size,
+            "pkg_rpmversion": "",
+            "pkg_cookie": "",
+            "pkg_sourcepackage": 0,
+            "pkg_disttag": package.disttag,
+            "pkg_sourcerpm": sqfs.name,
+            "pkg_srcrpm_hash": 0,
+            "pkg_filename": package.name,
+            "pkg_complete": 1,
+            "pkg_summary": f"Metapackage for orphaned files from '{sqfs.name}' SquashFS image",
+            "pkg_description": (
+                f"Metapackage for orphaned files from '{sqfs.name}' "
+                f"SquashFS image from '{self.meta.file}' ISO image"
+            ),
+            "pkg_changelog.date": [],
+            "pkg_changelog.name": [],
+            "pkg_changelog.evr": [],
+            "pkg_changelog.hash": [],
+            "pkg_distribution": f"ALT {self.meta.branch}",
+            "pkg_vendor": "BASEALT LTD",
+            "pkg_gif": "",
+            "pkg_xpm": "",
+            "pkg_license": "",
+            "pkg_group_": "Other",
+            "pkg_url": "",
+            "pkg_os": "ALT Linux",
+            "pkg_prein": "",
+            "pkg_postin": "",
+            "pkg_preun": "",
+            "pkg_postun": "",
+            "pkg_icon": "",
+            "pkg_preinprog": [],
+            "pkg_postinprog": [],
+            "pkg_preunprog": [],
+            "pkg_postunprog": [],
+            "pkg_buildarchs": [],
+            "pkg_verifyscript": "",
+            "pkg_verifyscriptprog": [],
+            "pkg_prefixes": [],
+            "pkg_instprefixes": [],
+            "pkg_optflags": "",
+            "pkg_disturl": "",
+            "pkg_payloadformat": "",
+            "pkg_payloadcompressor": "",
+            "pkg_payloadflags": "",
+            "pkg_platform": "",
+        }
+        if not self.config.dryrun:
+            # store package
+            res = self.conn.execute(self.sql.insert_package, [pkg_])
+            # store package hashes
+            res = self.conn.execute(
+                self.sql.insert_package_hashes,
+                [
+                    {
+                        "pkgh_mmh": pkg_hash.sf,
+                        "pkgh_md5": pkg_hash.md5,
+                        "pkgh_sha1": pkg_hash.sha1,
+                        "pkgh_sha256": pkg_hash.sha256,
+                        "pkgh_blake2b": pkg_hash.blake2b,
+                    }
+                ],
+            )
+            self.logger.info(
+                f"Metapackage '{package.name}' for SquashFS '{sqfs.name}' inserted to DB"
+            )
+        self.logger.debug(f"SquashFS '{sqfs.name}' metapackage: {pkg_}")
 
-    def _make_iso_pkgset(self) -> None:
+    def _make_iso_pkgset(self) -> list[PackageSet]:
         # build packageset structure from ISO image for PackageSetName table
         # depth 0: root: ISO itself with meta information in 'pkgset_kv' fields
         # depth 1: 'rpms': RPM packages found at ISO itself if any
-        # depth 1: '%sqfs.name': for SquashFS images that contains RPM packages
-        # depth 1: '%sqfs.name': for SquashFS images that doesn't contains RPM packages
-        pass
+        # depth 1: '%sqfs.name': for SquashFS images
+        iso_pkgsets: list[PackageSet] = []
+        # 1. packageset root
+        ruuid_ = str(uuid4())
+        root = PackageSet(
+            name=self.name,
+            uuid=ruuid_,
+            puuid="00000000-0000-0000-0000-000000000000",
+            ruuid=ruuid_,
+            date=self.meta.date,
+            depth=0,
+            complete=1,
+            tag=self.name,
+            kw_args={
+                "type": "iso",
+                "size": str(self.iso.iso.size),
+                "class": "iso",
+                "branch": self.meta.branch,
+            },
+            package_hashes=[],
+        )
+        root.kw_args.update(asdict(self.iso.iso.meta))
+        root.kw_args.update({"json": stringify_image_meta(self.meta)})
+        iso_pkgsets.append(root)
+        # 2. ISO image RPM packages
+        if self.iso.iso.packages:
+            rpms = PackageSet(
+                name="rpms",
+                uuid=str(uuid4()),
+                puuid=root.uuid,
+                ruuid=root.uuid,
+                date=root.date,
+                depth=1,
+                complete=1,
+                tag=root.tag,
+                kw_args={
+                    "type": "rpms",
+                    "size": str(len(self.iso.iso.packages)),
+                    "class": "iso",
+                    "branch": self.meta.branch,
+                },
+                package_hashes=[p.hash for p in self.iso.iso.packages],
+            )
+            iso_pkgsets.append(rpms)
+        # 3. SquashFS images
+        for sqfs in self.iso.sqfs:
+            pkgset = PackageSet(
+                name=sqfs.name,
+                uuid=str(uuid4()),
+                puuid=root.uuid,
+                ruuid=root.uuid,
+                date=root.date,
+                depth=1,
+                complete=1,
+                tag=root.tag,
+                kw_args={
+                    "type": "squashfs",
+                    "size": str(len(sqfs.packages)),
+                    "class": "iso",
+                    "branch": self.meta.branch,
+                },
+                package_hashes=[p.hash for p in sqfs.packages],
+            )
+            pkgset.kw_args.update(
+                {
+                    "hash": str(sqfs.meta.hash),
+                    "sha1": sqfs.meta.sha1.hex(),
+                    "image_size": str(sqfs.meta.size),
+                    "orphaned_files": str(len(sqfs.files)),
+                    "mtime": cvt_ts_to_datetime(sqfs.meta.mtime).isoformat(),
+                }
+            )
+            iso_pkgsets.append(pkgset)
+        return iso_pkgsets
 
-    def _store_iso_pkgset(self) -> None:
+    def _store_iso_pkgset(self, pkgsets: list[PackageSet]) -> None:
         # store ISO image pkgset
-        pass
+        psh = PackageSetHandler(conn=self.conn, logger=self.logger)
+        # load ISO package set components from leaves to root
+        for pkgset in reversed(pkgsets):
+            psn = asdict(pkgset)
+            del psn["package_hashes"]
+            if not self.config.dryrun:
+                self.logger.info(
+                    f"Inserting package set records for {pkgset.name} into DB"
+                )
+                # 1. store PackageSetName record
+                psh.insert_pkgset_name(**psn)
+                # 2. store PackageSet record
+                if pkgset.package_hashes:
+                    psh.insert_pkgset(pkgset.uuid, pkgset.package_hashes)
+
+            self.logger.debug(f"PackageSetName record to be inserted {psn}")
+
+    def _check_iso_date_name_in_db(
+        self, iso_name: str, pkgset_date: datetime.date
+    ) -> bool:
+        result = self.conn.execute(
+            f"SELECT COUNT(*) FROM PackageSetName WHERE "
+            f"pkgset_nodename='{iso_name}' AND pkgset_date='{pkgset_date}'"
+        )
+        return result[0][0] != 0  # type: ignore
 
     def run(self) -> None:
+        # -1. check if ISO is already loaded to DB
+        if not self.config.force:
+            if self._check_iso_date_name_in_db(self.name, self.meta.date):
+                self.logger.info(f"ISO image '{self.name}' already exists in database")
+                return
+        # 0. mount and parse ISO image
         self.iso.run()
         # 1. check ISO packages in branch
         all_ok: bool = False
@@ -690,15 +1095,15 @@ class ISOProcessor:
             # 1.1 check branch mismatching
             self.logger.info(f"Checking ISO image {self.iso.iso.name} branch")
             branch = self._find_base_repo(self.iso.iso.packages)
-            if branch != self.config.branch:
+            if branch != self.meta.branch:
                 self.logger.warning(
-                    f"Branch '{self.config.branch}' from config not match "
+                    f"Branch '{self.meta.branch}' from config not match "
                     f"with branch '{branch}' from ISO image packages"
                 )
-                # if not self.config.dryrun:
-                #     raise ISOProcessingBranchMismatchError(
-                #         cfg_branch=self.config.branch, pkg_branch=branch
-                #     )
+                if not self.config.dryrun:
+                    raise ISOProcessingBranchMismatchError(
+                        cfg_branch=self.meta.branch, pkg_branch=branch
+                    )
             #  1.2 check all RPM packages in database
             self.logger.info(f"Checking ISO image packages")
             all_ok, missing = self._check_packages_in_db(self.iso.iso.packages)
@@ -707,6 +1112,7 @@ class ISOProcessor:
                     f"{len(missing)} packages not found in database\n"
                     + "\n".join([p.name for p in missing])
                 )
+                self.logger.debug(f"Packages not found in database:\n{[p for p in missing]}")
                 if not self.config.dryrun:
                     raise ISOProcessingPackageNotInDBError(missing=missing)
         # 2. check SquashFS packages consistency
@@ -714,21 +1120,21 @@ class ISOProcessor:
             if not sqfs.packages:
                 continue
             # 2.1 check branch mismatching
-            self.logger.info(f"Checking SquashFS image {sqfs.name} branch")
+            self.logger.info(f"Checking SquashFS image '{sqfs.name}' branch")
             branch = self._find_base_repo(sqfs.packages)
-            if branch != self.config.branch:
+            if branch != self.meta.branch:
                 self.logger.warning(
-                    f"Branch '{self.config.branch}' from config not match with "
+                    f"Branch '{self.meta.branch}' from config not match with "
                     f"branch '{branch}' from '{sqfs.name}' SquashFS image packages"
                 )
-                # if not self.config.dryrun:
-                #     raise ISOProcessingBranchMismatchError(
-                #         cfg_branch=self.config.branch, pkg_branch=branch
-                #     )
+                if not self.config.dryrun:
+                    raise ISOProcessingBranchMismatchError(
+                        cfg_branch=self.meta.branch, pkg_branch=branch
+                    )
             #  2.2 check all RPM packages in database
             all_ok = False
             missing = []
-            self.logger.info(f"Checking SquashFS image {sqfs.name} packages")
+            self.logger.info(f"Checking SquashFS image '{sqfs.name}' packages")
             all_ok, missing = self._check_packages_in_db(sqfs.packages)
             if not all_ok:
                 self.logger.error(
@@ -741,11 +1147,8 @@ class ISOProcessor:
         for sqfs in self.iso.sqfs:
             if sqfs.packages or not sqfs.files:
                 continue
-            self.logger.info(f"Processing SquashFS image {sqfs.name} files")
+            self.logger.info(f"Processing SquashFS image '{sqfs.name}' files")
             o_package, o_files = self._process_squashfs_files(sqfs)
-            if not self.config.dryrun:
-                self._store_orphaned(sqfs, o_package, o_files)
-        # 4. build ISO image pkgset
-        self._make_iso_pkgset()
-        # 5. store ISO image pkgset
-        self._store_iso_pkgset()
+            self._store_metapackage(sqfs, o_package, o_files)
+        # 4. build and store ISO image pkgset
+        self._store_iso_pkgset(self._make_iso_pkgset())
