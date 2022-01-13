@@ -15,6 +15,7 @@
 
 import os
 import sys
+import time
 import argparse
 import configparser
 from pathlib import Path
@@ -156,6 +157,7 @@ def main():
     if args.debug:
         logger.setLevel("DEBUG")
     conn = None
+    st = time.time()
     try:
         logger.info("Start loading ISO image to database")
         logger.info("=" * 60)
@@ -169,6 +171,7 @@ def main():
         if not Path(args.path).is_file():
             raise ValueError(f"{args.path} is not a file")
         load(args, config, logger)
+        logger.info(f"ISO image {Path(args.path).name} loaded in {(time.time() - st):.3f} seconds")
     except Exception as error:
         logger.error(f"Error occurred during ISO image loading: {error}", exc_info=True)
         sys.exit(1)
