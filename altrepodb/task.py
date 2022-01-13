@@ -1634,8 +1634,8 @@ class TaskParser:
     def _parse_iterations(self) -> None:
         # parse '/build' for 'TaskIterations'
         # 0 - get src and binary packages from plan
-        src_pkgs = {}
-        bin_pkgs = defaultdict(lambda: defaultdict(list))
+        src_pkgs: dict[int, str] = {}
+        bin_pkgs: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
 
         if self.task.plan.pkg_add:
             for pkg in self.task.plan.pkg_add["src"].values():
@@ -1647,6 +1647,7 @@ class TaskParser:
         for subtask in (
             x.name for x in self.tf.get_file_path("build").glob("[0-7]*") if x.is_dir()
         ):
+            subtask_id = int(subtask)
             subtask_dir = "/".join(("build", subtask))
             # follow order of architectures from ARCHS list to prefer
             # source package from 'x86_64' and 'i586' architectures if there is no plan
@@ -1664,53 +1665,53 @@ class TaskParser:
                 )
 
                 if self.tf.check_file("/".join((arch_dir, "status"))):
-                    sub = self.tf.get_file_mtime("/".join((arch_dir, "status")))
+                    ts_ = self.tf.get_file_mtime("/".join((arch_dir, "status")))
                     ti.titer_status = self.tf.get_text(
                         "/".join((arch_dir, "status")), "failed"
                     )
                 else:
-                    sub = self.tf.get_file_mtime(arch_dir)
+                    ts_ = self.tf.get_file_mtime(arch_dir)
                     ti.titer_status = "failed"
-                ti.titer_ts = sub
+                ti.titer_ts = ts_
                 ti.task_try = self.task.state.task_try
                 ti.task_iter = self.task.state.task_iter
                 # read chroots
-                sub = self.tf.get("/".join((arch_dir, "chroot_base")))
-                if sub:
+                chb_ = self.tf.get("/".join((arch_dir, "chroot_base")))
+                if chb_:
                     for pkg in (
-                        x.split("\t")[-1].strip() for x in sub.split("\n") if len(x) > 0
+                        x.split("\t")[-1].strip() for x in chb_.split("\n") if len(x) > 0
                     ):
                         # FIXME: useless data due to packages stored with snowflake hash now!
                         ti.titer_chroot_base.append(mmhash(bytes.fromhex(pkg)))
-                sub = self.tf.get("/".join((arch_dir, "chroot_BR")))
-                if sub:
+                chbr_ = self.tf.get("/".join((arch_dir, "chroot_BR")))
+                if chbr_:
                     for pkg in (
-                        x.split("\t")[-1].strip() for x in sub.split("\n") if len(x) > 0
+                        x.split("\t")[-1].strip() for x in chbr_.split("\n") if len(x) > 0
                     ):
                         # FIXME: useless data due to packages stored with snowflake hash now!
                         ti.titer_chroot_br.append(mmhash(bytes.fromhex(pkg)))
                 # get src and bin packages
-                sub = self.tf.get("/".join((arch_dir, "srpm")))
-                if sub and len(sub) > 0:
+                pkgs_ = self.tf.get("/".join((arch_dir, "srpm")))
+                if pkgs_ and len(pkgs_) > 0:
                     ti.titer_status = "built"
                     # skip srpm if got it from 'plan/add-src'
                     # TODO: handle particular srpm package loading somehow if plan exists
-                    if subtask not in src_pkgs:
-                        src_pkgs[subtask] = "/".join((arch_dir, "srpm", sub[0].name))
-                if subtask in src_pkgs:
-                    ti.titer_srpm = src_pkgs[subtask]
+                    if subtask_id not in src_pkgs:
+                        src_pkgs[subtask_id] = "/".join((arch_dir, "srpm", pkgs_[0].name))
+                # set source rpm path
+                ti.titer_srpm = src_pkgs.get(subtask_id, "")
 
-                sub = self.tf.get("/".join((arch_dir, "rpms")))
-                if sub and len(sub) > 0:
+                pkgs_ = self.tf.get("/".join((arch_dir, "rpms")))
+                if pkgs_ and len(pkgs_) > 0:
                     ti.titer_status = "built"
-                    bin_pkgs[subtask][arch] = []
-                    for brpm in sub:
-                        bin_pkgs[subtask][arch].append(
+                    bin_pkgs[subtask_id][arch] = []
+                    for brpm in pkgs_:
+                        bin_pkgs[subtask_id][arch].append(
                             "/".join((arch_dir, "rpms", brpm.name))
                         )
 
-                if subtask in bin_pkgs and arch in bin_pkgs[subtask]:
-                    ti.titer_rpms = [x for x in bin_pkgs[subtask][arch]]
+                if subtask_id in bin_pkgs and arch in bin_pkgs[subtask_id]:
+                    ti.titer_rpms = [x for x in bin_pkgs[subtask_id][arch]]
                 self.task.iterations.append(ti)
                 # save build logs
                 for log_file in ("log", "srpm.log"):
