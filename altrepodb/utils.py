@@ -137,7 +137,7 @@ def valid_version(version: str) -> tuple[int, int, int]:
         s = version.strip().split(".")
         major_ = int(s[0])
 
-        if len(s) == 2:
+        if len(s) >= 2:
             minor_ = int(s[1])
         if len(s) == 3:
             sub_ = int(s[2])
