@@ -1162,7 +1162,7 @@ class ISOProcessor:
                 self.logger.debug(
                     f"Packages not found in database:\n{[p for p in missing]}"
                 )
-                if not self.config.dryrun or self.config.force:
+                if not (self.config.dryrun or self.config.force):
                     raise ISOProcessingPackageNotInDBError(missing=missing)
         # 2. Proceed with SquashFS images without packages
         for sqfs in self.iso.sqfs:
@@ -1190,7 +1190,7 @@ class ISOProcessor:
                     f"{len(missing)} packages not found in database\n"
                     + "\n".join([p.name for p in missing])
                 )
-                if not self.config.dryrun or self.config.force:
+                if not (self.config.dryrun or self.config.force):
                     raise ISOProcessingPackageNotInDBError(missing=missing)
         # 4. build and store ISO image pkgset
         self._store_iso_pkgset(self._make_iso_pkgset())
