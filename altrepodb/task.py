@@ -21,6 +21,7 @@ import traceback
 from pathlib import Path
 from copy import deepcopy
 from collections import defaultdict, namedtuple
+from dataclasses import asdict
 from typing import Iterable, Any, Iterator, Union, Generator
 
 from altrpm import rpm, readHeaderListFromXZFile
@@ -98,6 +99,22 @@ def init_cache(conn: DatabaseClient, packages: Iterable[str], logger: LoggerProt
     )
 
     return {i[0] for i in result}
+
+
+def task_as_dict(task: Task) -> dict:
+    """Dumps Task class instance to dictionary representation."""
+
+    return {
+        "id": task.id,
+        "arepo": task.arepo,
+        "plan": asdict(task.plan),
+        "state": asdict(task.state),
+        "logs": [asdict(x) for x in task.logs],
+        "subtasks": [asdict(x) for x in task.subtasks],
+        "approvals": [asdict(x) for x in task.approvals],
+        "iterations": [asdict(x) for x in task.iterations],
+        "pkg_hashes": {k: asdict(v) for k, v in dict(task.pkg_hashes).items()}
+    }
 
 
 class TaskFromFileSystem:
@@ -1012,7 +1029,6 @@ class TaskLoadHandler:
 
     def _save_task(self):
         # 1 - proceed with TaskStates
-        # self.task["task_state"]["task_eventlog_hash"] = []
         # 1.1 - save event logs hashes
         eventlog_hash = [x.hash for x in self.task.logs if x.type == "events"]
         # 1.2 - save current task state
@@ -1091,7 +1107,6 @@ class TaskLoadHandler:
         for tapp in tapps_from_fs:
             if tapp not in tapps_from_db:
                 new_task_approvals.append(tapp)
-        # self.task["task_approvals"] = new_task_approvals
         # 2.6 - load new approvals state to DB
         if new_task_approvals:
             self.conn.execute(
@@ -1142,14 +1157,9 @@ class TaskLoadHandler:
                 self.tf,
                 self.logger,
                 self.task,
-                # self.task.pkg_hashes,
-                # self.task.logs,
-                # self.task.iterations,
                 num_of_workers=None,
             )
         # 6 - load arepo packages
-        # for pkg in self.task['arepo']:
-        #     self._insert_package(pkg, 0, is_srpm=False)
         if self.task.arepo:
             package_load_worker_pool(
                 self.conf,
@@ -1157,8 +1167,6 @@ class TaskLoadHandler:
                 self.tf,
                 self.logger,
                 self.task,
-                # self.task.pkg_hashes,
-                # self.task.arepo,
                 num_of_workers=0,
                 loaded_from="'/arepo'",
             )
@@ -1695,7 +1703,7 @@ class TaskParser:
                 if pkgs_ and len(pkgs_) > 0:
                     ti.titer_status = "built"
                     # skip srpm if got it from 'plan/add-src'
-                    # TODO: handle particular srpm package loading somehow if plan exists
+                    # XXX: handle particular srpm package loading somehow if plan exists
                     if subtask_id not in src_pkgs:
                         src_pkgs[subtask_id] = "/".join((arch_dir, "srpm", pkgs_[0].name))
                 # set source rpm path
@@ -1820,7 +1828,6 @@ class TaskProcessor:
         else:
             self.logger.setLevel("INFO")
 
-        # self.task_from_fs = TaskFromFilesystem(self.config.path, self.logger)
         self.task_parser = TaskParser(self.config.path, self.logger)
         self._check_config()
 
@@ -1841,7 +1848,8 @@ class TaskProcessor:
             p = Path.joinpath(Path.cwd(), "JSON")
             p.mkdir(exist_ok=True)
             dump_to_json(
-                self.task,
+                # FIXME: Task object dictionary contains a long integers that out of JSON standard numbers range
+                task_as_dict(self.task),
                 Path.joinpath(
                     p,
                     (
