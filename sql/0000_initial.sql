@@ -122,7 +122,6 @@ CREATE TABLE TaskIterations
     titer_buildlog_hash UInt64, -- build log hash
     titer_srpmlog_hash  UInt64  -- srpm build log hash
 ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, task_changed, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
--- ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_arch, titer_ts, titer_status, task_try, task_iter) PRIMARY KEY (task_id, subtask_id);
 
 CREATE TABLE TaskIterations_buffer AS TaskIterations ENGINE = Buffer(currentDatabase(), TaskIterations, 16, 10, 100, 1000, 100000, 1000000, 10000000);
 
@@ -439,6 +438,7 @@ CREATE TABLE Acl
     acl_list   Array(String)
 ) ENGINE = MergeTree ORDER BY (acl_date, acl_branch, acl_for, acl_list) PRIMARY KEY (acl_date, acl_branch);
 
+
 CREATE TABLE Cve
 (
     pkg_hash                        UInt64,
@@ -459,6 +459,7 @@ CREATE TABLE Cve
     cc_id                           Nullable(UInt64)
 ) ENGINE = MergeTree ORDER BY (pkg_hash, cve_id, cve_modifieddate, cve_parsingdate);
 
+
 CREATE TABLE CveAbsentPackages
 (
     cap_product_name    String,
@@ -471,6 +472,7 @@ CREATE TABLE CveAbsentPackages
     cve_modifieddate    DateTime,
     cve_parsingdate     DateTime
 ) ENGINE = MergeTree ORDER BY (cap_product_name, cve_id, cve_modifieddate, cve_parsingdate);
+
 
 CREATE TABLE CveChecked
 (
@@ -485,6 +487,7 @@ CREATE TABLE CveChecked
     `cc_checked_ver.pkg_branch` Array(String)
 )
     ENGINE = MergeTree PRIMARY KEY (cve_id, pkg_name) ORDER BY (cve_id, pkg_name, cc_checkdate);
+
 
 CREATE TABLE FstecBduList
 (
@@ -819,17 +822,7 @@ WHERE (pkgset_name, pkgset_date) IN
     GROUP BY pkgset_name
 );
 
--- CREATE
--- OR REPLACE VIEW last_packages AS
--- SELECT *
--- FROM last_pkgset
--- INNER JOIN 
--- (
---     SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
---     FROM Packages_buffer
--- ) AS Packages USING (pkg_hash);
 
--- New last_packages
 CREATE
 OR REPLACE VIEW last_packages AS
 SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
@@ -902,7 +895,7 @@ INNER JOIN
 ) AS PkgSet USING (pkg_hash);
 
 
--- table with source package name - binary package name pairs
+-- table with [source package name : binary package name] pairs
 -- populate for migration with SELECT from mv_packages_source_and_binaries below
 CREATE TABLE PackagesSourceAndBinaries
 (
