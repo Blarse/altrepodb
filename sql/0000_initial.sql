@@ -773,7 +773,8 @@ SELECT
     pkgset_nodename as pkgset_name,
     pkgset_date
 FROM PackageSetName
-WHERE pkgset_depth = 0;
+WHERE pkgset_depth = 0
+    AND pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] = 'repository';
 
 -- MV STAGE2
 CREATE MATERIALIZED VIEW mv_last_packages_stage2
