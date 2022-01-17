@@ -80,7 +80,7 @@ class DatabaseClient:
 
     def execute(self, *args, **kwargs) -> Any:
         if not self.connected:
-            self._get_connection
+            self.conn = self._get_connection()
         try:
             res = self.conn.execute(*args, **kwargs)
         except errors.Error as error:
