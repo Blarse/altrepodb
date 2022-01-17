@@ -14,7 +14,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import json
 import shutil
 import tempfile
 import datetime
@@ -192,19 +191,15 @@ class ImageMeta:
     date: datetime.datetime
     file: str
     branch: str
+    flavor: str
     edition: str
     variant: str
+    platform: str
     release: str
     version_major: int
     version_minor: int
     version_sub: int
     image_type: str
-
-
-def stringify_image_meta(meta: ImageMeta) -> str:
-    """Return image meta information class as string JSON dump."""
-
-    return json.dumps({k: str(v) for k, v in asdict(meta).items()})
 
 
 class ISO:
@@ -672,12 +667,25 @@ INSERT INTO PackageHash_buffer (*) VALUES
 """
 
 
+def stringify_image_meta(meta: ImageMeta) -> dict[str, str]:
+    """Convert ImageMeta dataclass to dictionary of strings."""
+
+    t = asdict(meta)
+    for k,v in t.items():
+        if isinstance(v, datetime.datetime):
+            t[k] = v.isoformat()
+        else:
+            t[k] = str(v)
+
+    return t
+
+
 class ISOProcessor:
     def __init__(self, config: ISOProcessorConfig, image_meta: ImageMeta) -> None:
         self.config = config
         self.meta = image_meta
         self.sql = SQL()
-        self.name = self._build_iso_name()
+        self.tag = self._build_iso_tag()
 
         if self.config.logger is not None:
             self.logger = self.config.logger
@@ -694,11 +702,13 @@ class ISOProcessor:
             iso_name=self.meta.file, iso_path=self.config.path, logger=self.logger
         )
 
-    def _build_iso_name(self) -> str:
+    def _build_iso_tag(self) -> str:
         return ":".join(
             (
                 self.meta.branch,
                 self.meta.edition,
+                self.meta.flavor,
+                self.meta.platform,
                 ".".join(
                     (
                         self.meta.release,
@@ -1029,14 +1039,14 @@ class ISOProcessor:
         # 1. packageset root
         ruuid_ = str(uuid4())
         root = PackageSet(
-            name=self.name,
+            name=self.meta.edition,
             uuid=ruuid_,
             puuid="00000000-0000-0000-0000-000000000000",
             ruuid=ruuid_,
             date=self.meta.date,
             depth=0,
             complete=1,
-            tag=self.name,
+            tag=self.tag,
             kw_args={
                 "type": "iso",
                 "size": str(self.iso.iso.size),
@@ -1046,7 +1056,7 @@ class ISOProcessor:
             package_hashes=[],
         )
         root.kw_args.update(asdict(self.iso.iso.meta))
-        root.kw_args.update({"json": stringify_image_meta(self.meta)})
+        root.kw_args.update(stringify_image_meta(self.meta))
         iso_pkgsets.append(root)
         self.logger.debug(f"PackageSet root {root}")
         # 2. ISO image RPM packages
@@ -1117,24 +1127,25 @@ class ISOProcessor:
                 if pkgset.package_hashes:
                     psh.insert_pkgset(pkgset.uuid, pkgset.package_hashes)
 
-    def _check_iso_date_name_in_db(
-        self, iso_name: str, pkgset_date: datetime.date
+    def _check_iso_tag_date_in_db(
+        self, iso_tag: str, pkgset_date: datetime.date
     ) -> bool:
         result = self.conn.execute(
             f"SELECT COUNT(*) FROM PackageSetName WHERE "
-            f"pkgset_nodename='{iso_name}' AND pkgset_date='{pkgset_date}'"
+            f"pkgset_tag='{iso_tag}' AND pkgset_date='{pkgset_date}'"
         )
         return result[0][0] != 0  # type: ignore
 
     def run(self) -> None:
         # -1. check if ISO is already loaded to DB
         if not self.config.force:
-            if self._check_iso_date_name_in_db(self.name, self.meta.date):
-                self.logger.info(f"ISO image '{self.name}' already exists in database")
+            if self._check_iso_tag_date_in_db(self.tag, self.meta.date):
+                self.logger.info(f"ISO image '{self.tag}' already exists in database")
                 if not self.config.dryrun:
                     return
         # 0. mount and parse ISO image
         self.iso.run()
+        self.logger.info(f"Image tag : {self.tag}")
         self.logger.info(f"ISO info:\n{self.iso.iso.meta.isoinfo}")
         # 1. check ISO packages in branch
         missing: list[Package] = []
