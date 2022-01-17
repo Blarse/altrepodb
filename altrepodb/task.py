@@ -304,7 +304,7 @@ class TaskFilesParser:
                 # parse 'add-src' or 'add-bin' file
                 if is_src:  # parse 'add-src' file
                     res.append(
-                        TaskPlanAddRmPkgInfo(*s[0:2], "", *s[2:4], int(s[4]), "")  # type: ignore
+                        TaskPlanAddRmPkgInfo(*s[0:2], "src", *s[2:4], int(s[4]), "")  # type: ignore
                     )
                 else:  # parse 'add-bin' file
                     if len(s) >= 7:
@@ -315,7 +315,7 @@ class TaskFilesParser:
                 # parse 'rm-src' or 'rm-bin' file
                 if is_src:  # parse 'rm-src' file
                     res.append(
-                        TaskPlanAddRmPkgInfo(*s[0:2], "", s[2], "", 0, "")  # type: ignore
+                        TaskPlanAddRmPkgInfo(*s[0:2], "src", s[2], "", 0, "")  # type: ignore
                     )
                 else:  # parse 'rm-bin' file
                     if len(s) >= 5:
@@ -1370,7 +1370,7 @@ class TaskParser:
             load_plan = True
         if load_plan:
             # 1 - get binary packages add and delete from plan
-            pkgadd = {}
+            pkgadd: dict[str, TaskPlanAddRmPkgInfo] = {}
             if self.tf.check_file("plan/add-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/add-src"), is_add=True, is_src=True
@@ -1384,7 +1384,7 @@ class TaskParser:
                 for pkg in pkg_add:
                     pkgadd[pkg.file] = pkg
 
-            pkgdel = {}
+            pkgdel: dict[str, TaskPlanAddRmPkgInfo] = {}
             if self.tf.check_file("plan/rm-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/rm-src"), is_add=False, is_src=True
@@ -1641,17 +1641,20 @@ class TaskParser:
 
     def _parse_iterations(self) -> None:
         # parse '/build' for 'TaskIterations'
-        # 0 - get src and binary packages from plan
         src_pkgs: dict[int, str] = {}
         bin_pkgs: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-
-        if self.task.plan.pkg_add:
-            for pkg in self.task.plan.pkg_add["src"].values():
-                src_pkgs[pkg.subtask_id] = pkg.path
-            for arch in [k for k in self.task.plan.pkg_add.keys() if k != "src"]:
-                for pkg in self.task.plan.pkg_add[arch].values():
-                    bin_pkgs[pkg.subtask_id][arch].append(pkg.path)
-
+        # 0 - get src and binary packages from plan
+        t = self.tf.get_text("plan/add-src")
+        if t:
+            for *_, pkg_path, n in [x.split("\t") for x in t.split("\n") if len(x) > 0]:
+                src_pkgs[int(n)] = pkg_path
+        t = self.tf.get_text("plan/add-bin")
+        if t:
+            for _, _, arch, _, pkg_path, n, *_ in [
+                x.split("\t") for x in t.split("\n") if len(x) > 0
+            ]:
+                bin_pkgs[int(n)][arch].append(pkg_path)
+        # 1 - get contents from /build/%subtask_id%/%arch%
         for subtask in (
             x.name for x in self.tf.get_file_path("build").glob("[0-7]*") if x.is_dir()
         ):
@@ -1754,7 +1757,7 @@ class TaskParser:
                                     hash_string=log_hash,
                                 )
                             )
-        # generate task iterations for subtask with 'delete' action
+        # 2 - generate task iterations for subtask with 'delete' action
         build_subtasks = {x.subtask_id for x in self.task.iterations}
         for sub in self.task.subtasks:
             if sub.deleted == 0 and sub.type == "delete":
