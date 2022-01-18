@@ -571,7 +571,7 @@ def log_load_worker_pool(
     # TODO: add progress bar
     st = time.time()
     taskfp = TaskFilesParser(logger)
-    workers: list[LogLoaderWorker] = []
+    workers: list[RaisingTread] = []
     connections: list[DatabaseClient] = []
     logs: Iterator[TaskLog] = LockedIterator((log for log in logs_list))  # type: ignore
     logs_count: list[int] = []
@@ -592,16 +592,16 @@ def log_load_worker_pool(
         worker.start()
         workers.append(worker)
 
-    for w in workers:
-        try:
+    try:
+        for w in workers:
             w.join()
-        except RaisingThreadError as e:
-            logger.error(e.message)
-            raise e
-
-    for c in connections:
-        if c is not None:
-            c.disconnect()
+    except RaisingThreadError as e:
+        logger.error(e.message)
+        raise e
+    finally:
+        for c in connections:
+            if c is not None:
+                c.disconnect()
 
     logger.info(
         f"{sum(logs_count)} log files loaded in {(time.time() - st):.3f} seconds"
@@ -803,7 +803,7 @@ def titer_load_worker_pool(
 ):
     # TODO: add progress bar
     st = time.time()
-    workers: list[TaskIterationLoaderWorker] = []
+    workers: list[RaisingTread] = []
     connections: list[DatabaseClient] = []
     titer_count: list[int] = []
     titers: Iterator[TaskIteration] = LockedIterator((t for t in task.iterations))  # type: ignore
@@ -841,16 +841,16 @@ def titer_load_worker_pool(
         worker.start()
         workers.append(worker)
 
-    for w in workers:
-        try:
+    try:
+        for w in workers:
             w.join()
-        except RaisingThreadError as e:
-            logger.error(e.message)
-            raise e
-
-    for c in connections:
-        if c is not None:
-            c.disconnect()
+    except RaisingThreadError as e:
+        logger.error(e.message)
+        raise e
+    finally:
+        for c in connections:
+            if c is not None:
+                c.disconnect()
 
     logger.info(
         f"{sum(titer_count)} TaskIteration loaded in {(time.time() - st):.3f} seconds"
@@ -963,9 +963,9 @@ def package_load_worker_pool(
 ):
     # TODO: add progress bar
     st = time.time()
-    workers = []
-    pkg_count = []
-    connections = []
+    workers: list[RaisingTread] = []
+    pkg_count: list[int] = []
+    connections: list[DatabaseClient] = []
     packages: Iterator[str] = LockedIterator((pkg for pkg in task.arepo))  # type: ignore
 
     if not conf.force:
@@ -991,17 +991,17 @@ def package_load_worker_pool(
         worker.start()
         workers.append(worker)
 
-    for w in workers:
-        try:
+    try:
+        for w in workers:
             w.join()
-        except RaisingThreadError as e:
-            logger.error(e.message)
-            # print(e.traceback)
-            raise e
+    except RaisingThreadError as e:
+        logger.error(e.message)
+        raise e
+    finally:
+        for c in connections:
+            if c is not None:
+                c.disconnect()
 
-    for c in connections:
-        if c is not None:
-            c.disconnect()
     if sum(pkg_count):
         logger.info(
             f"{sum(pkg_count)} packages loaded in {(time.time() - st):.3f}"
