@@ -34,20 +34,15 @@ ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
 VARIANTS = ("install", "live", "rescue")
 RELEASES = ("alpha", "beta", "rc", "release")
 EDITIONS = (
-    "alt-sisyphus",
-    "altlinux-",
-    "regular-",
-    "alt-p8",
-    "alt-p9",
-    "alt-p10",
     "alt-server",
     "alt-server-v",
     "alt-education",
     "alt-workstation",
     "alt-kworkstation",
     "slinux",
-    "alt-simply",
 )
+FLAVORS = ("",)
+PLATFORMS = ("", "baikalm",)
 
 os.environ["LANG"] = "C"
 
@@ -72,11 +67,14 @@ def get_args():
         description="Load ISO image structure to database",
     )
     parser.add_argument("path", type=str, help="Path to ISO image file")
-    parser.add_argument("--edition", required=True, type=check_edition, help="ISO image edition")
+    # parser.add_argument("--edition", required=True, type=check_edition, help="ISO image edition")
+    parser.add_argument("--edition", required=True, type=str, choices=EDITIONS, help="ISO image edition")
     parser.add_argument("--version", required=True, type=valid_version, help="ISO image version (e.g. 9.2, 8.1.3, 20211205)")
     parser.add_argument("--release", required=True, type=str, choices=RELEASES, help="ISO image release type")
+    parser.add_argument("--platform", required=True, type=str, choices=PLATFORMS, default="", help="ISO image platform")
     parser.add_argument("--variant", required=True, type=str, choices=VARIANTS, help="ISO image variant")
-    parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="ISO image architecture")
+    parser.add_argument("--flavor", required=True, type=str, choices=FLAVORS, default="", help="ISO image flavor")
+    parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="ISO image arch")
     parser.add_argument("--branch", required=True, type=str, help="ISO image base branch name")
     parser.add_argument("--date", required=True, type=valid_date, help="ISO image date")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
@@ -138,10 +136,10 @@ def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
         arch=args.arch,
         date=args.date,
         branch=args.branch,
-        flavor="",
+        flavor=args.flavor,
         edition=args.edition,
         variant=args.variant,
-        platform="",
+        platform=args.platform,
         release=args.release,
         version_major=mj_,
         version_minor=mn_,
