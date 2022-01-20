@@ -25,6 +25,7 @@ from altrepodb.iso import ISOProcessor, ImageMeta
 from altrepodb.database import DatabaseConfig
 from altrepodb.utils import (
     get_logger,
+    valid_url,
     valid_date,
     valid_version,
 )
@@ -77,6 +78,7 @@ def get_args():
     parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="ISO image arch")
     parser.add_argument("--branch", required=True, type=str, help="ISO image base branch name")
     parser.add_argument("--date", required=True, type=valid_date, help="ISO image date")
+    parser.add_argument("--url", required=True, type=valid_url, help="ISO image download URL")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
@@ -145,6 +147,7 @@ def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
         version_minor=mn_,
         version_sub=su_,
         image_type="iso",
+        url=args.url,
     )
     iso = ISOProcessor(config=config, image_meta=meta)    
     iso.run()
