@@ -870,7 +870,7 @@ GROUP BY
 CREATE
 OR REPLACE VIEW last_depends AS
 SELECT 
-    Depends_buffer.*,
+    Depends.*,
     pkg_name,
     pkg_version,
     pkgset_name,
@@ -879,7 +879,7 @@ SELECT
     pkg_arch,
     pkg_filename,
     pkg_sourcerpm
-FROM Depends_buffer ALL
+FROM Depends ALL
 INNER JOIN 
 (
     SELECT
@@ -1094,3 +1094,75 @@ CREATE TABLE PackagesWatch
 ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(date_update)
 ORDER BY (acl, date_update, pkg_name, old_version, new_version, url);
+
+
+-- Distribution images related tables
+-- table for unpacked images package set roots
+CREATE TABLE ImagePackageSetName
+(
+    pkgset_uuid         UUID,
+    pkgset_date         DateTime,
+    img_tag             String,
+    img_branch          LowCardinality(String),
+    img_edition         LowCardinality(String),
+    img_flavor          LowCardinality(String),
+    img_platform        LowCardinality(String),
+    img_release         LowCardinality(String),
+    img_version_major   UInt32,
+    img_version_minor   UInt8,
+    img_version_sub     UInt8,
+    img_arch            LowCardinality(String),
+    img_variant         LowCardinality(String),
+    img_type            LowCardinality(String),
+    img_kv              Map(String,String)
+) ENGINE = MergeTree 
+PRIMARY KEY (pkgset_date, img_branch, img_edition)
+ORDER BY (pkgset_date, img_branch, img_edition, img_arch, img_variant, img_release);
+
+-- MV for image package set
+CREATE MATERIALIZED VIEW mv_image_pkgset TO ImagePackageSetName
+(
+    pkgset_uuid         UUID,
+    pkgset_date         DateTime,
+    img_tag             String,
+    img_branch          LowCardinality(String),
+    img_edition         LowCardinality(String),
+    img_flavor          LowCardinality(String),
+    img_platform        LowCardinality(String),
+    img_release         LowCardinality(String),
+    img_version_major   UInt32,
+    img_version_minor   UInt8,
+    img_version_sub     UInt8,
+    img_arch            LowCardinality(String),
+    img_variant         LowCardinality(String),
+    img_type            LowCardinality(String),
+    img_kv              Map(String,String)
+) AS SELECT
+    pkgset_uuid,
+    pkgset_date,
+    pkgset_tag AS img_tag,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'branch')] AS img_branch,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'edition')] AS img_edition,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'flavor')] AS img_flavor,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'platform')] AS img_platform,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'release')] AS img_release,
+    toUInt32(pkgset_kv.v[indexOf(pkgset_kv.k, 'version_major')]) AS img_version_major,
+    toUInt8(pkgset_kv.v[indexOf(pkgset_kv.k, 'version_minor')]) AS img_version_minor,
+    toUInt8(pkgset_kv.v[indexOf(pkgset_kv.k, 'version_sub')]) AS img_version_sub,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'arch')] AS img_arch,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'variant')] AS img_variant,
+    pkgset_kv.v[indexOf(pkgset_kv.k, 'image_type')] AS img_type,
+    MAP.kv as img_kv
+FROM PackageSetName
+LEFT JOIN
+(
+    SELECT
+        pkgset_uuid,
+        cast(arrayZip(groupArray(arrayJoin(pkgset_kv.k) AS K), groupArray(pkgset_kv.v[indexOf(pkgset_kv.k, K)] AS V)), 'Map(String,String)') AS kv
+    FROM PackageSetName
+    WHERE pkgset_depth = 0
+        AND pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] != 'repository'
+        AND K NOT IN ['branch', 'edition', 'flavor', 'platform', 'release', 'version_major', 'version_minor', 'version_sub', 'arch', 'variant', 'image_type']
+    GROUP BY pkgset_uuid
+) AS MAP USING pkgset_uuid
+WHERE pkgset_depth = 0 AND pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] != 'repository';
