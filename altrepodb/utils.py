@@ -150,6 +150,17 @@ def valid_version(version: str) -> tuple[int, int, int]:
         raise argparse.ArgumentTypeError(msg)
 
 
+def valid_url(url: str) -> str:
+    """Check if string is valid URL."""
+
+    url_match = re.compile(
+        "((([A-Za-z]{3,9}:(?:\/\/)?)(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)((?:\/[\+~%\/.\w\-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)"  # type: ignore
+    )
+    if not url_match.search(url):
+        raise argparse.ArgumentTypeError("Not a valid URL")
+    return url
+
+
 def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
     """Check whether the hash is in the cache."""
 
@@ -414,6 +425,38 @@ def blake2b_from_file(
         return hash.hexdigest().upper()
     else:
         return hash.hexdigest()
+
+
+def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
+    """Calculates MD5, SHA256 and GOST12 hashes from file."""
+
+    md5_h = md5()
+    sha256_h = sha256()
+
+    try:
+        gost12_h = subprocess.Popen(
+                "gost12sum",
+                shell=False,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+        with open(fname, "rb") as f:
+            for byte_block in iter(lambda: f.read(8192), b""):
+                md5_h.update(byte_block)
+                sha256_h.update(byte_block)
+                gost12_h.stdin.write(byte_block)  # type: ignore
+
+        r = gost12_h.communicate()[0]
+        if gost12_h.returncode != 0:
+            raise RunCommandError("Subprocess 'gost12sum' returned non zero code")
+    except Exception as e:
+        gost12_h.kill()  # type: ignore
+        gost12_h.wait(timeout=10)  # type: ignore
+        raise e
+
+    gost12_hexdigest = r.decode("utf-8").split(" ")[0]
+
+    return md5_h.hexdigest(), sha256_h.hexdigest(), gost12_hexdigest
 
 
 def join_dicts_with_as_string(
