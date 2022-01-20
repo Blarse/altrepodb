@@ -48,6 +48,7 @@ from .utils import (
     md5_from_file,
     sha1_from_file,
     cvt_ts_to_datetime,
+    checksums_from_file,
 )
 from .database import DatabaseClient
 
@@ -173,6 +174,9 @@ class ISOImageMeta:
     info: str
     commit: str
     isoinfo: str
+    md5_cs: str = ""
+    sha256_cs: str = ""
+    gost12_cs: str = ""
 
 
 @dataclass
@@ -187,6 +191,7 @@ class ISOImage:
 
 @dataclass
 class ImageMeta:
+    url: str
     arch: str
     date: datetime.datetime
     file: str
@@ -244,6 +249,7 @@ class ISO:
             "isoinfo",
             "fuseiso",
             "squashfuse",
+            "gost12sum",
         ):
             if shutil.which(executable) is None:
                 self.logger.error(f"Executable '{executable}' not found")
@@ -251,6 +257,20 @@ class ISO:
         if not_found_:
             not_found_ = ", ".join(not_found_)
             raise ISOProcessingExecutableNotFoundError(not_found_)
+
+    def _get_iso_checksums(self) -> None:
+        """Caclulates MD5, SHA256 and GOST12 checksums from ISO file."""
+
+        self.logger.info(
+            f"Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
+        )
+        md5_, sha256_, gost12_ = checksums_from_file(self._iso.path)
+        self._iso.meta.md5_cs = md5_
+        self._iso.meta.sha256_cs = sha256_
+        self._iso.meta.gost12_cs = gost12_
+        self.logger.info(
+            f"ISO file checksums: MD5 [{md5_}], SHA256 [{sha256_}], GOST12 [{gost12_}]"
+        )
 
     def _open_iso(self) -> None:
         """Open ISO image for file processing."""
@@ -430,6 +450,7 @@ class ISO:
         self.logger.info(f"Processing {self._iso.name} ISO image")
         self._check_system_executables()
         try:
+            self._get_iso_checksums()
             self._open_iso()
             self._process_iso()
             self._process_squashfs()
@@ -671,7 +692,7 @@ def stringify_image_meta(meta: ImageMeta) -> dict[str, str]:
     """Convert ImageMeta dataclass to dictionary of strings."""
 
     t = asdict(meta)
-    for k,v in t.items():
+    for k, v in t.items():
         if isinstance(v, datetime.datetime):
             t[k] = v.isoformat()
         else:
