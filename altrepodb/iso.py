@@ -23,6 +23,8 @@ from typing import Any, Union
 from pathlib import Path
 from uuid import uuid4
 
+from multiprocessing import Process, Queue
+
 from .repo import PackageSetHandler
 from .base import File, Package, ISOProcessorConfig, DEFAULT_LOGGER, PkgHash, PackageSet
 from .rpmdb import RPMDBPackages, RPMDBOpenError
@@ -258,20 +260,6 @@ class ISO:
             not_found_ = ", ".join(not_found_)
             raise ISOProcessingExecutableNotFoundError(not_found_)
 
-    def _get_iso_checksums(self) -> None:
-        """Caclulates MD5, SHA256 and GOST12 checksums from ISO file."""
-
-        self.logger.info(
-            f"Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
-        )
-        md5_, sha256_, gost12_ = checksums_from_file(self._iso.path)
-        self._iso.meta.md5_cs = md5_
-        self._iso.meta.sha256_cs = sha256_
-        self._iso.meta.gost12_cs = gost12_
-        self.logger.info(
-            f"ISO file checksums: MD5 [{md5_}], SHA256 [{sha256_}], GOST12 [{gost12_}]"
-        )
-
     def _open_iso(self) -> None:
         """Open ISO image for file processing."""
 
@@ -450,10 +438,33 @@ class ISO:
         self.logger.info(f"Processing {self._iso.name} ISO image")
         self._check_system_executables()
         try:
-            self._get_iso_checksums()
+            # run ISO image checksums calculatio in parallel process
+            self.logger.info(
+                f"Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
+            )
+
+            def checksums_from_file_mp(path: str, q: Queue):
+                q.put(checksums_from_file(path))
+
+            q = Queue()
+            p = Process(target=checksums_from_file_mp, args=(self._iso.path, q))
+            p.start()
+            # process ISO contents
             self._open_iso()
             self._process_iso()
             self._process_squashfs()
+            # store calculated checksums
+            md5_, sha256_, gost12_ = q.get()
+            p.join()
+
+            self._iso.meta.md5_cs = md5_
+            self._iso.meta.sha256_cs = sha256_
+            self._iso.meta.gost12_cs = gost12_
+
+            self.logger.info(
+                f"ISO file checksums: MD5 [{md5_}], SHA256 [{sha256_}], GOST12 [{gost12_}]"
+            )
+
             self._parsed = True
         except ISOProcessingError:
             self.logger.error(

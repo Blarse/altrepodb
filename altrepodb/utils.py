@@ -430,6 +430,7 @@ def blake2b_from_file(
 def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
     """Calculates MD5, SHA256 and GOST12 hashes from file."""
 
+    CHUNK_SIZE = 16384  # read file by 16 kB chunks
     md5_h = md5()
     sha256_h = sha256()
 
@@ -441,12 +442,12 @@ def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
                 stdout=subprocess.PIPE,
             )
         with open(fname, "rb") as f:
-            for byte_block in iter(lambda: f.read(8192), b""):
+            for byte_block in iter(lambda: f.read(CHUNK_SIZE), b""):
                 md5_h.update(byte_block)
                 sha256_h.update(byte_block)
                 gost12_h.stdin.write(byte_block)  # type: ignore
 
-        r = gost12_h.communicate()[0]
+        res, _ = gost12_h.communicate()
         if gost12_h.returncode != 0:
             raise RunCommandError("Subprocess 'gost12sum' returned non zero code")
     except Exception as e:
@@ -454,7 +455,7 @@ def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
         gost12_h.wait(timeout=10)  # type: ignore
         raise e
 
-    gost12_hexdigest = r.decode("utf-8").split(" ")[0]
+    gost12_hexdigest = res.decode("utf-8").split(" ")[0]
 
     return md5_h.hexdigest(), sha256_h.hexdigest(), gost12_hexdigest
 
