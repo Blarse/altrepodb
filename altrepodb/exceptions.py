@@ -60,11 +60,11 @@ class RaisingThreadError(Exception):
 
 
 # ISO processing exceptions
-class ISOProcessingError(Exception):
+class ImageProcessingError(Exception):
     pass
 
 
-class ISOProcessingExecutableNotFoundError(ISOProcessingError):
+class ImageProcessingExecutableNotFoundError(ImageProcessingError):
     """Rises when required executables not found in system."""
 
     def __init__(self, executable: str):
@@ -72,7 +72,7 @@ class ISOProcessingExecutableNotFoundError(ISOProcessingError):
         super().__init__(f"Executables [{self.executable}] not found in system path")
 
 
-class ISOProcessingBranchMismatchError(ISOProcessingError):
+class ImageProcessingBranchMismatchError(ImageProcessingError):
     """Rises when provided branch mismatch with branch from RPM packages."""
 
     def __init__(self, cfg_branch: str, pkg_branch: str):
@@ -84,7 +84,7 @@ class ISOProcessingBranchMismatchError(ISOProcessingError):
         )
 
 
-class ISOProcessingPackageNotInDBError(ISOProcessingError):
+class ImageProcessingPackageNotInDBError(ImageProcessingError):
     """Rises when RPM package not found in database."""
 
     def __init__(self, missing: list):
@@ -92,30 +92,30 @@ class ISOProcessingPackageNotInDBError(ISOProcessingError):
         super().__init__(f"{len(self.missing)} packages not found in database")
 
 
-class ISOProcessingGuessBranchError(ISOProcessingError):
+class ImageProcessingGuessBranchError(ImageProcessingError):
     """Rises when failed to guess branch by set of packages."""
 
     def __init__(self):
         super().__init__(f"Failed to guess branch by packages.")
 
 
-class ISOImageInvalidError(ISOProcessingError):
-    """Rises when provided path is not an valid ISO image."""
+class ImageInvalidError(ImageProcessingError):
+    """Rises when provided path is not a valid image."""
 
     def __init__(self, path: str = ""):
         self.path = path
-        super().__init__(f"{self.path} is not valid ISO image")
+        super().__init__(f"{self.path} is not a valid image")
 
 
-class ISOImageOpenError(ISOProcessingError):
-    """Rises when provided path is not an valid ISO image."""
+class ImageOpenError(ImageProcessingError):
+    """Rises when provided path is not a valid image."""
 
     def __init__(self, path: str = ""):
         self.path = path
-        super().__init__(f"Failed to mount ISO image {self.path}")
+        super().__init__(f"Failed to open image {self.path}")
 
 
-class ImageMounterMountError(ISOProcessingError):
+class ImageMountError(ImageProcessingError):
     """Rises when failed to mount image."""
 
     def __init__(self, image_path: str = "", mount_point: str = ""):
@@ -126,7 +126,7 @@ class ImageMounterMountError(ISOProcessingError):
         )
 
 
-class ImageMounterUnmountError(ISOProcessingError):
+class ImageUnmountError(ImageProcessingError):
     """Rises when failed to unmount image."""
 
     def __init__(self, image_path: str = "", mount_point: str = ""):
@@ -137,7 +137,7 @@ class ImageMounterUnmountError(ISOProcessingError):
         )
 
 
-class ImageMounterImageTypeError(ISOProcessingError):
+class ImageTypeError(ImageProcessingError):
     """Rises when found unsupported image type."""
 
     def __init__(self, image_name: str = "", image_type: str = ""):
@@ -148,7 +148,7 @@ class ImageMounterImageTypeError(ISOProcessingError):
         )
 
 
-class ImageMounterRunCommandError(ISOProcessingError):
+class ImageRunCommandError(ImageProcessingError):
     """Rises when subprocess commandline exited with non zero code."""
 
     pass
