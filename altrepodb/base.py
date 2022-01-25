@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Generator, Optional, Union, Any, DefaultDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 
 from .logger import LoggerProtocol, _LoggerOptional, FakeLogger, ConsoleLogger
 from .exceptions import RaisingThreadError
@@ -269,7 +269,7 @@ class Task:
 
 
 @dataclass
-class ISOProcessorConfig:
+class ImageProcessorConfig:
     path: _StringOrPath
     logger: _LoggerOptional
     dbconfig: DatabaseConfig
@@ -290,3 +290,34 @@ class PackageSet:
     tag: str = ""
     kw_args: dict[str, str] = field(default_factory=dict)
     package_hashes: list[int] = field(default_factory=list)
+
+
+@dataclass
+class ImageMeta:
+    url: str
+    arch: str
+    date: datetime
+    file: str
+    branch: str
+    flavor: str
+    edition: str
+    variant: str
+    platform: str
+    release: str
+    version_major: int
+    version_minor: int
+    version_sub: int
+    image_type: str
+
+
+def stringify_image_meta(meta: ImageMeta) -> dict[str, str]:
+    """Convert ImageMeta dataclass to dictionary of strings."""
+
+    t = asdict(meta)
+    for k, v in t.items():
+        if isinstance(v, datetime):
+            t[k] = v.isoformat()
+        else:
+            t[k] = str(v)
+
+    return t
