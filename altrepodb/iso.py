@@ -26,22 +26,31 @@ from uuid import uuid4
 from multiprocessing import Process, Queue
 
 from .repo import PackageSetHandler
-from .base import File, Package, ISOProcessorConfig, DEFAULT_LOGGER, PkgHash, PackageSet
+from .base import (
+    File,
+    Package,
+    PkgHash,
+    ImageMeta,
+    PackageSet,
+    ImageProcessorConfig,
+    stringify_image_meta,
+    DEFAULT_LOGGER,
+)
 from .rpmdb import RPMDBPackages, RPMDBOpenError
 from .logger import LoggerProtocol, _LoggerOptional
 from .exceptions import (
     RunCommandError,
-    ImageMounterMountError,
-    ImageMounterUnmountError,
-    ImageMounterImageTypeError,
-    ImageMounterRunCommandError,
-    ISOImageOpenError,
-    ISOProcessingError,
-    ISOImageInvalidError,
-    ISOProcessingGuessBranchError,
-    ISOProcessingBranchMismatchError,
-    ISOProcessingPackageNotInDBError,
-    ISOProcessingExecutableNotFoundError,
+    ImageMountError,
+    ImageUnmountError,
+    ImageTypeError,
+    ImageRunCommandError,
+    ImageOpenError,
+    ImageProcessingError,
+    ImageInvalidError,
+    ImageProcessingGuessBranchError,
+    ImageProcessingBranchMismatchError,
+    ImageProcessingPackageNotInDBError,
+    ImageProcessingExecutableNotFoundError,
 )
 from .utils import (
     mmhash,
@@ -57,6 +66,16 @@ from .database import DatabaseClient
 
 #  custom types
 _StringOrPath = Union[str, Path]
+
+# module constants
+RUN_COMMAND_TIMEOUT = 10
+REQUIRED_EXECUTABLES = (
+    "umount",
+    "isoinfo",
+    "fuseiso",
+    "squashfuse",
+    "gost12sum",
+)
 
 
 @dataclass
@@ -86,7 +105,7 @@ class ImageMounter:
 
         if image_type not in ("iso", "squashfs"):
             self._log.error(f"Unsupported filesystem image type {image_type}")
-            raise ImageMounterImageTypeError(self.name, self.type)
+            raise ImageTypeError(self.name, self.type)
 
         self._image_path = image_path
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -96,42 +115,48 @@ class ImageMounter:
     def _run_command(self, *args):
         try:
             _, _, _, _ = run_command(
-                *args, raise_on_error=True, logger=self._log, timeout=10
+                *args,
+                raise_on_error=True,
+                logger=self._log,
+                timeout=RUN_COMMAND_TIMEOUT,
             )
         except RunCommandError as e:
-            raise ImageMounterRunCommandError("Subprocess returned an error") from e
+            raise ImageRunCommandError("Subprocess returned an error") from e
 
     def _unmount(self, path: str) -> None:
         self._log.info(f"Unmounting {path}...")
         try:
             self._run_command("umount", path)
-        except ImageMounterRunCommandError as e:
-            raise ImageMounterUnmountError(self._image_path, self.path) from e
+        except ImageRunCommandError as e:
+            raise ImageUnmountError(self._image_path, self.path) from e
 
-    def _mount_iso(self, iso_path: str, mount_path: str) -> None:
-        self._log.info(f"Mounting ISO image {iso_path} to {mount_path}")
+    def _mount_iso(self, target_path: str, mount_path: str) -> None:
+        self._log.info(f"Mounting ISO image {target_path} to {mount_path}")
         try:
-            self._run_command("fuseiso", iso_path, mount_path)
-        except ImageMounterRunCommandError as e:
-            raise ImageMounterMountError(self._image_path, self.path) from e
+            self._run_command("fuseiso", target_path, mount_path)
+        except ImageRunCommandError as e:
+            raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount_sqfs(self, iso_path: str, mount_path: str) -> None:
-        self._log.info(f"Mounting SquashFS image {iso_path} to {mount_path}")
+    def _mount_sqfs(self, target_path: str, mount_path: str) -> None:
+        self._log.info(f"Mounting SquashFS image {target_path} to {mount_path}")
         try:
-            self._run_command("squashfuse", iso_path, mount_path)
-        except ImageMounterRunCommandError as e:
-            raise ImageMounterMountError(self._image_path, self.path) from e
+            self._run_command("squashfuse", target_path, mount_path)
+        except ImageRunCommandError as e:
+            raise ImageMountError(self._image_path, self.path) from e
+
+    def _mount(self, target_path: str, mount_path: str, image_type: str) -> None:
+        if image_type == "iso":
+            self._mount_iso(target_path, mount_path)
+        elif image_type == "squashfs":
+            self._mount_sqfs(target_path, mount_path)
+        else:
+            self._log.error(f"Unsupported filesystem image type {image_type}")
+            raise ImageTypeError(self.name, self.type)
 
     def open(self):
         if not self.ismount:
             try:
-                if self.type == "iso":
-                    self._mount_iso(self._image_path, self.path)
-                elif self.type == "squashfs":
-                    self._mount_sqfs(self._image_path, self.path)
-                else:
-                    self._log.error(f"Unsupported filesystem image type {self.type}")
-                    raise ImageMounterImageTypeError(self.name, self.type)
+                self._mount(self._image_path, self.path, self.type)
                 self.ismount = True
             except Exception as e:
                 self._log.error(
@@ -145,7 +170,7 @@ class ImageMounter:
             try:
                 self._unmount(self.path)
             except Exception as e:
-                self._log.error(f"Failed to mount {self.type} image at {self.path}")
+                self._log.error(f"Failed to unmount {self.type} image at {self.path}")
                 raise e
             finally:
                 self.ismount = False
@@ -191,24 +216,6 @@ class ISOImage:
     packages: list[Package]
 
 
-@dataclass
-class ImageMeta:
-    url: str
-    arch: str
-    date: datetime.datetime
-    file: str
-    branch: str
-    flavor: str
-    edition: str
-    variant: str
-    platform: str
-    release: str
-    version_major: int
-    version_minor: int
-    version_sub: int
-    image_type: str
-
-
 class ISO:
     def __init__(
         self, iso_name: str, iso_path: _StringOrPath, logger: _LoggerOptional = None
@@ -232,8 +239,8 @@ class ISO:
                 isoinfo="",
             ),
             size=Path(self.iso_path).stat().st_size,
-            mount=ImageMounter("ISO", self.iso_path, "iso", self.logger),
-            packages=[],
+            mount=ImageMounter(self.iso_name, self.iso_path, "iso", self.logger),
+            packages=list(),
         )
 
     def _close(self) -> None:
@@ -246,33 +253,27 @@ class ISO:
 
     def _check_system_executables(self):
         not_found_ = []
-        for executable in (
-            "umount",
-            "isoinfo",
-            "fuseiso",
-            "squashfuse",
-            "gost12sum",
-        ):
+        for executable in REQUIRED_EXECUTABLES:
             if shutil.which(executable) is None:
                 self.logger.error(f"Executable '{executable}' not found")
                 not_found_.append(executable)
         if not_found_:
             not_found_ = ", ".join(not_found_)
-            raise ISOProcessingExecutableNotFoundError(not_found_)
+            raise ImageProcessingExecutableNotFoundError(not_found_)
 
     def _open_iso(self) -> None:
         """Open ISO image for file processing."""
 
         if not os.path.isfile(self._iso.path):
             self.logger.error(f"{self._iso.path} is not an ISO image")
-            raise ISOImageInvalidError(self._iso.path)
+            raise ImageInvalidError(self._iso.path)
 
         try:
             self.logger.info(f"Opening {self._iso.name} ISO image")
             self._iso.mount.open()
         except Exception as e:
             self.logger.error(f"Failed to mount ISO image {self._iso.path}")
-            raise ISOImageOpenError(self._iso.path) from e
+            raise ImageOpenError(self._iso.path) from e
 
         self.logger.info(f"Processing SquashFS images from ISO")
         for sqfs_name in ("live", "rescue", "altinst"):
@@ -299,7 +300,7 @@ class ISO:
                     self._sqfs.append(sqfs)
                 except Exception as e:
                     self.logger.error(f"Failed to mount '{sqfs_name}' SquashFS image")
-                    raise ISOImageOpenError(self._iso.path) from e
+                    raise ImageOpenError(self._iso.path) from e
 
     def _get_uid_gid_lut(self, path: Path) -> tuple[dict[int, str], dict[int, str]]:
         def parse_file(content: str) -> dict[int, str]:
@@ -466,7 +467,7 @@ class ISO:
             )
 
             self._parsed = True
-        except ISOProcessingError:
+        except ImageProcessingError:
             self.logger.error(
                 f"Error occured while processing ISO image", exc_info=True
             )
@@ -487,7 +488,7 @@ class ISO:
         return self._sqfs
 
 
-@dataclass
+@dataclass(frozen=True)
 class SQL:
     create_tmp_table = """
 CREATE TEMPORARY TABLE {tmp_table} {columns}
@@ -699,25 +700,12 @@ INSERT INTO PackageHash_buffer (*) VALUES
 """
 
 
-def stringify_image_meta(meta: ImageMeta) -> dict[str, str]:
-    """Convert ImageMeta dataclass to dictionary of strings."""
-
-    t = asdict(meta)
-    for k, v in t.items():
-        if isinstance(v, datetime.datetime):
-            t[k] = v.isoformat()
-        else:
-            t[k] = str(v)
-
-    return t
-
-
 class ISOProcessor:
-    def __init__(self, config: ISOProcessorConfig, image_meta: ImageMeta) -> None:
+    def __init__(self, config: ImageProcessorConfig, image_meta: ImageMeta) -> None:
         self.config = config
         self.meta = image_meta
         self.sql = SQL()
-        self.tag = self._build_iso_tag()
+        self.tag = self._build_tag()
 
         if self.config.logger is not None:
             self.logger = self.config.logger
@@ -730,11 +718,15 @@ class ISOProcessor:
             self.logger.setLevel("INFO")
 
         self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
-        self.iso = ISO(
-            iso_name=self.meta.file, iso_path=self.config.path, logger=self.logger
-        )
+        if self.meta.image_type == "iso":
+            self.iso = ISO(
+                iso_name=self.meta.file, iso_path=self.config.path, logger=self.logger
+            )
+        else:
+            self.logger.error(f"Unsupported image type {self.meta.image_type}")
+            raise ImageTypeError(self.meta.file, self.meta.image_type)
 
-    def _build_iso_tag(self) -> str:
+    def _build_tag(self) -> str:
         return ":".join(
             (
                 self.meta.branch,
@@ -788,7 +780,7 @@ class ISOProcessor:
             )
         )
         if not res:
-            raise ISOProcessingGuessBranchError
+            raise ImageProcessingGuessBranchError
         branch, date = res[0]
         # 5. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
@@ -1062,7 +1054,7 @@ class ISOProcessor:
                 f"Metapackage '{package.name}' for SquashFS '{sqfs.name}' inserted to DB"
             )
 
-    def _make_iso_pkgset(self) -> list[PackageSet]:
+    def _make_iso_pkgsets(self) -> list[PackageSet]:
         # build packageset structure from ISO image for PackageSetName table
         # depth 0: root: ISO itself with meta information in 'pkgset_kv' fields
         # depth 1: 'rpms': RPM packages found at ISO itself if any
@@ -1142,7 +1134,7 @@ class ISOProcessor:
             iso_pkgsets.append(pkgset)
         return iso_pkgsets
 
-    def _store_iso_pkgset(self, pkgsets: list[PackageSet]) -> None:
+    def _store_pkgsets(self, pkgsets: list[PackageSet]) -> None:
         # store ISO image pkgset
         psh = PackageSetHandler(conn=self.conn, logger=self.logger)
         # load ISO package set components from leaves to root
@@ -1159,7 +1151,7 @@ class ISOProcessor:
                 if pkgset.package_hashes:
                     psh.insert_pkgset(pkgset.uuid, pkgset.package_hashes)
 
-    def _check_iso_tag_date_in_db(
+    def _check_image_tag_date_in_db(
         self, iso_tag: str, pkgset_date: datetime.date
     ) -> bool:
         result = self.conn.execute(
@@ -1171,7 +1163,7 @@ class ISOProcessor:
     def run(self) -> None:
         # -1. check if ISO is already loaded to DB
         if not self.config.force:
-            if self._check_iso_tag_date_in_db(self.tag, self.meta.date):
+            if self._check_image_tag_date_in_db(self.tag, self.meta.date):
                 self.logger.info(f"ISO image '{self.tag}' already exists in database")
                 if not self.config.dryrun:
                     return
@@ -1206,7 +1198,7 @@ class ISOProcessor:
                     f"Packages not found in database:\n{[p for p in missing]}"
                 )
                 if not (self.config.dryrun or self.config.force):
-                    raise ISOProcessingPackageNotInDBError(missing=missing)
+                    raise ImageProcessingPackageNotInDBError(missing=missing)
         # 2. Proceed with SquashFS images without packages
         for sqfs in self.iso.sqfs:
             if sqfs.packages or not sqfs.files:
@@ -1234,6 +1226,6 @@ class ISOProcessor:
                     + "\n".join([p.name for p in missing])
                 )
                 if not (self.config.dryrun or self.config.force):
-                    raise ISOProcessingPackageNotInDBError(missing=missing)
+                    raise ImageProcessingPackageNotInDBError(missing=missing)
         # 4. build and store ISO image pkgset
-        self._store_iso_pkgset(self._make_iso_pkgset())
+        self._store_pkgsets(self._make_iso_pkgsets())
