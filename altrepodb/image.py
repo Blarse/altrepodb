@@ -32,6 +32,7 @@ from .repo import PackageSetHandler
 from .base import (
     Package,
     ImageMeta,
+    FakeLogger,
     PackageSet,
     ImageProcessorConfig,
     DEFAULT_LOGGER,
@@ -220,7 +221,7 @@ class ImageMounter:
 
 @dataclass
 class FylesystemImageMeta:
-    mtime: datetime.datetime
+    mtime: str = ""
     md5_cs: str = ""
     sha256_cs: str = ""
     gost12_cs: str = ""
@@ -238,27 +239,15 @@ class FilesystemImage:
     packages: list[Package]
 
 
-class TAR:
-    def __init__(
-        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
-    ) -> None:
+class ImageHandler:
+    """Image handler base class."""
+
+    def __init__(self, name: str, path: _StringOrPath):
         self._parsed = False
-        if logger is not None:
-            self.logger = logger
-        else:
-            self.logger = DEFAULT_LOGGER(name="ISO")
+        self.logger = FakeLogger(name="")
         self.name = name
         self.path = str(path)
-        self.p_ = Path(path)
-        self._image = FilesystemImage(
-            name=self.name,
-            path=self.path,
-            size=self.p_.stat().st_size,
-            type="tar",
-            meta=FylesystemImageMeta(mtime=cvt_ts_to_datetime(self.p_.stat().st_mtime)),
-            mount=ImageMounter(self.name, self.path, "tar", self.logger),
-            packages=list(),
-        )
+        self._image: FilesystemImage = None  # type: ignore
 
     def _close(self) -> None:
         self.logger.info(f"Closing {self._image.name} image")
@@ -299,14 +288,63 @@ class TAR:
             raise ImageProcessingError from e
 
     def _process_image(self):
+        pass
+
+    def run(self):
+        self.logger.info(f"Processing {self.name} filesystem image")
+        try:
+            self._check_system_executables()
+            self._open_image()
+            self._get_checksums()
+            self._process_image()
+            self._parsed = True
+        except ImageProcessingError as e:
+            self.logger.error(
+                f"Error occured while processing filesystem image", exc_info=True
+            )
+            raise e
+        finally:
+            self._close()
+
+    @property
+    def image(self) -> FilesystemImage:
+        if not self._parsed:
+            self.run()
+        return self._image
+
+
+class TAR(ImageHandler):
+    def __init__(
+        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+    ) -> None:
+        super().__init__(name, path)
+
+        if logger is not None:
+            self.logger = logger
+        else:
+            self.logger = DEFAULT_LOGGER(name="TAR")
+
+        p_ = Path(self.path)
+        self._image = FilesystemImage(
+            name=self.name,
+            path=self.path,
+            size=p_.stat().st_size,
+            type="tar",
+            meta=FylesystemImageMeta(
+                mtime=cvt_ts_to_datetime(int(p_.stat().st_mtime)).isoformat()
+            ),
+            mount=ImageMounter(self.name, self.path, "tar", self.logger),
+            packages=list(),
+        )
+
+        self._parsed = False
+
+    def _process_image(self):
         # get '/etc/os-release' contents
         p = Path(self._image.mount.path)
 
         if p.joinpath("os-release").exists():
             self._image.meta.osrelease = p.joinpath("os-release").read_text()
-        self.logger.debug(
-            f"Image '/etc/os-release' contents: {self._image.meta.osrelease}"
-        )
 
         # read packages from RPMDB
         self.logger.debug(f"Reading filesystem image RPM packages")
@@ -321,27 +359,6 @@ class TAR:
                 f"No RPM packages found in '{self.name}' filesystem image"
             )
             raise ImageProcessingError("No packages found")
-
-    def run(self):
-        self.logger.info(f"Processing {self.name} filesystem image")
-        try:
-            self._check_system_executables()
-            self._open_image()
-            self._get_checksums()
-            self._process_image()
-        except ImageProcessingError as e:
-            self.logger.error(
-                f"Error occured while processing filesystem image", exc_info=True
-            )
-            raise e
-        finally:
-            self._close()
-
-    @property
-    def image(self) -> FilesystemImage:
-        if not self._parsed:
-            self.run()
-        return self._image
 
 
 @dataclass(frozen=True)
