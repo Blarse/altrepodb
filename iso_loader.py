@@ -20,8 +20,8 @@ import argparse
 import configparser
 from pathlib import Path
 
-from altrepodb.base import ISOProcessorConfig, LoggerProtocol
-from altrepodb.iso import ISOProcessor, ImageMeta
+from altrepodb.base import ImageProcessorConfig, LoggerProtocol, ImageMeta
+from altrepodb.iso import ISOProcessor
 from altrepodb.database import DatabaseConfig
 from altrepodb.utils import (
     get_logger,
@@ -68,7 +68,6 @@ def get_args():
         description="Load ISO image structure to database",
     )
     parser.add_argument("path", type=str, help="Path to ISO image file")
-    # parser.add_argument("--edition", required=True, type=check_edition, help="ISO image edition")
     parser.add_argument("--edition", required=True, type=str, choices=EDITIONS, help="ISO image edition")
     parser.add_argument("--version", required=True, type=valid_version, help="ISO image version (e.g. 9.2, 8.1.3, 20211205)")
     parser.add_argument("--release", required=True, type=str, choices=RELEASES, help="ISO image release type")
@@ -124,7 +123,7 @@ def get_args():
 
 
 def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
-    config = ISOProcessorConfig(
+    config = ImageProcessorConfig(
         path=args.path,
         logger=logger,
         dbconfig=dbconfig,
