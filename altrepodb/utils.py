@@ -581,3 +581,13 @@ def dump_to_json(object: Any, file: _FileName) -> None:
 
     f = Path.joinpath(Path.cwd(), file)
     f.write_text(json.dumps(object, indent=2, sort_keys=True, default=str))
+
+
+def bytes2human(size: Union[int, float]) -> str:
+    """Convert file size in bytes to human readable string representation."""
+
+    for unit in ["", "K", "M", "G", "T", "P", "E"]:
+        if abs(size) < 1024.0:
+            return f"{size:3.1f} {unit}B"
+        size /= 1024.0
+    return f"{size:.1f} ZB"
