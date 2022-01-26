@@ -13,20 +13,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from aifc import Error
 import os
+import lzma
+import time
 import shutil
 import tarfile
 import datetime
 import tempfile
 import libarchive
 from dataclasses import asdict, dataclass
-from collections import namedtuple
-from typing import Any, Union
+from typing import Union, Optional
 from pathlib import Path
 from uuid import uuid4
-
-from multiprocessing import Process, Queue
 
 from .repo import PackageSetHandler
 from .base import (
@@ -55,11 +53,8 @@ from .exceptions import (
     ImageProcessingExecutableNotFoundError,
 )
 from .utils import (
-    mmhash,
+    bytes2human,
     run_command,
-    snowflake_id_sqfs,
-    md5_from_file,
-    sha1_from_file,
     cvt_ts_to_datetime,
     checksums_from_file,
 )
@@ -72,13 +67,14 @@ _StringOrPath = Union[str, Path]
 # module constants
 RUN_COMMAND_TIMEOUT = 30
 TAR_RPMDB_PREFIX = "./var/lib/rpm/"
+IMG_RPMDB_PREFIX = "var/lib/rpm"
+QCOW_RPMDB_PREFIX = "var/lib/rpm"
+LOCALTMP_PREFIX = "tmp_img"
 REQUIRED_EXECUTABLES = (
-    # "umount",
-    # "isoinfo",
-    # "fuseiso",
-    # "squashfuse",
+    "unxz",
+    "umount",
     "gost12sum",
-    "fuserumount",
+    "guestmount",
 )
 
 
@@ -113,25 +109,39 @@ class ImageMounter:
 
         self._image_path = image_path
         self._tmpdir = tempfile.TemporaryDirectory()
-        self.path = self._tmpdir.name
-        self.ismount = False
+        self.path: str = self._tmpdir.name
+        self.ismount: bool = False
+        self._localtmpfile: Optional[Path] = None
 
-    def _run_command(self, *args):
+    def __run_command(
+        self, *args, env: Optional[dict[str, str]], check: bool, timeout: int
+    ):
         try:
-            _, _, _, _ = run_command(
+            cmdline_, stdout_, stderr_, retcode_ = run_command(
                 *args,
-                raise_on_error=True,
+                env=env,
+                raise_on_error=check,
                 logger=self._log,
-                timeout=RUN_COMMAND_TIMEOUT,
+                timeout=timeout,
             )
         except RunCommandError as e:
             raise ImageRunCommandError("Subprocess returned an error") from e
+
+        return cmdline_, stdout_, stderr_, retcode_
+
+    def _run_command(self, *args, env):
+        _ = self.__run_command(
+            *args,
+            env=env,
+            check=True,
+            timeout=RUN_COMMAND_TIMEOUT,
+        )
 
     def _unmount(self, path: str) -> None:
         self._log.info(f"Unmounting {path}...")
         try:
             if self.type in ("img", "qcow"):
-                self._run_command("fuserumount", path)
+                self._run_command("umount", path, env=None)
             else:
                 pass
         except ImageRunCommandError as e:
@@ -142,7 +152,7 @@ class ImageMounter:
             self._log.info(f"Mounting TAR archive")
             with libarchive.file_reader(target_path) as arch:
                 for entry in arch:
-                    # get '/etc/os-release' contents
+                    # copy '/etc/os-release' file to temporary directory
                     if entry.name.endswith("os-release"):
                         c = b""
                         for b in entry.get_blocks():
@@ -164,25 +174,93 @@ class ImageMounter:
         except Exception as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    # def _mount_iso(self, iso_path: str, mount_path: str) -> None:
-    #     self._log.info(f"Mounting ISO image {iso_path} to {mount_path}")
-    #     try:
-    #         self._run_command("fuseiso", iso_path, mount_path)
-    #     except ImageRunCommandError as e:
-    #         raise ImageMountError(self._image_path, self.path) from e
+    def _mount_qcow(self, image_path: str, mount_path: str) -> None:
+        # supbrocess args
+        args = (
+            "guestmount",
+            "-a",
+            image_path,
+            "-i",
+            "--ro",
+            mount_path,
+        )
+        # pass environment variables to subprocess
+        env = os.environ.copy()
+        env["LIBGUESTFS_BACKEND"] = "direct"
 
-    # def _mount_sqfs(self, iso_path: str, mount_path: str) -> None:
-    #     self._log.info(f"Mounting SquashFS image {iso_path} to {mount_path}")
-    #     try:
-    #         self._run_command("squashfuse", iso_path, mount_path)
-    #     except ImageRunCommandError as e:
-    #         raise ImageMountError(self._image_path, self.path) from e
+        self._log.info(f"Mounting filesystem image {image_path} to {mount_path}")
+        try:
+            self._run_command(*args, env=env)
+        except ImageRunCommandError as e:
+            raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount_img(self, iso_path: str, mount_path: str) -> None:
-        pass
+    def _mount_img(self, image_path: str, mount_path: str) -> None:
+        # check if image is compressed
+        if image_path.endswith(".img.xz"):
+            self._log.info(f"Uncompressing filesystem image {self.name}")
+            # uncompress image to local temporary folder
+            # 1. check if there is enogh space for uncompressed image
+            # 1.1 get uncompressed archive size by pasing 'unxz -lv' output
+            _, sout, _, _ = self.__run_command(
+                *("unxz", "-lv", image_path),
+                env=None,
+                check=True,
+                timeout=RUN_COMMAND_TIMEOUT,
+            )
+            u_size = 0
+            for l in sout.splitlines():
+                if l.strip().startswith("Uncompressed size:"):
+                    u_size = int(l.replace("\u202f", "").split("(")[-1][:-3])
+                    break
+            self._log.info(f"Uncompressed image size is {bytes2human(u_size)}")
+            if u_size == 0:
+                raise ImageProcessingError(f"Failed to get uncompressed image size")
+            # 1.2 check if there is enough space in user home directory
+            homedir = Path.home()
+            st_ = os.statvfs(homedir)
+            freespace = st_.f_bsize * st_.f_bavail
+            self._log.info(
+                f"There is {bytes2human(freespace)} available in {str(homedir)}"
+            )
+            if (u_size * 1.1) > freespace:
+                raise ImageProcessingError(
+                    f"Not enough space to umcompress filesystem image"
+                )
 
-    def _mount_qcow(self, iso_path: str, mount_path: str) -> None:
-        pass
+            # 2. uncompress image
+            # 2.1 setup temporary file name
+            self._localtmpfile = homedir.joinpath(
+                "_".join((LOCALTMP_PREFIX, str(uuid4())))
+            )
+            # 2.2 uncompress 'img.xz' to temporary file
+            st = time.time()
+            with lzma.open(image_path, "rb") as arch:
+                with open(self._localtmpfile, "wb") as tmpfile:
+                    for chunk in iter(lambda: arch.read(4096), b""):
+                        tmpfile.write(chunk)
+            self._log.info(
+                f"Filesystem image decompressed in {(time.time() - st):.3f} seconds"
+            )
+        # mount filesystem image
+        if self._localtmpfile is not None:
+            image_path = str(self._localtmpfile)
+        # supbrocess args
+        args = (
+            "guestmount",
+            "-a",
+            image_path,
+            "-i",
+            "--ro",
+            mount_path,
+        )
+        # pass environment variables to subprocess
+        env = os.environ.copy()
+        env["LIBGUESTFS_BACKEND"] = "direct"
+        self._log.info(f"Mounting filesystem image {image_path} to {mount_path}")
+        try:
+            self._run_command(*args, env=env)
+        except ImageRunCommandError as e:
+            raise ImageMountError(self._image_path, self.path) from e
 
     def _mount(self, target_path: str, mount_path: str, image_type: str) -> None:
         if image_type == "img":
@@ -205,6 +283,9 @@ class ImageMounter:
                     f"Failed to mount {self.type} image {self._image_path} to {self.path}"
                 )
                 self._tmpdir.cleanup()
+                if self._localtmpfile is not None:
+                    self._localtmpfile.unlink(missing_ok=True)
+                    self._localtmpfile = None
                 raise e
 
     def close(self):
@@ -217,6 +298,9 @@ class ImageMounter:
             finally:
                 self.ismount = False
             self._tmpdir.cleanup()
+            if self._localtmpfile is not None:
+                self._localtmpfile.unlink(missing_ok=True)
+                self._localtmpfile = None
 
 
 @dataclass
@@ -264,11 +348,10 @@ class ImageHandler:
             not_found_ = ", ".join(not_found_)
             raise ImageProcessingExecutableNotFoundError(not_found_)
 
-    def _open_image(self):
-        if not tarfile.is_tarfile(self.path):
-            self.logger.error(f"{self.path} not a valid TAR file")
-            raise ImageInvalidError(self.path)
+    def _validate_image(self):
+        raise NotImplementedError
 
+    def _open_image(self):
         try:
             self.logger.info(f"Opening {self.name} filesystem image")
             self._image.mount.open()
@@ -283,17 +366,18 @@ class ImageHandler:
             self._image.meta.md5_cs = md5_
             self._image.meta.sha256_cs = sha256_
             self._image.meta.gost12_cs = gost12_
-        except Error as e:
+        except Exception as e:
             self.logger.error(f"Failed to calculate image checksums")
             raise ImageProcessingError from e
 
     def _process_image(self):
-        pass
+        raise NotImplementedError
 
     def run(self):
         self.logger.info(f"Processing {self.name} filesystem image")
         try:
             self._check_system_executables()
+            self._validate_image()
             self._open_image()
             self._get_checksums()
             self._process_image()
@@ -324,14 +408,14 @@ class TAR(ImageHandler):
         else:
             self.logger = DEFAULT_LOGGER(name="TAR")
 
-        p_ = Path(self.path)
+        p = Path(self.path)
         self._image = FilesystemImage(
             name=self.name,
             path=self.path,
-            size=p_.stat().st_size,
+            size=p.stat().st_size,
             type="tar",
             meta=FylesystemImageMeta(
-                mtime=cvt_ts_to_datetime(int(p_.stat().st_mtime)).isoformat()
+                mtime=cvt_ts_to_datetime(int(p.stat().st_mtime)).isoformat()
             ),
             mount=ImageMounter(self.name, self.path, "tar", self.logger),
             packages=list(),
@@ -339,17 +423,128 @@ class TAR(ImageHandler):
 
         self._parsed = False
 
+    def _validate_image(self):
+        if not tarfile.is_tarfile(self.path):
+            self.logger.error(f"{self.path} not a valid TAR file")
+            raise ImageInvalidError(self.path)
+
     def _process_image(self):
-        # get '/etc/os-release' contents
         p = Path(self._image.mount.path)
 
+        # get '/etc/os-release' contents
         if p.joinpath("os-release").exists():
             self._image.meta.osrelease = p.joinpath("os-release").read_text()
 
         # read packages from RPMDB
         self.logger.debug(f"Reading filesystem image RPM packages")
         try:
-            rpmdb = RPMDBPackages(str(p))
+            rpmdb = RPMDBPackages(p)
+            self._image.packages = rpmdb.packages_list
+            self.logger.info(
+                f"Collected {rpmdb.count} RPM packages from '{self.name}' filesystem image"
+            )
+        except RPMDBOpenError:
+            self.logger.error(
+                f"No RPM packages found in '{self.name}' filesystem image"
+            )
+            raise ImageProcessingError("No packages found")
+
+
+class QCOW(ImageHandler):
+    def __init__(
+        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+    ) -> None:
+        super().__init__(name, path)
+
+        if logger is not None:
+            self.logger = logger
+        else:
+            self.logger = DEFAULT_LOGGER(name="QCOW")
+
+        p = Path(self.path)
+        self._image = FilesystemImage(
+            name=self.name,
+            path=self.path,
+            size=p.stat().st_size,
+            type="qcow",
+            meta=FylesystemImageMeta(
+                mtime=cvt_ts_to_datetime(int(p.stat().st_mtime)).isoformat()
+            ),
+            mount=ImageMounter(self.name, self.path, "qcow", self.logger),
+            packages=list(),
+        )
+
+        self._parsed = False
+
+    def _validate_image(self):
+        if not (self.path.endswith(".qcow2") or self.path.endswith(".qcow2c")):
+            self.logger.error(f"{self.path} not a valid QCOW2 file")
+            raise ImageInvalidError(self.path)
+
+    def _process_image(self):
+        p = Path(self._image.mount.path)
+
+        # get '/etc/os-release' contents
+        if p.joinpath("/etc/os-release").exists():
+            self._image.meta.osrelease = p.joinpath("/etc/os-release").read_text()
+
+        # read packages from RPMDB
+        self.logger.debug(f"Reading filesystem image RPM packages")
+        try:
+            rpmdb = RPMDBPackages(p.joinpath(QCOW_RPMDB_PREFIX))
+            self._image.packages = rpmdb.packages_list
+            self.logger.info(
+                f"Collected {rpmdb.count} RPM packages from '{self.name}' filesystem image"
+            )
+        except RPMDBOpenError:
+            self.logger.error(
+                f"No RPM packages found in '{self.name}' filesystem image"
+            )
+            raise ImageProcessingError("No packages found")
+
+
+class IMG(ImageHandler):
+    def __init__(
+        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+    ) -> None:
+        super().__init__(name, path)
+
+        if logger is not None:
+            self.logger = logger
+        else:
+            self.logger = DEFAULT_LOGGER(name="IMG")
+
+        p = Path(self.path)
+        self._image = FilesystemImage(
+            name=self.name,
+            path=self.path,
+            size=p.stat().st_size,
+            type="img",
+            meta=FylesystemImageMeta(
+                mtime=cvt_ts_to_datetime(int(p.stat().st_mtime)).isoformat()
+            ),
+            mount=ImageMounter(self.name, self.path, "img", self.logger),
+            packages=list(),
+        )
+
+        self._parsed = False
+
+    def _validate_image(self):
+        if not (self.path.endswith(".img") or self.path.endswith(".img.xz")):
+            self.logger.error(f"{self.path} not a valid filesystem image file")
+            raise ImageInvalidError(self.path)
+
+    def _process_image(self):
+        p = Path(self._image.mount.path)
+
+        # get '/etc/os-release' contents
+        if p.joinpath("/etc/os-release").exists():
+            self._image.meta.osrelease = p.joinpath("/etc/os-release").read_text()
+
+        # read packages from RPMDB
+        self.logger.debug(f"Reading filesystem image RPM packages")
+        try:
+            rpmdb = RPMDBPackages(p.joinpath(IMG_RPMDB_PREFIX))
             self._image.packages = rpmdb.packages_list
             self.logger.info(
                 f"Collected {rpmdb.count} RPM packages from '{self.name}' filesystem image"
@@ -487,15 +682,13 @@ class ImageProcessor:
                 name=self.meta.file, path=self.config.path, logger=self.logger
             )
         elif self.meta.image_type == "img":
-            # self.image = IMG(
-            #     name=self.meta.file, path=self.config.path, logger=self.logger
-            # )
-            pass
+            self.image = IMG(
+                name=self.meta.file, path=self.config.path, logger=self.logger
+            )
         elif self.meta.image_type == "qcow":
-            # self.image = QCOW(
-            #     name=self.meta.file, path=self.config.path, logger=self.logger
-            # )
-            pass
+            self.image = QCOW(
+                name=self.meta.file, path=self.config.path, logger=self.logger
+            )
         else:
             self.logger.error(f"Unsupported image type {self.meta.image_type}")
             raise ImageTypeError(self.meta.file, self.meta.image_type)
@@ -639,9 +832,9 @@ class ImageProcessor:
         return iso_pkgsets
 
     def _store_pkgsets(self, pkgsets: list[PackageSet]) -> None:
-        # store ISO image pkgset
+        # store image pkgset
         psh = PackageSetHandler(conn=self.conn, logger=self.logger)
-        # load ISO package set components from leaves to root
+        # load image package set components from leaves to root
         for pkgset in reversed(pkgsets):
             psn = asdict(pkgset)
             del psn["package_hashes"]
@@ -665,27 +858,27 @@ class ImageProcessor:
         return result[0][0] != 0  # type: ignore
 
     def run(self) -> None:
-        # 1. check if ISO is already loaded to DB
+        # 1. check if image is already loaded to DB
         if not self.config.force:
             if self._check_image_tag_date_in_db(self.tag, self.meta.date):
-                self.logger.info(f"ISO image '{self.tag}' already exists in database")
+                self.logger.info(f"Filesystem image '{self.tag}' already exists in database")
                 if not self.config.dryrun:
                     return
-        # 2. mount and parse ISO image
+        # 2. mount and parse filesystem image
         self.image.run()
         self.logger.info(f"Image tag : {self.tag}")
         self.logger.info(f"Image 'os-release' :\n{self.image.image.meta.osrelease}")
-        # 3. check ISO packages in branch
+        # 3. check filesystem packages in branch
         missing: list[Package] = []
 
         # 3.1 check branch mismatching
-        self.logger.info(f"Checking ISO image '{self.image.image.name}' branch")
+        self.logger.info(f"Checking filesystem image '{self.image.image.name}' branch")
         branch, date = self._find_base_repo(self.image.image.packages)
         self.logger.info(
             f"Most likely branch for '{self.image.image.name}' is '{branch}' on '{date}'"
         )
         # 3.2 check all RPM packages in database
-        self.logger.info(f"Checking ISO image '{self.image.image.name}' packages")
+        self.logger.info(f"Checking filesystem image '{self.image.image.name}' packages")
         missing = self._check_packages_in_db(self.image.image.packages)
         if missing:
             self.logger.error(
@@ -702,5 +895,5 @@ class ImageProcessor:
             )
             if not (self.config.dryrun or self.config.force):
                 raise ImageProcessingPackageNotInDBError(missing=missing)
-        # 4. build and store ISO image pkgset
+        # 4. build and store filesystem image pkgset
         self._store_pkgsets(self._make_image_pkgsets())
