@@ -542,6 +542,7 @@ def unxz(fname: _FileName, mode_binary: bool = False) -> Union[bytes, str]:
 
 def run_command(
     *args,
+    env: Optional[dict[str, str]] = None,
     raise_on_error: bool = False,
     logger: _LoggerOptional = None,
     timeout: Optional[float] = None,
@@ -553,8 +554,10 @@ def run_command(
     cmdline = " ".join([*args])
     logger.debug(f"Run command: {cmdline}")
     try:
+        env_ = env if env is not None else os.environ.copy()
         sub = subprocess.run(
             [*args],
+            env=env_,
             capture_output=True,
             text=True,
             check=raise_on_error,
