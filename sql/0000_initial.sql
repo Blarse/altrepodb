@@ -559,7 +559,7 @@ CREATE TABLE RepositoryStatus
     rs_show                 UInt8, -- 0 - hide branch, 1 - show branch
     rs_description_ru       String,
     rs_description_en       String,
-    rs_mirrors_json         String, -- package set mirror details as stringify JSON structure
+    rs_mirrors_json         String, -- package set mirror details as stringified JSON structure
     rs_mailing_list         LowCardinality(String), -- branch mailing list URL
     rs_pkgset_name_bugzilla LowCardinality(String), -- branch name in Bugzilla
     ts DateTime64 MATERIALIZED now64()
@@ -567,6 +567,36 @@ CREATE TABLE RepositoryStatus
 ENGINE = MergeTree
 ORDER BY (pkgset_name, rs_show) PRIMARY KEY (pkgset_name);
 
+
+-- Image status table
+CREATE TABLE ImageStatus
+(
+    img_branch              LowCardinality(String),
+    img_edition             LowCardinality(String),
+    img_flavor              LowCardinality(String),
+    img_platform            LowCardinality(String),
+    img_release             Enum('alpha' = 0, 'beta' = 1, 'rc' = 2, 'release' = 3),
+    img_version_major       UInt32,
+    img_version_minor       UInt16,
+    img_version_sub         UInt16,
+    img_arch                LowCardinality(String),
+    img_variant             LowCardinality(String), -- 'install', 'live', 'rescue', 'recovery'
+    img_type                LowCardinality(String), -- 'iso', 'img', 'tar', 'qcow'
+    img_date                DateTime,
+    img_tag                 String,
+    img_start_date          DateTime,
+    img_end_date            DateTime,
+    img_show                UInt8, -- 0 - hide image, 1 - show image
+    img_description_ru      String,
+    img_description_en      String,
+    img_mirrors_json        String, -- package set mirror details as stringified JSON structure
+    img_edition_name        String, -- official image name
+    img_mailing_list        LowCardinality(String), -- image edition mailing list URL
+    img_name_bugzilla       LowCardinality(String), -- image name in Bugzilla
+    ts DateTime64 MATERIALIZED  now64()
+)
+ENGINE = MergeTree
+ORDER BY (img_branch, img_edition, img_show) PRIMARY KEY (img_branch, img_edition);
 
 -- Beehive build status table
 CREATE TABLE BeehiveStatus
