@@ -31,6 +31,7 @@ class LookUpTable:
         "e2k",
         "e2kv4",
         "e2kv5",
+        "e2kv6",
     )
     BEEHIVE_BASE_URL = "http://git.altlinux.org/beehive"
     BEEHIVE_BRANCHES = (
