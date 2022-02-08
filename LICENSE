@@ -633,7 +633,7 @@ state the exclusion of warranty; and each file should have at least the
 ALTRepo Uploader is a set of utilities for loading information about ALT
 distributives to database.
 
-Copyright (C) 2021 BaseALT Ltd
+Copyright (C) 2021-2022 BaseALT Ltd
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
