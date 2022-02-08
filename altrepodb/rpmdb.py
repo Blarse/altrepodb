@@ -19,7 +19,7 @@ from typing import Union
 
 from altrpm import rpm as rpmt
 from .base import Package
-from .utils import cvt, detect_arch, snowflake_id_pkg
+from .utils import cvt, detect_arch, snowflake_id_pkg, SupressStdoutStderr
 
 
 _StrOrPath = Union[str, Path]
@@ -47,7 +47,9 @@ class RPMDBPackages:
         rpm.addMacro("_dbpath", self.dbpath)  # type: ignore
         # open RPM DB
         ts = rpm.TransactionSet()
-        if ts.openDB() != 0:
+        with SupressStdoutStderr():
+            r = ts.openDB()
+        if r != 0:
             raise RPMDBOpenError(self.dbpath)
         # remove macro for future cases
         rpm.delMacro("_dbpath")  # type: ignore
