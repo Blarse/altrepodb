@@ -32,7 +32,7 @@ from altrepodb.utils import (
 
 NAME = "image"
 ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
-VARIANTS = ("install", "live", "rescue")
+VARIANTS = ("install", "live", "rescue", "recovery")
 RELEASES = ("alpha", "beta", "rc", "release")
 EDITIONS = (
     "alt-server",
