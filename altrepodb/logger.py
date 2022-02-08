@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License 
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import sys
 from datetime import datetime
 from typing import Optional, Protocol, Union, Any
 
@@ -94,7 +95,8 @@ class ConsoleLogger(LoggerProtocol):
         'DEBUG': DEBUG,
         'NOTSET': NOTSET,
     }
-    _level = NOTSET
+    _level = WARNING
+    _handler = sys.stdout
 
     def __init__(self, name: str, level: Union[int, str] = "DEBUG") -> None:
         self.name = name
@@ -103,7 +105,10 @@ class ConsoleLogger(LoggerProtocol):
     def _log(self, severity: int, message: str) -> None:
         if severity >= self._level:
             timestamp = datetime.now().isoformat(sep=" ", timespec="milliseconds")
-            print(f"{timestamp} : {severity:8} : {message}")
+            print(
+                f"{timestamp} : {self._levelToName[severity]:8} : {message}",
+                file=self._handler,
+            )
 
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         self._log(self.DEBUG, msg)
