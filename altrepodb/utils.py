@@ -427,6 +427,21 @@ def blake2b_from_file(
         return hash.hexdigest()
 
 
+def hashes_from_file(fname: _FileName) -> tuple[bytes, bytes, bytes]:
+    """Calculates md5, sha256 and blake2b hashes from file."""
+
+    md5_h = md5()
+    sha256_h = sha256()
+    blake2b_h = blake2b()
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
+            md5_h.update(byte_block)
+            sha256_h.update(byte_block)
+            blake2b_h.update(byte_block)
+
+    return md5_h.digest(), sha256_h.digest(), blake2b_h.digest()
+
+
 def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
     """Calculates MD5, SHA256 and GOST12 hashes from file."""
 

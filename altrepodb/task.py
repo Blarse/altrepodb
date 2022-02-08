@@ -35,6 +35,7 @@ from .utils import (
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
+    hashes_from_file,
     val_from_json_str,
     cvt_ts_to_datetime,
     check_package_in_cache,
@@ -113,7 +114,7 @@ def task_as_dict(task: Task) -> dict:
         "subtasks": [asdict(x) for x in task.subtasks],
         "approvals": [asdict(x) for x in task.approvals],
         "iterations": [asdict(x) for x in task.iterations],
-        "pkg_hashes": {k: asdict(v) for k, v in dict(task.pkg_hashes).items()}
+        "pkg_hashes": {k: asdict(v) for k, v in dict(task.pkg_hashes).items()},
     }
 
 
@@ -659,29 +660,38 @@ class TaskIterationLoaderWorker(RaisingTread):
             kw["pkg_srcrpm_hash"] = srpm_hash
 
         if not check_package_in_cache(self.cache, hashes["mmh"]):
-            if self.pkg_hashes[pkg_name].md5:
-                hashes["md5"] = self.pkg_hashes[pkg_name].md5
-            else:
-                self.logger.debug(f"calculate MD5 for {pkg_name} file")
-                hashes["md5"] = md5_from_file(
-                    self.taskfs.get_file_path(pkg), as_bytes=True
+            if not is_srpm and ".noarch.rpm" in pkg_name:
+                # XXX: workaround for multiple 'noarch' packages from different archs
+                self.logger.debug(
+                    f"calculate MD5, SHA256 and BLAKE2b for {pkg_name} 'noarch' package"
                 )
+                hashes["md5"], hashes["sha256"], hashes["blake2b"] = hashes_from_file(
+                    self.taskfs.get_file_path(pkg)
+                )
+            else:
+                if self.pkg_hashes[pkg_name].md5:
+                    hashes["md5"] = self.pkg_hashes[pkg_name].md5
+                else:
+                    self.logger.debug(f"calculate MD5 for {pkg_name} file")
+                    hashes["md5"] = md5_from_file(
+                        self.taskfs.get_file_path(pkg), as_bytes=True
+                    )
 
-            if self.pkg_hashes[pkg_name].sha256:
-                hashes["sha256"] = self.pkg_hashes[pkg_name].sha256
-            else:
-                self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-                hashes["sha256"] = sha256_from_file(
-                    self.taskfs.get_file_path(pkg), as_bytes=True
-                )
+                if self.pkg_hashes[pkg_name].sha256:
+                    hashes["sha256"] = self.pkg_hashes[pkg_name].sha256
+                else:
+                    self.logger.debug(f"calculate SHA256 for {pkg_name} file")
+                    hashes["sha256"] = sha256_from_file(
+                        self.taskfs.get_file_path(pkg), as_bytes=True
+                    )
 
-            if self.pkg_hashes[pkg_name].blake2b not in (b"", None):
-                hashes["blake2b"] = self.pkg_hashes[pkg_name].blake2b
-            else:
-                self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
-                hashes["blake2b"] = blake2b_from_file(
-                    self.taskfs.get_file_path(pkg), as_bytes=True
-                )
+                if self.pkg_hashes[pkg_name].blake2b not in (b"", None):
+                    hashes["blake2b"] = self.pkg_hashes[pkg_name].blake2b
+                else:
+                    self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
+                    hashes["blake2b"] = blake2b_from_file(
+                        self.taskfs.get_file_path(pkg), as_bytes=True
+                    )
 
             self.ph.insert_package(hdr, self.taskfs.get_file_path(pkg), **kw)
             self.ph.insert_pkg_hash_single(hashes)
@@ -1360,7 +1370,7 @@ class TaskParser:
         if self.task.state.task_try != 0 and self.task.state.task_iter != 0:
             task_tryiter_time = max(
                 self.tf.get_file_mtime("task/try"),  # type: ignore
-                self.tf.get_file_mtime("task/iter")  # type: ignore
+                self.tf.get_file_mtime("task/iter"),  # type: ignore
             )
             task_plan_time = self.tf.get_file_mtime("plan")
             if task_plan_time > task_tryiter_time:  # type: ignore
@@ -1642,7 +1652,9 @@ class TaskParser:
     def _parse_iterations(self) -> None:
         # parse '/build' for 'TaskIterations'
         src_pkgs: dict[int, str] = {}
-        bin_pkgs: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        bin_pkgs: dict[int, dict[str, list[str]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         # 0 - get src and binary packages from plan
         t = self.tf.get_text("plan/add-src")
         if t:
@@ -1690,14 +1702,18 @@ class TaskParser:
                 chb_ = self.tf.get("/".join((arch_dir, "chroot_base")))
                 if chb_:
                     for pkg in (
-                        x.split("\t")[-1].strip() for x in chb_.split("\n") if len(x) > 0
+                        x.split("\t")[-1].strip()
+                        for x in chb_.split("\n")
+                        if len(x) > 0
                     ):
                         # FIXME: useless data due to packages stored with snowflake hash now!
                         ti.titer_chroot_base.append(mmhash(bytes.fromhex(pkg)))
                 chbr_ = self.tf.get("/".join((arch_dir, "chroot_BR")))
                 if chbr_:
                     for pkg in (
-                        x.split("\t")[-1].strip() for x in chbr_.split("\n") if len(x) > 0
+                        x.split("\t")[-1].strip()
+                        for x in chbr_.split("\n")
+                        if len(x) > 0
                     ):
                         # FIXME: useless data due to packages stored with snowflake hash now!
                         ti.titer_chroot_br.append(mmhash(bytes.fromhex(pkg)))
@@ -1708,7 +1724,9 @@ class TaskParser:
                     # skip srpm if got it from 'plan/add-src'
                     # XXX: handle particular srpm package loading somehow if plan exists
                     if subtask_id not in src_pkgs:
-                        src_pkgs[subtask_id] = "/".join((arch_dir, "srpm", pkgs_[0].name))
+                        src_pkgs[subtask_id] = "/".join(
+                            (arch_dir, "srpm", pkgs_[0].name)
+                        )
                 # set source rpm path
                 ti.titer_srpm = src_pkgs.get(subtask_id, "")
 
