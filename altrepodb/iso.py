@@ -333,7 +333,7 @@ class ISO:
             try:
                 md5_ = md5_from_file(file, as_bytes=True)
             except Exception as e:
-                self.logger.info(
+                self.logger.debug(
                     f"Failed to calculate MD5 checksum for file : {str(file.relative_to(Path.cwd()))}"
                 )
         file_ = File(
@@ -697,6 +697,19 @@ INSERT INTO Packages_buffer (*) VALUES
 
     insert_package_hashes = """
 INSERT INTO PackageHash_buffer (*) VALUES
+"""
+
+    get_last_image_status = """
+SELECT
+    argMax(tuple(*), ts),
+    img_tag
+FROM ImageStatus
+WHERE img_tag = '{img_tag}'
+GROUP BY img_tag
+"""
+
+    insert_image_status = """
+INSERT INTO ImageStatus (*) VALUES
 """
 
 
@@ -1160,6 +1173,57 @@ class ISOProcessor:
         )
         return result[0][0] != 0  # type: ignore
 
+    def _update_image_status(self):
+        ImageStatus = namedtuple(
+            "ImageStatus",
+            [
+                "img_branch",
+                "img_edition",
+                "img_tag",
+                "img_show",
+                "img_start_date",
+                "img_end_date",
+                "img_description_ru",
+                "img_description_en",
+                "img_mirrors_json",
+                "img_edition_name",
+                "img_mailing_list",
+                "img_name_bugzilla",
+            ],
+            defaults=[
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],  # defaults for: 'img_descriptio_ru', ... , 'img_name_bugzilla'
+        )
+        # load last repositroy status from DB
+        res = self.conn.execute(self.sql.get_last_image_status.format(img_tag=self.tag))
+        if res:
+            # got status from DB - skipping
+            self.logger.debug(f"Got image status record from DB for {self.tag} : {res}")
+            return
+        # if no record found in DB then create new one
+        status = ImageStatus(
+            img_branch=self.meta.branch,
+            img_edition=self.meta.edition,
+            img_tag=self.tag,
+            img_show=0,
+            img_start_date=datetime.datetime.now(),
+            img_end_date=datetime.datetime(2099, 1, 1),
+        )
+        # store new ImageStatus record to DB
+        self.logger.debug(f"Store image status record to DB: {status}")
+        if not self.config.dryrun:
+            res = self.conn.execute(
+                self.sql.insert_image_status,
+                [
+                    status._asdict(),
+                ],
+            )
+
     def run(self) -> None:
         # -1. check if ISO is already loaded to DB
         if not self.config.force:
@@ -1229,3 +1293,5 @@ class ISOProcessor:
                     raise ImageProcessingPackageNotInDBError(missing=missing)
         # 4. build and store ISO image pkgset
         self._store_pkgsets(self._make_iso_pkgsets())
+        # 5. update repository status record with loaded imgae
+        self._update_image_status()
