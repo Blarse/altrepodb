@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import threading
@@ -19,12 +19,11 @@ from datetime import datetime
 from typing import Generator, Optional, Union, Any, DefaultDict
 from dataclasses import dataclass, field, asdict
 
-from .logger import LoggerProtocol, _LoggerOptional, FakeLogger, ConsoleLogger
+from .logger import _LoggerOptional, LoggerProtocol, FakeLogger
 from .exceptions import RaisingThreadError
 
 # Logger
-# DEFAULT_LOGGER = FakeLogger
-DEFAULT_LOGGER = ConsoleLogger  # FIXME: change it before release 
+DEFAULT_LOGGER = FakeLogger
 
 # Types
 _StringOrPath = Union[str, Path]
@@ -87,6 +86,7 @@ class GeneratorWrapper:
             self.stored = False
             return self.value
         return next(self.source)
+
 
 # Dataclasses
 @dataclass(frozen=True)
@@ -165,6 +165,7 @@ class PkgHash:
     sha256: Optional[bytes] = None
     blake2b: Optional[bytes] = None
 
+
 @dataclass(frozen=True)
 class PkgInfo:
     name: str
@@ -175,6 +176,7 @@ class PkgInfo:
     comp: str
     path: str
     subtask_id: int
+
 
 @dataclass
 class TaskSubtask:
@@ -198,6 +200,7 @@ class TaskSubtask:
     srpm_evr: str = ""
     deleted: int = 0
 
+
 @dataclass
 class TaskState:
     task_id: int
@@ -214,6 +217,7 @@ class TaskState:
     message: str = ""
     version: str = ""
 
+
 @dataclass
 class TaskApproval:
     task_id: int
@@ -223,6 +227,7 @@ class TaskApproval:
     name: str = ""
     message: str = ""
     revoked: Optional[int] = None
+
 
 @dataclass
 class TaskIteration:
@@ -237,8 +242,9 @@ class TaskIteration:
     titer_srpm: str = ""
     titer_rpms: list[str] = field(default_factory=list)
     # FIXME: mmh(SHA1) should be replaced by something to work with snowflake_id's
-    titer_chroot_base: list[int] = field(default_factory=list) 
+    titer_chroot_base: list[int] = field(default_factory=list)
     titer_chroot_br: list[int] = field(default_factory=list)
+
 
 @dataclass
 class TaskPlan:
@@ -248,12 +254,14 @@ class TaskPlan:
     hash_add: dict[str, dict[str, bytes]]
     hash_del: dict[str, dict[str, bytes]]
 
+
 @dataclass
 class TaskLog:
     type: str
     path: str
     hash: int
     hash_string: str
+
 
 @dataclass
 class Task:
