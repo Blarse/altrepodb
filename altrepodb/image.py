@@ -21,6 +21,7 @@ import tarfile
 import datetime
 import tempfile
 import libarchive
+from collections import namedtuple
 from dataclasses import asdict, dataclass
 from typing import Union, Optional
 from pathlib import Path
@@ -30,7 +31,6 @@ from .repo import PackageSetHandler
 from .base import (
     Package,
     ImageMeta,
-    FakeLogger,
     PackageSet,
     ImageProcessorConfig,
     DEFAULT_LOGGER,
@@ -328,7 +328,7 @@ class ImageHandler:
 
     def __init__(self, name: str, path: _StringOrPath):
         self._parsed = False
-        self.logger = FakeLogger(name="")
+        self.logger = DEFAULT_LOGGER(name="")
         self.name = name
         self.path = str(path)
         self._image: FilesystemImage = None  # type: ignore
@@ -657,6 +657,19 @@ WHERE pkg_hash NOT IN
 )
 """
 
+    get_last_image_status = """
+SELECT
+    argMax(tuple(*), ts),
+    img_tag
+FROM ImageStatus
+WHERE img_tag = '{img_tag}'
+GROUP BY img_tag
+"""
+
+    insert_image_status = """
+INSERT INTO ImageStatus (*) VALUES
+"""
+
 
 class ImageProcessor:
     def __init__(self, config: ImageProcessorConfig, image_meta: ImageMeta) -> None:
@@ -773,8 +786,7 @@ class ImageProcessor:
         not_found_ = {r[0] for r in res}
         if not_found_:
             for p in packages:
-                # skip SquashFS meta packages
-                if p.hash in not_found_ and "_orphaned-files_" not in p.name:
+                if p.hash in not_found_:
                     not_found.append(p)
         # 4. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
@@ -857,6 +869,57 @@ class ImageProcessor:
         )
         return result[0][0] != 0  # type: ignore
 
+    def _update_image_status(self):
+        ImageStatus = namedtuple(
+            "ImageStatus",
+            [
+                "img_branch",
+                "img_edition",
+                "img_tag",
+                "img_show",
+                "img_start_date",
+                "img_end_date",
+                "img_description_ru",
+                "img_description_en",
+                "img_mirrors_json",
+                "img_edition_name",
+                "img_mailing_list",
+                "img_name_bugzilla",
+            ],
+            defaults=[
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],  # defaults for: 'img_descriptio_ru', ... , 'img_name_bugzilla'
+        )
+        # load last repositroy status from DB
+        res = self.conn.execute(self.sql.get_last_image_status.format(img_tag=self.tag))
+        if res:
+            # got status from DB - skipping
+            self.logger.debug(f"Got image status record from DB for {self.tag} : {res}")
+            return
+        # if no record found in DB then create new one
+        status = ImageStatus(
+            img_branch=self.meta.branch,
+            img_edition=self.meta.edition,
+            img_tag=self.tag,
+            img_show=0,
+            img_start_date=datetime.datetime.now(),
+            img_end_date=datetime.datetime(2099, 1, 1),
+        )
+        # store new ImageStatus record to DB
+        self.logger.debug(f"Store image status record to DB: {status}")
+        if not self.config.dryrun:
+            res = self.conn.execute(
+                self.sql.insert_image_status,
+                [
+                    status._asdict(),
+                ],
+            )
+
     def run(self) -> None:
         # 1. check if image is already loaded to DB
         if not self.config.force:
@@ -897,3 +960,5 @@ class ImageProcessor:
                 raise ImageProcessingPackageNotInDBError(missing=missing)
         # 4. build and store filesystem image pkgset
         self._store_pkgsets(self._make_image_pkgsets())
+        # 5. update repository status record with loaded imgae
+        self._update_image_status()
