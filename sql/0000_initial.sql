@@ -1172,19 +1172,18 @@ WHERE pkgset_depth = 0 AND pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] != 'reposi
 -- Image status table
 CREATE TABLE ImageStatus
 (
-    img_branch              LowCardinality(String),
-    img_edition             LowCardinality(String),
-    img_tag                 String,
-    img_show                UInt8, -- 0 - hide image, 1 - show image
-    img_start_date          DateTime,
-    img_end_date            DateTime,
-    img_description_ru      String,
-    img_description_en      String,
-    img_mirrors_json        String, -- package set mirror details as stringified JSON structure
-    img_edition_name        String, -- official image name
-    img_mailing_list        LowCardinality(String), -- image edition mailing list URL
-    img_name_bugzilla       LowCardinality(String), -- image name in Bugzilla
+    ims_branch              LowCardinality(String),
+    ims_edition             LowCardinality(String),
+    ims_name                String, -- official image name
+    ims_show                UInt8, -- 0 - hide image, 1 - show image
+    ims_json                String, -- image auxilary data as stringified JSON structure
+    ims_start_date          DateTime,
+    ims_end_date            DateTime,
+    ims_description_ru      String,
+    ims_description_en      String,
+    ims_mailing_list        LowCardinality(String), -- image edition mailing list URL
+    ims_name_bugzilla       LowCardinality(String), -- image name in Bugzilla
     ts DateTime64 MATERIALIZED  now64()
 )
 ENGINE = MergeTree
-ORDER BY (img_branch, img_edition, img_show) PRIMARY KEY (img_branch, img_edition);
+ORDER BY (ims_branch, ims_edition, ims_show) PRIMARY KEY (ims_branch, ims_edition);
