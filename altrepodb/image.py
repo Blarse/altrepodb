@@ -98,7 +98,7 @@ class ImageMounter:
         if logger is not None:
             self._log = logger
         else:
-            self._log = DEFAULT_LOGGER(name="ImageMounter")
+            self._log = DEFAULT_LOGGER
 
         self.name = image_name
         self.type = image_type
@@ -137,64 +137,62 @@ class ImageMounter:
             timeout=RUN_COMMAND_TIMEOUT,
         )
 
-    def _unmount(self, path: str) -> None:
-        self._log.info(f"Unmounting {path}...")
+    def _unmount(self) -> None:
+        self._log.info(f"Unmounting {self.path}...")
         try:
             if self.type in ("img", "qcow"):
-                self._run_command("umount", path, env=None)
+                self._run_command("umount", self.path, env=None)
             else:
                 pass
         except ImageRunCommandError as e:
             raise ImageUnmountError(self._image_path, self.path) from e
 
-    def _mount_tar(self, target_path: str, mount_path: str) -> None:
+    def _mount_tar(self) -> None:
         try:
             self._log.info(f"Mounting TAR archive")
-            with libarchive.file_reader(target_path) as arch:
+            with libarchive.file_reader(self._image_path) as arch:
                 for entry in arch:
                     # copy '/etc/os-release' file to temporary directory
                     if entry.name.endswith("os-release"):
                         c = b""
                         for b in entry.get_blocks():
                             c += b
-                        Path(mount_path).joinpath("os-release").write_text(
+                        Path(self.path).joinpath("os-release").write_text(
                             c.decode("utf-8")
                         )
                     # extract RPMDB files to temporary directory
                     if entry.name.startswith(TAR_RPMDB_PREFIX):
-                        self._log.debug(
-                            f"Found RPMDB file : {entry.name}, {entry.size}"
-                        )
                         if entry.isfile:
                             e_name = entry.name.replace(TAR_RPMDB_PREFIX, "")
                             c = b""
-                            with Path(mount_path).joinpath(e_name).open("wb") as f:
+                            with Path(self.path).joinpath(e_name).open("wb") as f:
                                 for b in entry.get_blocks():
                                     f.write(b)
         except Exception as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount_qcow(self, image_path: str, mount_path: str) -> None:
+    def _mount_qcow(self) -> None:
         # supbrocess args
         args = (
             "guestmount",
             "-a",
-            image_path,
+            self._image_path,
             "-i",
             "--ro",
-            mount_path,
+            self.path,
         )
         # pass environment variables to subprocess
         env = os.environ.copy()
         env["LIBGUESTFS_BACKEND"] = "direct"
 
-        self._log.info(f"Mounting filesystem image {image_path} to {mount_path}")
+        self._log.info(f"Mounting filesystem image {self._image_path} to {self.path}")
         try:
             self._run_command(*args, env=env)
         except ImageRunCommandError as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount_img(self, image_path: str, mount_path: str) -> None:
+    def _mount_img(self) -> None:
+        image_path = self._image_path
         # check if image is compressed
         if image_path.endswith(".img.xz"):
             self._log.info(f"Uncompressing filesystem image {self.name}")
@@ -219,9 +217,6 @@ class ImageMounter:
             homedir = Path.home()
             st_ = os.statvfs(homedir)
             freespace = st_.f_bsize * st_.f_bavail
-            self._log.info(
-                f"There is {bytes2human(freespace)} available in {str(homedir)}"
-            )
             if (u_size * 1.1) > freespace:
                 raise ImageProcessingError(
                     f"Not enough space to umcompress filesystem image"
@@ -251,37 +246,31 @@ class ImageMounter:
             image_path,
             "-i",
             "--ro",
-            mount_path,
+            self.path,
         )
         # pass environment variables to subprocess
         env = os.environ.copy()
         env["LIBGUESTFS_BACKEND"] = "direct"
-        self._log.info(f"Mounting filesystem image {image_path} to {mount_path}")
+        self._log.info(f"Mounting filesystem image {image_path} to {self.path}")
         try:
             self._run_command(*args, env=env)
         except ImageRunCommandError as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount(self, target_path: str, mount_path: str, image_type: str) -> None:
-        if image_type == "img":
-            self._mount_img(target_path, mount_path)
-        elif image_type == "tar":
-            self._mount_tar(target_path, mount_path)
-        elif image_type == "qcow":
-            self._mount_qcow(target_path, mount_path)
-        else:
-            self._log.error(f"Unsupported filesystem image type {image_type}")
-            raise ImageTypeError(self.name, self.type)
+    def _mount(self) -> None:
+        if self.type == "img":
+            self._mount_img()
+        elif self.type == "tar":
+            self._mount_tar()
+        elif self.type == "qcow":
+            self._mount_qcow()
 
     def open(self):
         if not self.ismount:
             try:
-                self._mount(self._image_path, self.path, self.type)
+                self._mount()
                 self.ismount = True
             except Exception as e:
-                self._log.error(
-                    f"Failed to mount {self.type} image {self._image_path} to {self.path}"
-                )
                 self._tmpdir.cleanup()
                 if self._localtmpfile is not None:
                     self._localtmpfile.unlink(missing_ok=True)
@@ -291,9 +280,8 @@ class ImageMounter:
     def close(self):
         if self.ismount:
             try:
-                self._unmount(self.path)
+                self._unmount()
             except Exception as e:
-                self._log.error(f"Failed to unmount {self.type} image at {self.path}")
                 raise e
             finally:
                 self.ismount = False
@@ -328,7 +316,7 @@ class ImageHandler:
 
     def __init__(self, name: str, path: _StringOrPath):
         self._parsed = False
-        self.logger = DEFAULT_LOGGER(name="")
+        self.logger = DEFAULT_LOGGER
         self.name = name
         self.path = str(path)
         self._image: FilesystemImage = None  # type: ignore
@@ -406,7 +394,7 @@ class TAR(ImageHandler):
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER(name="TAR")
+            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
@@ -459,7 +447,7 @@ class QCOW(ImageHandler):
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER(name="QCOW")
+            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
@@ -512,7 +500,7 @@ class IMG(ImageHandler):
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER(name="IMG")
+            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
@@ -681,7 +669,7 @@ class ImageProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER(name="iso")
+            self.logger = DEFAULT_LOGGER
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
