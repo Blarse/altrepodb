@@ -23,7 +23,7 @@ from .logger import _LoggerOptional, LoggerProtocol, FakeLogger
 from .exceptions import RaisingThreadError
 
 # Logger
-DEFAULT_LOGGER = FakeLogger
+DEFAULT_LOGGER = FakeLogger(name="")
 
 # Types
 _StringOrPath = Union[str, Path]
