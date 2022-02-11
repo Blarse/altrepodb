@@ -171,7 +171,7 @@ def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
 
 def get_logger(
     name: str, tag: str = "", date: Union[datetime.date, None] = None
-) -> LoggerProtocol:
+) -> logging.Logger:
     """Create and configure logger."""
 
     logger = logging.getLogger(name)
