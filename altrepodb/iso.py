@@ -84,7 +84,7 @@ class ImageMounter:
     type: str
     path: str
     ismount: bool
-    _log: LoggerProtocol
+    _log: _LoggerOptional
     _tmpdir: tempfile.TemporaryDirectory
     _image_path: str
 
@@ -95,16 +95,11 @@ class ImageMounter:
         image_type: str,
         logger: _LoggerOptional = None,
     ):
-        if logger is not None:
-            self._log = logger
-        else:
-            self._log = DEFAULT_LOGGER(name="ImageMounter")
-
         self.name = image_name
         self.type = image_type
+        self._log = logger
 
         if image_type not in ("iso", "squashfs"):
-            self._log.error(f"Unsupported filesystem image type {image_type}")
             raise ImageTypeError(self.name, self.type)
 
         self._image_path = image_path
@@ -123,54 +118,44 @@ class ImageMounter:
         except RunCommandError as e:
             raise ImageRunCommandError("Subprocess returned an error") from e
 
-    def _unmount(self, path: str) -> None:
-        self._log.info(f"Unmounting {path}...")
+    def _unmount(self) -> None:
         try:
-            self._run_command("umount", path)
+            self._run_command("umount", self.path)
         except ImageRunCommandError as e:
             raise ImageUnmountError(self._image_path, self.path) from e
 
-    def _mount_iso(self, target_path: str, mount_path: str) -> None:
-        self._log.info(f"Mounting ISO image {target_path} to {mount_path}")
+    def _mount_iso(self) -> None:
         try:
-            self._run_command("fuseiso", target_path, mount_path)
+            self._run_command("fuseiso", self._image_path, self.path)
         except ImageRunCommandError as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount_sqfs(self, target_path: str, mount_path: str) -> None:
-        self._log.info(f"Mounting SquashFS image {target_path} to {mount_path}")
+    def _mount_sqfs(self) -> None:
         try:
-            self._run_command("squashfuse", target_path, mount_path)
+            self._run_command("squashfuse", self._image_path, self.path)
         except ImageRunCommandError as e:
             raise ImageMountError(self._image_path, self.path) from e
 
-    def _mount(self, target_path: str, mount_path: str, image_type: str) -> None:
-        if image_type == "iso":
-            self._mount_iso(target_path, mount_path)
-        elif image_type == "squashfs":
-            self._mount_sqfs(target_path, mount_path)
-        else:
-            self._log.error(f"Unsupported filesystem image type {image_type}")
-            raise ImageTypeError(self.name, self.type)
+    def _mount(self) -> None:
+        if self.type == "iso":
+            self._mount_iso()
+        elif self.type == "squashfs":
+            self._mount_sqfs()
 
     def open(self):
         if not self.ismount:
             try:
-                self._mount(self._image_path, self.path, self.type)
+                self._mount()
                 self.ismount = True
             except Exception as e:
-                self._log.error(
-                    f"Failed to mount {self.type} image {self._image_path} to {self.path}"
-                )
                 self._tmpdir.cleanup()
                 raise e
 
     def close(self):
         if self.ismount:
             try:
-                self._unmount(self.path)
+                self._unmount()
             except Exception as e:
-                self._log.error(f"Failed to unmount {self.type} image at {self.path}")
                 raise e
             finally:
                 self.ismount = False
@@ -224,7 +209,7 @@ class ISO:
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER(name="ISO")
+            self.logger = DEFAULT_LOGGER
         self.iso_name = iso_name
         self.iso_path = str(iso_path)
         self._sqfs: list[SquashFSImage] = []
@@ -723,7 +708,7 @@ class ISOProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER(name="iso")
+            self.logger = DEFAULT_LOGGER
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
