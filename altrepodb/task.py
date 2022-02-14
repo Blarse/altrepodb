@@ -1842,7 +1842,7 @@ class TaskProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER(name="task")
+            self.logger = DEFAULT_LOGGER
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
