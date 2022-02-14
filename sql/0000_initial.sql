@@ -65,7 +65,6 @@ CREATE TABLE Tasks
     subtask_srpm_evr    String, -- from /geras/%subtask_id%/nevr
     ts                  DateTime MATERIALIZED now() -- DEBUG
 ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, task_changed, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
--- ) ENGINE = ReplacingMergeTree ORDER BY (task_id, subtask_id, subtask_changed, subtask_deleted) PRIMARY KEY (task_id, subtask_id);
 
 CREATE TABLE Tasks_buffer AS Tasks ENGINE = Buffer(currentDatabase(), Tasks, 16, 10, 100, 1000, 100000, 100000, 1000000);
 
@@ -87,7 +86,6 @@ CREATE TABLE TaskStates
     task_eventlog_hash  Array(UInt64), -- events logs hashes 
     ts              DateTime MATERIALIZED now() -- DEBUG
 ) ENGINE = ReplacingMergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
---) ENGINE = MergeTree ORDER BY (task_changed, task_id, task_state, task_try) PRIMARY KEY (task_changed, task_id);
 
 CREATE TABLE TaskStates_buffer AS TaskStates ENGINE = Buffer(currentDatabase(), TaskStates, 16, 10, 100, 1000, 100000, 100000, 1000000);
 
@@ -828,7 +826,7 @@ CREATE
 OR REPLACE VIEW last_packages AS
 SELECT * EXCEPT pkg_cs, lower(hex(pkg_cs)) as pkg_cs
 FROM Packages_buffer
-INNER JOIN 
+INNER JOIN
 (
     SELECT pkg_hash, pkgset_name, pkgset_date
     FROM static_last_packages
@@ -1116,7 +1114,7 @@ CREATE TABLE ImagePackageSetName
     img_type            LowCardinality(String),
     img_kv              Map(String,String),
     ts                  DateTime64(3) MATERIALIZED now64()
-) ENGINE = MergeTree 
+) ENGINE = MergeTree
 PRIMARY KEY (pkgset_date, img_branch, img_edition)
 ORDER BY (pkgset_date, img_branch, img_edition, img_arch, img_variant, img_release);
 
@@ -1172,18 +1170,28 @@ WHERE pkgset_depth = 0 AND pkgset_kv.v[indexOf(pkgset_kv.k, 'class')] != 'reposi
 -- Image status table
 CREATE TABLE ImageStatus
 (
-    ims_branch              LowCardinality(String),
-    ims_edition             LowCardinality(String),
-    ims_name                String, -- official image name
-    ims_show                UInt8, -- 0 - hide image, 1 - show image
-    ims_json                String, -- image auxilary data as stringified JSON structure
-    ims_start_date          DateTime,
-    ims_end_date            DateTime,
-    ims_description_ru      String,
-    ims_description_en      String,
-    ims_mailing_list        LowCardinality(String), -- image edition mailing list URL
-    ims_name_bugzilla       LowCardinality(String), -- image name in Bugzilla
-    ts DateTime64 MATERIALIZED  now64()
+    img_branch              LowCardinality(String),
+    img_edition             LowCardinality(String),
+    img_name                String, -- official image name
+    img_show                Enum8('hide' = 0, 'show' = 1),
+    img_start_date          DateTime,
+    img_end_date            DateTime,
+    img_description_ru      String,
+    img_description_en      String,
+    img_mailing_list        LowCardinality(String), -- image edition mailing list URL
+    img_name_bugzilla       LowCardinality(String), -- image name in Bugzilla
+    img_json                String, -- image auxilary data as stringified JSON structure
+    ts                      DateTime64 MATERIALIZED  now64()
 )
 ENGINE = MergeTree
-ORDER BY (ims_branch, ims_edition, ims_show) PRIMARY KEY (ims_branch, ims_edition);
+ORDER BY (img_branch, img_edition, img_show) PRIMARY KEY (img_branch, img_edition);
+
+-- Image status by tag table
+CREATE TABLE ImageTagStatus
+(
+    img_tag     String,
+    img_show    Enum8('hide' = 0, 'show' = 1),
+    ts          DateTime64 MATERIALIZED  now64()
+)
+ENGINE = ReplacingMergeTree
+ORDER BY img_tag;
