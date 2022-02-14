@@ -687,16 +687,29 @@ INSERT INTO PackageHash_buffer (*) VALUES
 
     get_last_image_status = """
 SELECT
-    argMax(tuple(*), ts),
-    ims_branch,
-    ims_edition
+    img_branch,
+    img_edition,
+    argMax(img_show, ts)
 FROM ImageStatus
-WHERE ims_branch = '{branch}' AND ims_edition = '{edition}'
-GROUP BY ims_branch, ims_edition
+WHERE img_branch = '{branch}' AND img_edition = '{edition}'
+GROUP BY img_branch, img_edition
+"""
+
+    get_last_img_tag_status = """
+SELECT
+    img_tag,
+    argMax(img_show, ts)
+FROM ImageTagStatus
+WHERE img_tag = '{img_tag}'
+GROUP BY img_tag
 """
 
     insert_image_status = """
 INSERT INTO ImageStatus (*) VALUES
+"""
+
+    insert_image_tag_status = """
+INSERT INTO ImageTagStatus (*) VALUES
 """
 
 
@@ -1164,75 +1177,68 @@ class ISOProcessor:
         ImageStatus = namedtuple(
             "ImageStatus",
             [
-                "ims_branch",
-                "ims_edition",
-                "ims_name",
-                "ims_show",
-                "ims_json",
-                "ims_start_date",
-                "ims_end_date",
-                "ims_description_ru",
-                "ims_description_en",
-                "ims_mailing_list",
-                "ims_name_bugzilla",
+                "img_branch",
+                "img_edition",
+                "img_name",
+                "img_show",
+                "img_start_date",
+                "img_end_date",
+                "img_description_ru",
+                "img_description_en",
+                "img_mailing_list",
+                "img_name_bugzilla",
+                "img_json",
             ],
             defaults=[
                 "",
                 "",
                 "",
                 "",
-            ],  # defaults for: 'img_descriptio_ru', ... , 'img_name_bugzilla'
+                "{}",
+            ],  # defaults for: 'img_descriptio_ru', ... , 'img_json'
         )
-        db_ims_json = {}
-        img_ims_json = {"tag": self.tag, "show": 0}
-        updated = False
-        # load last repositroy status from DB
+        # get last repositroy status from DB
         res = self.conn.execute(
             self.sql.get_last_image_status.format(
                 branch=self.meta.branch, edition=self.meta.edition
             )
         )
-        if res:
-            # got status from DB - skipping
-            self.logger.debug(f"Got image status record from DB: {res}")
-            ims = ImageStatus(*res[0][0])
-            db_ims_json = json.loads(ims.ims_json)
-        else:
+        if not res:
             # if no record found in DB then create new one
             ims = ImageStatus(
-                ims_branch=self.meta.branch,
-                ims_edition=self.meta.edition,
-                ims_name=(
+                img_branch=self.meta.branch,
+                img_edition=self.meta.edition,
+                img_name=(
                     f"{self.meta.edition.upper()} "
                     f"{self.meta.version_major}.{self.meta.version_minor} "
                     f"{self.meta.arch}"
                 ),  # oficial image name placeholder
-                ims_show=0,
-                ims_start_date=datetime.datetime.now(),
-                ims_end_date=datetime.datetime(2099, 1, 1),
-                ims_json="{}",  # JSON string placeholder
+                img_show=0,
+                img_start_date=datetime.datetime.now(),
+                img_end_date=datetime.datetime(2099, 1, 1),
+                img_json="{}",  # JSON string placeholder
             )
-            updated = True
-        # update 'ims_json' with data from current image
-        if "status" not in db_ims_json:
-            db_ims_json["status"] = [
-                img_ims_json,
-            ]
-            updated = True
-        elif self.tag not in {x["tag"] for x in db_ims_json["status"]}:
-            db_ims_json["status"].append(img_ims_json)
-            updated = True
-
-        ims = ims._replace(ims_json=json.dumps(db_ims_json, default=str))
-        # store new ImageStatus record to DB
-        if not self.config.dryrun and updated:
-            self.logger.debug(f"Store image status record to DB: {ims}")
-            res = self.conn.execute(
-                self.sql.insert_image_status,
-                [
-                    ims._asdict(),
-                ],
-            )
+            # store new ImageStatus record to DB
+            if not self.config.dryrun:
+                res = self.conn.execute(
+                    self.sql.insert_image_status,
+                    [
+                        ims._asdict(),
+                    ],
+                )
+        # get last image tag status from DB
+        res = self.conn.execute(
+            self.sql.get_last_img_tag_status.format(img_tag=self.tag)
+        )
+        if not res:
+            # store new ImageTagStatus record
+            if not self.config.dryrun:
+                res = self.conn.execute(
+                    self.sql.insert_image_tag_status,
+                    [
+                        {"img_tag": self.tag, "img_show": 0},
+                    ],
+                )
 
     def run(self) -> None:
         # -1. check if ISO is already loaded to DB
