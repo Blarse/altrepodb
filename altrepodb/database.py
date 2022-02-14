@@ -49,7 +49,7 @@ class DatabaseClient:
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER(name="database")
+            self.logger = DEFAULT_LOGGER
         self.conn = self._get_connection()
 
     def _get_connection(self):
