@@ -359,72 +359,44 @@ def packager_parse(packager: str) -> Union[tuple[str, str], None]:
     return None
 
 
-def sha1_from_file(
-    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
-) -> Union[bytes, str]:
+def sha1_from_file(fname: _FileName) -> bytes:
     """Calculates SHA1 hash from file."""
 
     hash = sha1()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
-    if as_bytes:
-        return hash.digest()
-    if capitalized:
-        return hash.hexdigest().upper()
-    else:
-        return hash.hexdigest()
+    return hash.digest()
 
 
-def sha256_from_file(
-    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
-) -> Union[bytes, str]:
+def sha256_from_file(fname: _FileName) -> bytes:
     """Calculates SHA256 hash from file."""
 
     hash = sha256()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
-    if as_bytes:
-        return hash.digest()
-    if capitalized:
-        return hash.hexdigest().upper()
-    else:
-        return hash.hexdigest()
+    return hash.digest()
 
 
-def md5_from_file(
-    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
-) -> Union[bytes, str]:
+def md5_from_file(fname: _FileName) -> bytes:
     """Calculates MD5 hash from file."""
 
     hash = md5()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
-    if as_bytes:
-        return hash.digest()
-    if capitalized:
-        return hash.hexdigest().upper()
-    else:
-        return hash.hexdigest()
+    return hash.digest()
 
 
-def blake2b_from_file(
-    fname: _FileName, as_bytes: bool = False, capitalized: bool = False
-) -> Union[bytes, str]:
+def blake2b_from_file(fname: _FileName) -> bytes:
     """Calculates blake2b hash from file."""
 
     hash = blake2b()
     with open(fname, "rb") as f:
         for byte_block in iter(lambda: f.read(8192), b""):
             hash.update(byte_block)
-    if as_bytes:
-        return hash.digest()
-    if capitalized:
-        return hash.hexdigest().upper()
-    else:
-        return hash.hexdigest()
+    return hash.digest()
 
 
 def hashes_from_file(fname: _FileName) -> tuple[bytes, bytes, bytes]:
