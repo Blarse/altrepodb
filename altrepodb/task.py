@@ -674,7 +674,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 else:
                     self.logger.debug(f"calculate MD5 for {pkg_name} file")
                     hashes["md5"] = md5_from_file(
-                        self.taskfs.get_file_path(pkg), as_bytes=True
+                        self.taskfs.get_file_path(pkg)
                     )
 
                 if self.pkg_hashes[pkg_name].sha256:
@@ -682,7 +682,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 else:
                     self.logger.debug(f"calculate SHA256 for {pkg_name} file")
                     hashes["sha256"] = sha256_from_file(
-                        self.taskfs.get_file_path(pkg), as_bytes=True
+                        self.taskfs.get_file_path(pkg)
                     )
 
                 if self.pkg_hashes[pkg_name].blake2b not in (b"", None):
@@ -690,7 +690,7 @@ class TaskIterationLoaderWorker(RaisingTread):
                 else:
                     self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
                     hashes["blake2b"] = blake2b_from_file(
-                        self.taskfs.get_file_path(pkg), as_bytes=True
+                        self.taskfs.get_file_path(pkg)
                     )
 
             self.ph.insert_package(hdr, self.taskfs.get_file_path(pkg), **kw)
@@ -903,14 +903,14 @@ class PackageLoaderWorker(RaisingTread):
             hashes["md5"] = self.pkg_hashes[pkg_name].md5
         else:
             self.logger.debug(f"calculate MD5 for {pkg_name} file")
-            hashes["md5"] = md5_from_file(self.taskfs.get_file_path(pkg), as_bytes=True)
+            hashes["md5"] = md5_from_file(self.taskfs.get_file_path(pkg))
 
         if self.pkg_hashes[pkg_name].sha256:
             hashes["sha256"] = self.pkg_hashes[pkg_name].sha256
         else:
             self.logger.debug(f"calculate SHA256 for {pkg_name} file")
             hashes["sha256"] = sha256_from_file(
-                self.taskfs.get_file_path(pkg), as_bytes=True
+                self.taskfs.get_file_path(pkg)
             )
 
         if self.pkg_hashes[pkg_name].blake2b not in (b"", None):
@@ -918,7 +918,7 @@ class PackageLoaderWorker(RaisingTread):
         else:
             self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
             hashes["blake2b"] = blake2b_from_file(
-                self.taskfs.get_file_path(pkg), as_bytes=True
+                self.taskfs.get_file_path(pkg)
             )
 
         kw["pkg_hash"] = hashes["mmh"]
@@ -1496,9 +1496,7 @@ class TaskParser:
                             )
                         ]
                         if t:
-                            self.task.pkg_hashes[pkg_name].md5 = md5_from_file(  # type: ignore
-                                t[0], as_bytes=True
-                            )
+                            self.task.pkg_hashes[pkg_name].md5 = md5_from_file(t[0])
                         else:
                             self.logger.error(
                                 f"Failed to calculate MD5 for {pkg_name} from file"
@@ -1906,3 +1904,5 @@ class TaskProcessor:
         else:
             ts = time.time() - ts
             self.logger.info(f"task {self.config.id} loaded in {ts:.3f} seconds")
+        finally:
+            self.conn.disconnect()
