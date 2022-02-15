@@ -317,7 +317,7 @@ class ISO:
         else:
             stat_ = file.stat()
             try:
-                md5_ = md5_from_file(file, as_bytes=True)
+                md5_ = md5_from_file(file)
             except Exception as e:
                 self.logger.debug(
                     f"Failed to calculate MD5 checksum for file : {str(file.relative_to(Path.cwd()))}"
