@@ -981,3 +981,5 @@ class ImageProcessor:
         self._store_pkgsets(self._make_image_pkgsets())
         # 5. update repository status record with loaded imgae
         self._update_image_status()
+        # 6. clean-up
+        self.conn.disconnect()
