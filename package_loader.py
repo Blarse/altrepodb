@@ -174,13 +174,13 @@ class PackageLoader:
 
         if self.force or not check_package_in_cache(self.cache, hashes["mmh"]):
             self.logger.debug(f"calculate MD5 for {pkg_name} file")
-            hashes["md5"] = md5_from_file(self.pkg, as_bytes=True)
+            hashes["md5"] = md5_from_file(self.pkg)
 
             self.logger.debug(f"calculate SHA256 for {pkg_name} file")
-            hashes["sha256"] = sha256_from_file(self.pkg, as_bytes=True)
+            hashes["sha256"] = sha256_from_file(self.pkg)
 
             self.logger.debug(f"calculate BLAKE2b for {pkg_name} file")
-            hashes["blake2b"] = blake2b_from_file(self.pkg, as_bytes=True)
+            hashes["blake2b"] = blake2b_from_file(self.pkg)
 
             self.ph.insert_package(hdr, self.pkg, **kw)
             self.ph.insert_pkg_hash_single(hashes)
