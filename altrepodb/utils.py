@@ -399,6 +399,33 @@ def blake2b_from_file(fname: _FileName) -> bytes:
     return hash.digest()
 
 
+def calculate_sha256_blake2b(
+    fname: _FileName,
+    sha256_in: Optional[bytes],
+    blake2b_in: Optional[bytes],
+    en_blake2b: bool,
+) -> tuple[bytes, bytes]:
+    """Calculates SAH256 and BLAKE2b hashes from file.
+    Actual calculation is performed only for input hashes
+    which one is equal to None or empty bytes.
+    `en_blake2b` flag used to force BLAKE2b calculation disabled."""
+
+    use_sha256 = True if sha256_in in (b"", None) else False
+    use_blake2b = (True if blake2b_in in (b"", None) else False) and en_blake2b
+    if not use_sha256 and not use_blake2b:
+        return (sha256_in, blake2b_in)  # type: ignore
+    sha256_h = sha256()
+    blake2b_h = blake2b()
+    with open(fname, "rb") as f:
+        for byte_block in iter(lambda: f.read(8192), b""):
+            sha256_h.update(byte_block) if use_sha256 else None
+            blake2b_h.update(byte_block) if use_blake2b else None
+    return (  # type: ignore
+        sha256_in if use_sha256 else sha256_h.digest(),
+        blake2b_in if use_blake2b else blake2b_h.digest(),
+    )
+
+
 def hashes_from_file(fname: _FileName) -> tuple[bytes, bytes, bytes]:
     """Calculates md5, sha256 and blake2b hashes from file."""
 
@@ -423,11 +450,11 @@ def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
 
     try:
         gost12_h = subprocess.Popen(
-                "gost12sum",
-                shell=False,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-            )
+            "gost12sum",
+            shell=False,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
         with open(fname, "rb") as f:
             for byte_block in iter(lambda: f.read(CHUNK_SIZE), b""):
                 md5_h.update(byte_block)
@@ -584,15 +611,15 @@ class SupressStdoutStderr:
     """Context manager that supress all stdout and stderr from any function wraped in."""
 
     def __init__(self):
-        self.null_fds =  [os.open(os.devnull,os.O_RDWR) for x in range(2)]
+        self.null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
         self.save_fds = [os.dup(1), os.dup(2)]
 
     def __enter__(self):
-        os.dup2(self.null_fds[0],1)
-        os.dup2(self.null_fds[1],2)
+        os.dup2(self.null_fds[0], 1)
+        os.dup2(self.null_fds[1], 2)
 
     def __exit__(self, *_):
-        os.dup2(self.save_fds[0],1)
-        os.dup2(self.save_fds[1],2)
+        os.dup2(self.save_fds[0], 1)
+        os.dup2(self.save_fds[1], 2)
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
