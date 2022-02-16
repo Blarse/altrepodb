@@ -44,6 +44,18 @@ class NotImplementedError(Exception):
         super().__init__()
 
 
+class RepoParsingError(Exception):
+    """Raised when error occured during repository structure parsing."""
+
+    pass
+
+
+class RepoProcessingError(Exception):
+    """Raised when error occured during repository processing."""
+
+    pass
+
+
 # Threaded workers exception
 class RaisingThreadError(Exception):
     """Custom exception class used in RaisingThread subclasses
@@ -172,6 +184,7 @@ class TaskLoaderProcessingError(TaskLoaderError):
         super().__init__(
             f"An error occured while loadint task {id} to database. Error: {exc}"
         )
+
 
 class TaskLoaderParserError(TaskLoaderError):
     def __init__(self, message: str):
