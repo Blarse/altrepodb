@@ -355,7 +355,10 @@ class Worker(threading.Thread):
                         self.bin_hashes[pkg_filename].sf = map_package["pkg_hash"]
                         self.bin_hashes[pkg_filename].sha1 = map_package["pkg_cs"]
                         # set source rpm name and hash
-                        kw["pkg_srcrpm_hash"] = self.src_hashes[map_package["pkg_sourcerpm"]].sf
+                        if map_package["pkg_sourcerpm"] in self.src_hashes:
+                            kw["pkg_srcrpm_hash"] = self.src_hashes[map_package["pkg_sourcerpm"]].sf
+                        else:
+                            kw["pkg_srcrpm_hash"] = None
                         # check if BLAKE2b hash found and if not, calculate it from file
                         if self.bin_hashes[pkg_filename].blake2b in (b"", None):
                             self.logger.debug(
