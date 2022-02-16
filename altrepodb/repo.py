@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import gc
 import rpm
 import time
 import base64
@@ -147,6 +148,13 @@ class PackageHandler:
             "specfile_date": spec_file.mtime,
             "specfile_content_base64": base64.b64encode(spec_contents),
         }
+        # XXX: force memory release here
+        # effect is quite noticeable
+        # START #
+        del spec_file
+        del spec_contents
+        gc.collect()
+        #  END  #
         self.conn.execute(
             "INSERT INTO Specfiles_insert (*) VALUES",
             [
