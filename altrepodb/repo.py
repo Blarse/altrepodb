@@ -22,25 +22,39 @@ import threading
 import multiprocessing
 from uuid import uuid4
 from pathlib import Path
-from collections import defaultdict
+from collections import namedtuple
+from dataclasses import asdict
 from typing import Any, Iterable, Optional, Union
 
 import altrepodb.mapper as mapper
 from altrpm import rpm as rpmt, extractSpecFromRPM, readHeaderListFromXZFile
-from altrepodb.utils import (
+from .utils import (
     cvt,
     unxz,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
+    calculate_sha256_blake2b,
     check_package_in_cache,
-    Timing,
+    join_dicts_with_as_string,
     Display,
 )
-from altrepodb.base import LockedIterator, DatabaseConfig, LoggerProtocol
-from altrepodb.exceptions import NotImplementedError, PackageLoadError
-from altrepodb.database import DatabaseClient
-from altrepodb.misc import lut
+from .base import (
+    DEFAULT_LOGGER,
+    _StringOrPath,
+    PkgHash,
+    RepoLeaf,
+    Repository,
+    SrcRepoLeaf,
+    RootRepoLeaf,
+    LockedIterator,
+    DatabaseConfig,
+    LoggerProtocol,
+    RepoProcessorConfig,
+)
+from .exceptions import PackageLoadError, RepoParsingError, RepoProcessingError
+from .database import DatabaseClient
+from .misc import lut
 
 NAME = "repo"
 
@@ -58,7 +72,6 @@ class PackageHandler:
         ts = rpm.TransactionSet()
         return ts.hdrFromFdno(rpmfile)
 
-    @Timing.timeit(NAME)
     def insert_package(self, hdr, pkg_file, **kwargs):
         """Insert information about package into database.
 
@@ -115,7 +128,6 @@ class PackageHandler:
 
         return pkghash
 
-    @Timing.timeit(NAME)
     def insert_specfile(self, pkg_file, pkg_map):
         self.logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
         st = time.time()
@@ -143,7 +155,6 @@ class PackageHandler:
         )
         self.logger.debug(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
 
-    @Timing.timeit(NAME)
     def insert_file(self, pkghash, hdr):
         map_file = mapper.get_file_map(hdr)
         map_file["pkg_hash"] = itertools.cycle([pkghash])
@@ -154,7 +165,6 @@ class PackageHandler:
         )
         self.logger.debug("insert file for pkghash: {0}".format(pkghash))
 
-    @Timing.timeit("extract")
     def insert_list(self, tagmap, pkghash, dptype):
         """Insert list as batch."""
         tagmap["pkg_hash"] = itertools.cycle([pkghash])
@@ -168,7 +178,15 @@ class PackageHandler:
             "insert list into: {0} for pkghash: {1}".format(dptype, pkghash)
         )
 
-    @Timing.timeit(NAME)
+    @staticmethod
+    def convert_hashes(pkghash: PkgHash) -> dict[str, Union[int, bytes]]:
+        """Convert PkgHash instance to dictionary for compatibility."""
+
+        hashes = asdict(pkghash)
+        hashes["mmh"] = hashes["sf"]
+        del hashes["sf"]
+        return hashes
+
     def insert_pkg_hashes(self, pkg_hashes):
         """Inserts multiple packages hashes to DB
 
@@ -192,7 +210,6 @@ class PackageHandler:
             "INSERT INTO PackageHash_buffer (*) VALUES", payload, settings=settings
         )
 
-    @Timing.timeit(NAME)
     def insert_pkg_hash_single(self, pkg_hash):
         """Insert single package hashes to DB
 
@@ -223,7 +240,6 @@ class PackageSetHandler:
         self.conn = conn
         self.logger = logger
 
-    @Timing.timeit(NAME)
     def insert_pkgset_name(
         self,
         name: str,
@@ -256,7 +272,6 @@ class PackageSetHandler:
         self.conn.execute(sql, [data])
         self.logger.debug("insert package set name uuid: {0}".format(uuid))
 
-    @Timing.timeit(NAME)
     def insert_pkgset(self, uuid: str, pkghash: Union[list[int], set[int]]) -> None:
         self.conn.execute(
             "INSERT INTO PackageSet_buffer (pkgset_uuid, pkg_hash) VALUES",
@@ -276,8 +291,8 @@ class Worker(threading.Thread):
         logger: LoggerProtocol,
         lock: threading.Lock,
         pkg_cache: set,
-        src_repo_cache: dict,
-        pkg_repo_cache: dict,
+        src_hashes: dict[str, PkgHash],
+        bin_hashes: dict[str, PkgHash],
         packages: Iterable,
         pkgset: set,
         display: Union[Display, None],
@@ -290,8 +305,8 @@ class Worker(threading.Thread):
         self.packages = packages
         self.pkgset = pkgset
         self.display = display
-        self.src_repo_cache = src_repo_cache
-        self.pkg_repo_cache = pkg_repo_cache
+        self.src_hashes = src_hashes
+        self.bin_hashes = bin_hashes
         self.cache = pkg_cache
         self.is_src = is_src
         self.exc = None
@@ -324,33 +339,29 @@ class Worker(threading.Thread):
                 with self.lock:
                     if self.is_src:
                         #  store pkg mmh and sha1
-                        self.src_repo_cache[pkg_filename]["mmh"] = map_package["pkg_hash"]
-                        self.src_repo_cache[pkg_filename]["sha1"] = map_package["pkg_cs"]
+                        self.src_hashes[pkg_filename].sf = map_package["pkg_hash"]
+                        self.src_hashes[pkg_filename].sha1 = map_package["pkg_cs"]
                         # set source rpm name and hash to self
                         kw["pkg_sourcerpm"] = pkg_filename
                         kw["pkg_srcrpm_hash"] = map_package["pkg_hash"]
                         # check if BLAKE2b hash found and if not, calculate it from file
-                        if self.src_repo_cache[pkg_filename]["blake2b"] in (b"", None):
+                        if self.src_hashes[pkg_filename].blake2b in (b"", None):
                             self.logger.debug(
                                 f"calculate BLAKE2b for {pkg_filename} file"
                             )
-                            self.src_repo_cache[pkg_filename][
-                                "blake2b"
-                            ] = blake2b_from_file(package, as_bytes=True)
+                            self.src_hashes[pkg_filename].blake2b = blake2b_from_file(package)
                     else:
                         #  store pkg mmh and sha1
-                        self.pkg_repo_cache[pkg_filename]["mmh"] = map_package["pkg_hash"]
-                        self.pkg_repo_cache[pkg_filename]["sha1"] = map_package["pkg_cs"]
+                        self.bin_hashes[pkg_filename].sf = map_package["pkg_hash"]
+                        self.bin_hashes[pkg_filename].sha1 = map_package["pkg_cs"]
                         # set source rpm name and hash
-                        kw["pkg_srcrpm_hash"] = self.src_repo_cache[map_package["pkg_sourcerpm"]]["mmh"]
+                        kw["pkg_srcrpm_hash"] = self.src_hashes[map_package["pkg_sourcerpm"]].sf
                         # check if BLAKE2b hash found and if not, calculate it from file
-                        if self.pkg_repo_cache[pkg_filename]["blake2b"] in (b"", None):
+                        if self.bin_hashes[pkg_filename].blake2b in (b"", None):
                             self.logger.debug(
                                 f"calculate BLAKE2b for {pkg_filename} file"
                             )
-                            self.pkg_repo_cache[pkg_filename]["blake2b"] = blake2b_from_file(
-                                package, as_bytes=True
-                            )
+                            self.bin_hashes[pkg_filename].blake2b = blake2b_from_file(package)
 
                 # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
                 if (
@@ -359,7 +370,7 @@ class Worker(threading.Thread):
                 ):
                     kw["pkg_srcrpm_hash"] = 0
 
-                self.logger.debug("process: {0}".format(package))
+                self.logger.debug(f"processing: {package}")
                 pkghash = check_package_in_cache(self.cache, map_package["pkg_hash"])
 
                 if pkghash is None:
@@ -368,11 +379,11 @@ class Worker(threading.Thread):
                     # insert package hashes to PackageHash_buffer
                     if self.is_src:
                         self.ph.insert_pkg_hash_single(
-                            self.src_repo_cache[pkg_filename]
+                            self.ph.convert_hashes(self.src_hashes[pkg_filename])
                         )
                     else:
                         self.ph.insert_pkg_hash_single(
-                            self.pkg_repo_cache[pkg_filename]
+                            self.ph.convert_hashes(self.bin_hashes[pkg_filename])
                         )
                 if pkghash is None:
                     raise PackageLoadError(
@@ -399,16 +410,15 @@ class Worker(threading.Thread):
             raise PackageLoadError(msg) from self.exc
 
 
-def worker_pool(
+def package_load_worker_pool(
     logger: LoggerProtocol,
-    pkg_cache: set,
-    src_repo_cache: dict,
-    pkg_repo_cache: dict,
-    packages_list: Iterable,
-    pkgset: set,
-    display: Union[Display, None],
+    repo: Repository,
     is_src: bool,
-    args: Any,
+    pkgset: set,
+    pkg_cache: set,
+    packages_list: Iterable,
+    display: Union[Display, None],
+    config: RepoProcessorConfig,
 ):
     lock = threading.Lock()
     workers: list[Worker] = []
@@ -416,28 +426,20 @@ def worker_pool(
 
     packages = LockedIterator((pkg for pkg in packages_list))
 
-    db_config = DatabaseConfig(
-        host=args.host,
-        port=args.port,
-        name=args.dbname,
-        user=args.user,
-        password=args.password,
-    )
-
-    for i in range(args.workers):
-        conn = DatabaseClient(config=db_config, logger=logger)
+    for i in range(config.workers):
+        conn = DatabaseClient(config=config.dbconfig, logger=logger)
         connections.append(conn)
         worker = Worker(
-            conn,
-            logger,
-            lock,
-            pkg_cache,
-            src_repo_cache,
-            pkg_repo_cache,
-            packages,
-            pkgset,
-            display,
-            is_src,
+            connection=conn,
+            logger=logger,
+            lock=lock,
+            pkg_cache=pkg_cache,
+            src_hashes=repo.src_hashes,
+            bin_hashes=repo.bin_hashes,
+            packages=packages,
+            pkgset=pkgset,
+            display=display,
+            is_src=is_src,
         )
         worker.start()
         workers.append(worker)
@@ -454,31 +456,30 @@ def worker_pool(
             c.disconnect()
 
 
-class RepoLoadHandler:
-    """Handle repository structure processing and loading to DB."""
+class RepoLoadHelper:
+    """Helper for repository structure processing and loading to DB."""
 
     def __init__(self, conn: DatabaseClient, logger: LoggerProtocol):
         self.conn = conn
         self.logger = logger
 
     @staticmethod
-    def init_cache(src_hashes: dict, bin_hashes: dict) -> set:
+    def init_cache(src_hashes: dict[str, PkgHash], bin_hashes: dict[str, PkgHash]) -> set[int]:
         cache = set()
         for v in src_hashes.values():
-            if v["mmh"] != 0:
-                cache.add(v["mmh"])
+            if v.sf not in (0, None):
+                cache.add(v.sf)
         for v in bin_hashes.values():
-            if v["mmh"] != 0:
-                cache.add(v["mmh"])
+            if v.sf not in (0, None):
+                cache.add(v.sf)
 
         return cache
 
-    @Timing.timeit(NAME)
-    def init_hash_temp_table(self, hashes: dict) -> None:
+    def init_hash_temp_table(self, hashes: dict[str, PkgHash]) -> None:
         payload = []
         result = self.conn.execute(
 """
-CREATE TEMPORARY TABLE IF NOT EXISTS PkgHashTmp
+CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
 (
     name    String,
     md5     FixedString(16),
@@ -488,22 +489,21 @@ CREATE TEMPORARY TABLE IF NOT EXISTS PkgHashTmp
         for k in hashes:
             # workaround to a possible bug in the repository structure
             # if files/list/*.hash.* files contain missing packages
-            if hashes[k]["md5"] is None:
+            if hashes[k].md5 is None:
                 continue
             payload.append(
-                {"name": k, "md5": hashes[k]["md5"], "sha256": hashes[k]["sha256"]}
+                {"name": k, "md5": hashes[k].md5, "sha256": hashes[k].sha256}
             )
-        result = self.conn.execute("INSERT INTO PkgHashTmp (*) VALUES", payload)
-        self.logger.debug(f"Inserted {len(payload)} hashes into PkgHashTmp")
+        result = self.conn.execute("INSERT INTO _tmpPkgHash (*) VALUES", payload)
+        self.logger.debug(f"Inserted {len(payload)} hashes into _tmpPkgHash")
         # Free memory immediatelly
         del payload
 
-    @Timing.timeit(NAME)
-    def update_hases_from_db(self, repo_cache: dict) -> None:
+    def update_hases_from_db(self, repo_cache: dict[str, PkgHash]) -> None:
         result = self.conn.execute(
 """
 SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
-FROM PkgHashTmp AS t1 
+FROM _tmpPkgHash AS t1 
 LEFT JOIN
 (
     SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1
@@ -519,13 +519,12 @@ ON t1.md5 = t2.md5""",
                     kk = k.decode("utf-8")
                     if kk in repo_cache.keys():
                         if v[1] != 0:
-                            # repo_cache[kk]['md5'] = v[0]
-                            repo_cache[kk]["mmh"] = v[1]
-                            repo_cache[kk]["sha1"] = v[2]
+                            repo_cache[kk].sf = v[1]
+                            repo_cache[kk].sha1 = v[2]
                             cnt1 += 1
                         else:
-                            repo_cache[kk]["mmh"] = 0
-                            repo_cache[kk]["sha1"] = None
+                            repo_cache[kk].sf = 0
+                            repo_cache[kk].sha1 = None
                             cnt2 += 1
         self.logger.debug(
             f"Requested {len(result)} package hashes from database. "  # type: ignore
@@ -543,7 +542,12 @@ ON t1.md5 = t2.md5""",
         return result[0][0] != 0  # type: ignore
 
 
-def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
+PkglistResult = namedtuple("PkglistResult", ["is_src", "fname", "hashes"])
+
+
+def get_hashes_from_pkglist(fname: str) -> PkglistResult:
+    """Read package's hashes from compressed APT headers list files."""
+
     hdrs = readHeaderListFromXZFile(fname)
     if fname.split("/")[-1].startswith("srclist"):
         src_list = True
@@ -555,249 +559,521 @@ def get_hashes_from_pkglist(fname: str) -> tuple[bool, str, dict]:
         pkg_md5 = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYMD5]))
         pkg_blake2b = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYBLAKE2B]))
         hsh[pkg_name] = (pkg_md5, pkg_blake2b)
-    return src_list, fname, hsh
+    return PkglistResult(src_list, fname, hsh)
 
 
-def read_release_components(file: Path) -> list[str]:
-    """Read components from 'release' file in reposiory tree."""
+class RepoParser:
+    """Read and parse repository structure."""
 
-    comps = []
-    with file.open(mode="r") as fd:
-        for line in fd.readlines():
-            ls = line.split(":")
-            if ls[0] == "Components":
-                comps = [x.strip() for x in ls[1].split()]
-                break
-    return comps
+    def __init__(self, repo_name: str, repo_path: _StringOrPath, logger: LoggerProtocol) -> None:
+        self.name = repo_name
+        self.path = Path(repo_path)
+        self.logger = logger
+        self.pkglists: list[str]
+        self.repo = self._init_repo_structure()
 
+    def _init_repo_structure(self):
+        """Check if repository structure is valid and init self.repo instance."""
 
-def check_release_for_blake2b(file: Path) -> bool:
-    """Search blake2b hashes mentioned in release file in reposiory tree."""
+        if not Path.joinpath(self.path, "files/list").is_dir() or not [
+            x for x in self.path.iterdir() if (x.is_dir() and x.name in lut.ARCHS)
+        ]:
+            raise RepoParsingError(
+                f"The path '{str(self.path)}' is not regular repository structure root"
+            )
 
-    with file.open(mode="r") as fd:
-        for line in fd.readlines():
-            ls = line.split(":")
-            if ls[0] == "BLAKE2b":
-                return True
-    return False
-
-
-def read_repo_structure(repo_name: str, repo_path: str, logger: LoggerProtocol) -> dict:
-    """Reads repository structure for given path and store."""
-
-    repo = {
-        "repo": {
-            "name": repo_name,
-            "uuid": str(uuid4()),
-            "puuid": "00000000-0000-0000-0000-000000000000",
-            "path": str(Path(repo_path)),
-            "kwargs": defaultdict(lambda: None, key=None),
-        },
-        "src": {"name": "srpm", "uuid": str(uuid4()), "puuid": None, "path": []},
-        "arch": {"archs": [], "kwargs": defaultdict(lambda: None, key=None)},
-        "comp": {"comps": [], "kwargs": defaultdict(lambda: None, key=None)},
-        "src_hashes": defaultdict(lambda: defaultdict(lambda: None, key=None)),
-        "pkg_hashes": defaultdict(lambda: defaultdict(lambda: None, key=None)),
-        "use_blake2b": False,
-        "bin_pkgs": {},
-    }
-
-    repo["src"]["puuid"] = repo["repo"]["uuid"]
-    repo["arch"]["kwargs"]["all_archs"] = set()
-    repo["comp"]["kwargs"]["all_comps"] = set()
-
-    root = Path(repo["repo"]["path"])
-
-    if not Path.joinpath(root, "files/list").is_dir() or not [
-        x for x in root.iterdir() if (x.is_dir() and x.name in lut.ARCHS)
-    ]:
-        raise NotImplementedError(
-            message=f"The path '{str(root)}' is not regular repository structure root"
+        repo = Repository(
+            root = RootRepoLeaf(
+                name=self.name,
+                path=str(self.path),
+                uuid=str(uuid4()),
+                puuid="00000000-0000-0000-0000-000000000000",
+                kwargs=dict(),
+            ),
+            src=SrcRepoLeaf(
+                name="srpm",
+                path=list(),
+                uuid=str(uuid4()),
+                puuid=""
+            ),
+            archs=list(),
+            comps=list(),
+            src_hashes=dict(),
+            bin_hashes=dict(),
+            bin_pkgs=dict(),
+            use_blake2b=False
         )
+        repo.src.puuid = repo.root.uuid
+        repo.root.kwargs["class"] = "repository"
 
-    pkglists = []
-    for arch_dir in [_ for _ in root.iterdir() if (_.is_dir() and _.name in lut.ARCHS)]:
-        repo["arch"]["archs"].append(
-            {
-                "name": arch_dir.name,
-                "uuid": str(uuid4()),
-                "puuid": repo["repo"]["uuid"],
-                "path": arch_dir.name,
-            }
-        )
-        repo["arch"]["kwargs"]["all_archs"].add(arch_dir.name)
-        # append '%ARCH%/SRPM.classic' path to 'src'
-        repo["src"]["path"].append(
-            "/".join(arch_dir.joinpath("SRPMS.classic").parts[-2:])
-        )
-        # check '%ARCH%/base' directory for components
-        base_subdir = arch_dir.joinpath("base")
-        if base_subdir.is_dir():
-            # store components and paths to it
-            release_file = base_subdir.joinpath("release")
-            for comp_name in read_release_components(release_file):
-                repo["comp"]["comps"].append(
-                    {
-                        "name": comp_name,
-                        "uuid": str(uuid4()),
-                        "puuid": repo["arch"]["archs"][-1]["uuid"],
-                        "path": "/".join(
-                            arch_dir.joinpath("RPMS." + comp_name).parts[-2:]
-                        ),
-                    }
+        return repo
+
+    def _collect_parts(self):
+        """Collect repository archs and components parts."""
+
+        def read_release_components(file: Path) -> list[str]:
+            """Read components from 'release' file in reposiory tree."""
+
+            comps = []
+            with file.open(mode="r") as fd:
+                for line in fd.readlines():
+                    ls = line.split(":")
+                    if ls[0] == "Components":
+                        comps = [x.strip() for x in ls[1].split()]
+                        break
+            return comps
+
+        self.pkglists = []
+        for arch_dir in [_ for _ in self.path.iterdir() if (_.is_dir() and _.name in lut.ARCHS)]:
+            self.repo.archs.append(
+                RepoLeaf(
+                    name=arch_dir.name,
+                    path=arch_dir.name,
+                    uuid=str(uuid4()),
+                    puuid=self.repo.root.uuid,
                 )
-                repo["comp"]["kwargs"]["all_comps"].add(comp_name)
-            # load MD5 from '%ARCH%/base/[pkg|src]list.%COMP%.xz'
-            pkglist_names = ["srclist.classic"]
-            pkglist_names += [
-                ("pkglist." + _) for _ in repo["comp"]["kwargs"]["all_comps"]
-            ]
-            for pkglist_name in pkglist_names:
-                f = base_subdir.joinpath(pkglist_name + ".xz")
-                if f.is_file():
-                    pkglists.append(str(f))
-            # check if blake2b hashes used by release file contents
-            if not repo["use_blake2b"]:
-                repo["use_blake2b"] = check_release_for_blake2b(release_file)
+            )
+            # append '%ARCH%/SRPM.classic' path to 'src'
+            self.repo.src.path.append(
+                "/".join(arch_dir.joinpath("SRPMS.classic").parts[-2:])
+            )
+            # check '%ARCH%/base' directory for components
+            base_subdir = arch_dir.joinpath("base")
+            if base_subdir.is_dir():
+                # store components and paths to it
+                release_file = base_subdir.joinpath("release")
+                for comp_name in read_release_components(release_file):
+                    self.repo.comps.append(
+                        RepoLeaf(
+                            name=comp_name,
+                            path="/".join(
+                                arch_dir.joinpath("RPMS." + comp_name).parts[-2:]
+                            ),
+                            uuid=str(uuid4()),
+                            puuid=self.repo.archs[-1].uuid,
+                        )
+                    )
+                # collect package lists from '%ARCH%/base/[pkg|src]list.%COMP%.xz'
+                pkglist_names = ["srclist.classic"]
+                pkglist_names += [("pkglist." + comp) for comp in self.repo.all_comps]
+                for pkglist_name in pkglist_names:
+                    f = base_subdir.joinpath(pkglist_name + ".xz")
+                    if f.is_file():
+                        self.pkglists.append(str(f))
+                # check if blake2b hashes used by release file contents
+                def check_release_for_blake2b(file: Path) -> bool:
+                    """Search BLAKE2b hashes mentioned in release file from reposiory tree."""
 
-    # get hashes from header lists with multiprocessing
-    logger.info(f"Reading package's hashes from headers lists")
-    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as p:
-        for res in p.map(get_hashes_from_pkglist, pkglists):
-            logger.info(f"Got {len(res[2])} package hashes from {res[1]}")
-            if res[0]:
-                for k, v in res[2].items():
-                    repo["src_hashes"][k]["md5"] = v[0]
-                    repo["src_hashes"][k]["blake2b"] = v[1]
-            else:
-                # store binary packages by arch and component
-                arch_ = res[1].split("/")[-3]
-                comp_ = res[1].split(".")[-2]
-                repo["bin_pkgs"][(arch_, comp_)] = tuple(res[2].keys())
-                # store hashes
-                for k, v in res[2].items():
-                    repo["pkg_hashes"][k]["md5"] = v[0]
-                    repo["pkg_hashes"][k]["blake2b"] = v[1]
+                    with file.open(mode="r") as fd:
+                        for line in fd.readlines():
+                            ls = line.split(":")
+                            if ls[0] == "BLAKE2b":
+                                return True
+                    return False
 
-    # check if '%root%/files/list' exists and load all data from it
-    p = root.joinpath("files/list")
-    if p.is_dir():
+                if not self.repo.use_blake2b:
+                    self.repo.use_blake2b = check_release_for_blake2b(release_file)
+
+    def _get_hashes_from_package_lists(self):
+        """Get package's hashes from header lists with multiprocessing."""
+
+        self.logger.info(f"Reading package's hashes from headers lists")
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as p:
+            for pkglist in p.map(get_hashes_from_pkglist, self.pkglists):
+                self.logger.info(f"Got {len(pkglist.hashes)} package hashes from {pkglist.fname}")
+                if pkglist.is_src:
+                    for k, v in pkglist.hashes.items():
+                        if k not in self.repo.src_hashes:
+                            self.repo.src_hashes[k] = PkgHash()
+                        self.repo.src_hashes[k].md5 = v[0]
+                        self.repo.src_hashes[k].blake2b = v[1]
+                else:
+                    # store binary packages by arch and component
+                    arch_ = pkglist.fname.split("/")[-3]
+                    comp_ = pkglist.fname.split(".")[-2]
+                    self.repo.bin_pkgs[(arch_, comp_)] = tuple(pkglist.hashes.keys())
+                    # store hashes
+                    for k, v in pkglist.hashes.items():
+                        if k not in self.repo.bin_hashes:
+                            self.repo.bin_hashes[k] = PkgHash()
+                        self.repo.bin_hashes[k].md5 = v[0]
+                        self.repo.bin_hashes[k].blake2b = v[1]
+
+    def _parse_files_lists(self):
+        """Check if '%root%/files/list' exists and load all data from it."""
+
+        p = self.path.joinpath("files/list")
+        if not p.is_dir():
+            return
         # load task info
         f = Path.joinpath(p, "task.info")
         if f.is_file():
-            contents = (_ for _ in f.read_text().split("\n") if len(_))
+            contents = (x for x in f.read_text().split("\n") if len(x))
             for c in contents:
                 k, v = c.split()
-                repo["repo"]["kwargs"][k] = v
+                self.repo.root.kwargs[k] = v
 
         # load all SHA256 hashes
         for arch in lut.ARCHS:
             f = p.joinpath(arch + ".hash.xz")
-            if f.is_file():
-                contents = (x for x in unxz(f, mode_binary=False).split("\n") if len(x))  # type: ignore
-                if arch == "src":
-                    # load to src_hashes
-                    for c in contents:
-                        pkg_name = c.split()[1]
-                        pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
-                        # calculate and store missing MD5 hashes for 'src.rpm'
-                        # TODO: workaround for missing/unhandled src.gostcrypto.xz
-                        if pkg_name not in repo["src_hashes"]:
-                            logger.info(
-                                f"{pkg_name}'s MD5 not found. Calculating it from file"
+            if not f.is_file():
+                continue
+            contents = (x for x in unxz(f, mode_binary=False).split("\n") if len(x))  # type: ignore
+            if arch == "src":
+                # load to src_hashes
+                for c in contents:
+                    pkg_name: str = c.split()[1]  # type: ignore
+                    pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
+                    # calculate and store missing MD5 hashes for 'src.rpm'
+                    # TODO: workaround for missing/unhandled src.gostcrypto.xz
+                    if pkg_name not in self.repo.src_hashes:
+                        self.repo.src_hashes[pkg_name] = PkgHash()
+                        self.logger.info(
+                            f"{pkg_name}'s MD5 not found. Calculating it from file"
+                        )
+                        # calculate missing MD5 from file here
+                        f = self.path.joinpath("files", "SRPMS", pkg_name)  # type: ignore
+                        if f.is_file():
+                            pkg_md5 = md5_from_file(f)
+                            self.repo.src_hashes[pkg_name].md5 = pkg_md5
+                        else:
+                            self.logger.warning(
+                                f"Cant find file to calculate MD5 for {pkg_name} "
+                                f"from {self.path.joinpath('files, ''SRPMS')}"
                             )
-                            # calculate missing MD5 from file here
-                            f = root.joinpath("files", "SRPMS", pkg_name)  # type: ignore
-                            if f.is_file():
-                                pkg_md5 = md5_from_file(f, as_bytes=True)
-                                repo["src_hashes"][pkg_name]["md5"] = pkg_md5
-                            else:
-                                logger.error(
-                                    f"Cant find file to calculate MD5 for {pkg_name} "
-                                    f"from {root.joinpath('files, ''SRPMS')}"
-                                )
-                                # raise RuntimeError("File not found")
-                                pass  # FIXME: workaround for mipsel branches
-                        repo["src_hashes"][pkg_name]["sha256"] = pkg_sha256
-                else:
-                    # load to pkg_hashes
-                    for c in contents:
-                        pkg_name = c.split()[1]
-                        pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
-                        repo["pkg_hashes"][pkg_name]["sha256"] = pkg_sha256
+                            # raise RuntimeError("File not found")
+                            pass  # FIXME: workaround for mipsel branches
+                    self.repo.src_hashes[pkg_name].sha256 = pkg_sha256
+            else:
+                # load to bin_hashes
+                for c in contents:
+                    pkg_name = c.split()[1]  # type: ignore
+                    pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
+                    if pkg_name not in self.repo.bin_hashes:
+                        self.repo.bin_hashes[pkg_name] = PkgHash()
+                    self.repo.bin_hashes[pkg_name].sha256 = pkg_sha256
         # find packages with SHA256 or blake2b hash missing and calculate it from file
         # for source files
-        for k, v in repo["src_hashes"].items():
-            if v["sha256"] is None:
-                logger.info(f"{k}'s SHA256 not found. Calculating it from file")
-                file_ = root.joinpath("files", "SRPMS", k)
-                if file_.is_file():
-                    repo["src_hashes"][k]["sha256"] = sha256_from_file(
-                        file_, as_bytes=True
-                    )
-                else:
-                    logger.error(
-                        f"Can't find file to calculate SHA256 "
-                        f"for {file_.name} from {file_.parent}"
-                    )
-                    raise RuntimeError("File not found")
-            if v["blake2b"] in (b"", None) and repo["use_blake2b"]:
-                logger.info(f"{k}'s blake2b not found. Calculating it from file")
-                file_ = root.joinpath("files", "SRPMS", k)
-                if file_.is_file():
-                    repo["src_hashes"][k]["blake2b"] = blake2b_from_file(
-                        file_, as_bytes=True
-                    )
-                else:
-                    logger.error(
-                        f"Can't find file to calculate blake2b "
-                        f"for {file_.name} from {file_.parent}"
-                    )
-                    raise RuntimeError("File not found")
+        for k, v in self.repo.src_hashes.items():
+            if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
+                self.logger.info(f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file")
+            else:
+                continue
+
+            pkg_file = self.path.joinpath("files", "SRPMS", k)
+            if not pkg_file.is_file():
+                self.logger.error(
+                    f"Can't find file to calculate hashes "
+                    f"for {pkg_file.name} from {pkg_file.parent}"
+                )
+                raise RepoParsingError(f"File not found: {pkg_file}")
+
+            (
+                self.repo.src_hashes[k].sha256,
+                self.repo.src_hashes[k].blake2b
+            ) = calculate_sha256_blake2b(pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b)
         # for binary files
-        for k, v in repo["pkg_hashes"].items():
-            file_ = Path()
-            if v["sha256"] is None:
-                logger.info(f"{k}'s SHA256 not found. Calculating it from file")
-                found_ = False
-                for arch in repo["arch"]["kwargs"]["all_archs"]:
-                    file_ = root.joinpath("files", arch, "RPMS", k)
-                    if file_.is_file():
-                        repo["pkg_hashes"][k]["sha256"] = sha256_from_file(
-                            file_, as_bytes=True
-                        )
-                        found_ = True
-                        break
-                if not found_:
-                    logger.error(
-                        f"Can't find file to calculate SHA256 "
-                        f"for {file_.name} from {file_.parent}"
-                    )
-                    raise RuntimeError("File not found")
-            if v["blake2b"] in (b"", None) and repo["use_blake2b"]:
-                logger.info(f"{k}'s blake2b not found. Calculating it from file")
-                found_ = False
-                for arch in repo["arch"]["kwargs"]["all_archs"]:
-                    file_ = root.joinpath("files", arch, "RPMS", k)
-                    if file_.is_file():
-                        repo["pkg_hashes"][k]["blake2b"] = blake2b_from_file(
-                            file_, as_bytes=True
-                        )
-                        found_ = True
-                        break
-                if not found_:
-                    logger.error(
-                        f"Can't find file to calculate blake2b "
-                        f"for {file_.name} from {file_.parent}"
-                    )
-                    raise RuntimeError("File not found")
+        pkg_file = Path()  # initialized just for type checking
+        for k, v in self.repo.bin_hashes.items():
+            if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
+                self.logger.info(f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file")
+            else:
+                continue
 
-    logger.debug(f"Found {len(repo['src']['path'])} source directories")
-    logger.debug(
-        f"Found {len(repo['comp']['comps'])} components "
-        f"for {len(repo['arch']['archs'])} architectures"
-    )
-    logger.debug(f"Found {len(repo['src_hashes'])} hashes for 'src.rpm' files")
-    logger.debug(f"Found {len(repo['pkg_hashes'])} hashes for 'rpm' files")
+            found = False
+            for arch in self.repo.all_archs:
+                pkg_file = self.path.joinpath("files", arch, "RPMS", k)
+                if pkg_file.is_file():
+                    (
+                        self.repo.bin_hashes[k].sha256,
+                        self.repo.bin_hashes[k].blake2b
+                    ) = calculate_sha256_blake2b(pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b)
+                    found = True
+                    break
+            if not found:
+                self.logger.error(
+                    f"Can't find file to calculate hashes "
+                    f"for {pkg_file.name} from {pkg_file.parent}"
+                )
+                raise RepoParsingError(f"File not found: {pkg_file}")
 
-    return repo
+    def parse_repository(self):
+        self._collect_parts()
+        self._get_hashes_from_package_lists()
+        self._parse_files_lists()
+
+        self.logger.debug(f"Found {len(self.repo.src.path)} source directories")
+        self.logger.debug(
+            f"Found {len(self.repo.comps)} components "
+            f"for {len(self.repo.archs)} architectures"
+        )
+        self.logger.debug(f"Found {len(self.repo.src_hashes)} hashes for 'src.rpm' files")
+        self.logger.debug(f"Found {len(self.repo.bin_hashes)} hashes for 'rpm' files")
+
+
+class RepoLoadHandler:
+    """Handles repository structure loading to DB."""
+
+    def __init__(self, config: RepoProcessorConfig, logger: LoggerProtocol) -> None:
+        self.config = config
+        self.logger = logger
+        self.cache = set()
+        self.repo : Repository
+        self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
+        self.rlh = RepoLoadHelper(conn=self.conn, logger=self.logger)
+        self.psh = PackageSetHandler(conn=self.conn, logger=self.logger)
+
+        self.display = None
+        if self.config.verbose:
+            self.display = Display(log=self.logger)
+
+
+    def check_repo_in_db(self):
+        if self.rlh.check_repo_date_name_in_db(self.config.name, self.config.date.date()):
+            if not self.config.force:
+                self.logger.error(
+                    f"Repository with name '{self.config.name}' and "
+                    f"date '{self.config.date.date()}' already exists in database"
+                )
+                raise RepoProcessingError("Package set is already loaded to DB!")
+
+    def _init_cache(self):
+        self.rlh.init_hash_temp_table(self.repo.src_hashes)
+        self.rlh.init_hash_temp_table(self.repo.bin_hashes)
+        self.rlh.update_hases_from_db(self.repo.src_hashes)
+        self.rlh.update_hases_from_db(self.repo.bin_hashes)
+        self.cache = self.rlh.init_cache(self.repo.src_hashes, self.repo.bin_hashes)
+
+    def _load_srpms(self):
+        # level 1 : src
+        # load source RPMs first
+        # generate 'src.rpm' packages list
+        ts = time.time()
+        pkg_count = 0
+        pkg_count2 = 0
+        pkgset = set()
+        pkgset_cached = set()
+        packages_list = []
+        self.logger.info("Start checking SRC packages")
+        # load source packages fom 'files/SRPMS'
+        src_dir = Path(self.config.path).joinpath("files/SRPMS")
+        if not src_dir.is_dir():
+            raise RepoProcessingError(f"'/files/SRPMS' directory not found")
+        self.logger.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
+        for pkg in self.repo.src_hashes:
+            pkg_count += 1
+            if self.repo.src_hashes[pkg].sha1 is None:
+                rpm_file = src_dir.joinpath(pkg)
+                if not rpm_file.is_file():
+                    raise RepoProcessingError(f"File {rpm_file} not found")
+                packages_list.append(str(rpm_file))
+            else:
+                pkgh = self.repo.src_hashes[pkg].sf
+                if not pkgh:
+                    raise RepoProcessingError(f"No hash found in cache for {pkg}")
+                pkgset_cached.add(pkgh)
+                pkg_count2 += 1
+        self.logger.info(
+            f"Checked {pkg_count} SRC packages. "
+            f"{pkg_count2} packages in cache, "
+            f"{len(packages_list)} packages for load. "
+            f"Time elapsed {(time.time() - ts):.3f} sec."
+        )
+        # load 'src.rpm' packages
+        package_load_worker_pool(
+            is_src=True,
+            repo=self.repo,
+            pkgset=pkgset,
+            pkg_cache=self.cache,
+            packages_list=packages_list,
+            config=self.config,
+            logger=self.logger,
+            display=self.display,
+        )
+        # build pkgset for PackageSet record
+        pkgset.update(pkgset_cached)
+
+        self.psh.insert_pkgset(self.repo.src.uuid, pkgset)
+        # store PackageSetName record for 'src'
+        tmp_d = {"depth": "1", "type": "srpm", "size": str(len(pkgset))}
+        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
+        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.src.path, "SRPMS")
+        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+        self.psh.insert_pkgset_name(
+            name=self.repo.src.name,
+            uuid=self.repo.src.uuid,
+            puuid=self.repo.src.puuid,
+            ruuid=self.repo.root.uuid,
+            depth=1,
+            tag=self.config.tag,
+            date=self.config.date,
+            complete=1,
+            kw_args=tmp_d,
+        )
+
+    def _load_architectures(self):
+        for arch in self.repo.archs:
+            tmp_d = {"depth": "1", "type": "arch", "size": "0"}
+            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = join_dicts_with_as_string(tmp_d, arch.path, "path")
+            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+            self.psh.insert_pkgset_name(
+                name=arch.name,
+                uuid=arch.uuid,
+                puuid=arch.puuid,
+                ruuid=self.repo.root.uuid,
+                depth=1,
+                tag=self.config.tag,
+                date=self.config.date,
+                complete=1,
+                kw_args=tmp_d,
+            )
+
+    def _load_components(self):
+        for comp in self.repo.comps:
+            # load RPMs first
+            ts = time.time()
+            pkg_count = 0
+            pkgset = set()
+            pkgset_cached = set()
+            packages_list = []
+            # generate 'rpm' packages list
+            self.logger.info(f"Start checking RPM packages in '{comp.path}'")
+            rpm_dir = Path(self.config.path).joinpath(comp.path)
+            # proceed binary packages using repo["bin_pkgs"] dictionary
+            arch_ = comp.path.split("/")[0]
+            comp_ = comp.path.split(".")[-1]
+            for pkg in self.repo.bin_pkgs[(arch_, comp_)]:
+                rpm_file = rpm_dir.joinpath(pkg)
+                pkg_count += 1
+                if self.repo.bin_hashes[pkg].sha1 is None:
+                    if not rpm_file.is_file():
+                        raise ValueError(f"File {pkg} not found in {comp.path}")
+                    packages_list.append(str(rpm_file))
+                else:
+                    pkgh = self.repo.bin_hashes[rpm_file.name].sf
+                    if not pkgh:
+                        raise ValueError(f"No hash found in cache for {pkg}")
+                    pkgset_cached.add(pkgh)
+            self.logger.info(
+                f"Checked {pkg_count} RPM packages. "
+                f"{len(packages_list)} packages for load. "
+                f"Time elapsed {(time.time() - ts):.3f} sec."
+            )
+            # load '.rpm' packages
+            package_load_worker_pool(
+                is_src=False,
+                repo=self.repo,
+                pkgset=pkgset,
+                pkg_cache=self.cache,
+                packages_list=packages_list,
+                config=self.config,
+                logger=self.logger,
+                display=self.display,
+            )
+            # build pkgset for PackageSet record
+            pkgset.update(pkgset_cached)
+
+            self.psh.insert_pkgset(comp.uuid, pkgset)
+            # store PackageSetName record
+            tmp_d = {"depth": "2", "type": "comp", "size": str(len(pkgset))}
+            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = join_dicts_with_as_string(tmp_d, comp.path, "path")
+            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+            self.psh.insert_pkgset_name(
+                name=comp.name,
+                uuid=comp.uuid,
+                puuid=comp.puuid,
+                ruuid=self.repo.root.uuid,
+                depth=2,
+                tag=self.config.tag,
+                date=self.config.date,
+                complete=1,
+                kw_args=tmp_d,
+            )
+
+    def _load_root(self):
+        tmp_d = {
+            "depth": "0",
+            "type": "repo",
+            "size": str(len(self.repo.src_hashes) + len(self.repo.bin_hashes)),
+        }
+        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs, None)
+        tmp_d = join_dicts_with_as_string(tmp_d, list(self.repo.all_archs), "archs")
+        tmp_d = join_dicts_with_as_string(tmp_d, list(self.repo.all_comps), "comps")
+        self.psh.insert_pkgset_name(
+            name=self.repo.root.name,
+            uuid=self.repo.root.uuid,
+            puuid=self.repo.root.puuid,
+            ruuid=self.repo.root.uuid,
+            depth=0,
+            tag=self.config.tag,
+            date=self.config.date,
+            complete=1,
+            kw_args=tmp_d,
+        )
+
+    def upload(self, repo: Repository, ):
+        self.repo = repo
+        try:
+            self._init_cache()
+            self._load_srpms()
+            self._load_architectures()
+            self._load_components()
+            self._load_root()
+            if self.display is not None:
+                self.display.conclusion()
+        except Exception as e:
+            raise e
+        finally:
+            self.conn.disconnect()
+
+
+class RepoProcessor:
+    """Process and load repository to DB."""
+
+    def __init__(self, config: RepoProcessorConfig) -> None:
+        self.config = config
+
+        if self.config.logger is not None:
+            self.logger = self.config.logger
+        else:
+            self.logger = DEFAULT_LOGGER
+
+        if self.config.debug:
+            self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
+
+    def run(self) -> None:
+        ts = time.time()
+        self.logger.info("Start loading repository")
+        try:
+            rp = RepoParser(
+                repo_name=self.config.name,
+                repo_path=self.config.path,
+                logger=self.logger
+            )
+            rlh = RepoLoadHandler(
+                config=self.config,
+                logger=self.logger
+            )
+            rlh.check_repo_in_db()
+            self.logger.info(f"Start loading repository structure")
+            rp.parse_repository()
+            self.logger.info(
+                f"Repository structure loaded, caches initialized in {(time.time() - ts):.3f} sec."
+            )
+            # load repository to DB
+            rlh.upload(repo=rp.repo)
+        except (RepoParsingError, RepoProcessingError) as e:
+            raise e
+        except Exception as e:
+            self.logger.error(f"Failed to load repository to DB with: {e}")
+            raise RepoProcessingError("Error occured while processin repository") from e
+        else:
+            self.logger.info(
+                f"Repository loaded to DB in {(time.time() - ts):.3f} sec."
+            )
+        finally:
+            self.logger.info("Stop loading repository")
