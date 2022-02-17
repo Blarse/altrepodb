@@ -77,10 +77,10 @@ class DatabaseClient:
             self.logger.error(f"Failed connect to Database")
             raise DatabaseConnectionError(f"Failed connect to Database", error)
         except errors.Error as error:
-            self.logger.error(f"An exception ocured while connecting to database: {error}")
+            self.logger.error(f"An exception occurred while connecting to database: {error}")
             raise DatabaseExceptionRaisedError(f"Failed connect to Database", error)
         except Exception as error:
-            self.logger.error(f"An exception ocured while connecting to database: {error}")
+            self.logger.error(f"An exception occurred while connecting to database: {error}")
             raise error
         return client
 
@@ -90,12 +90,12 @@ class DatabaseClient:
         try:
             res = self.conn.execute(*args, **kwargs)
         except errors.Error as error:
-            self.logger.error(f"Database exception ocured processing SQL request: {error}")
+            self.logger.error(f"Database exception occurred while processing SQL request: {error}")
             raise DatabaseExceptionRaisedError(
-                f"Database exception ocured processing SQL request", error
+                f"Database exception occurred while processing SQL request", error
             )
         except Exception as error:
-            self.logger.error(f"An exception ocured while connecting to database: {error}")
+            self.logger.error(f"An exception occurred while processing SQL request: {error}")
             raise error
         self.logger.debug(
             f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
