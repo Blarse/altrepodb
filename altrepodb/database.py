@@ -52,6 +52,12 @@ class DatabaseClient:
             self.logger = DEFAULT_LOGGER
         self.conn = self._get_connection()
 
+    @property
+    def last_query_elapsed(self) -> float:
+        if self.conn.last_query is not None:
+            return self.conn.last_query.elapsed
+        return 0
+
     def _get_connection(self):
         client = Client(
             self.config.host,
