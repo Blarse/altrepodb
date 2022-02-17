@@ -111,8 +111,8 @@ def extract_bin(
 def extract_char(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
 ) -> bytes:
-    count = 1
-    return extract_bin(reader, base, offset, count, rewind)
+    # count = 1
+    return extract_bin(reader, base, offset, 1, rewind)
 
 
 def extract_int(
@@ -183,8 +183,8 @@ def extract_array(
 def extract_string(
     reader: BinaryIO, base: int, offset: int, count: int, rewind: bool = False
 ) -> bytes:
-    count = 1
-    return extract_array(reader, base, offset, count, rewind)[0]
+    # count = 1
+    return extract_array(reader, base, offset, 1, rewind)[0]
 
 
 extractors = {
@@ -410,7 +410,7 @@ class RPMCpio(RPMHeaderParser):
             decompressor = decompressors.get(self.payload_compressor, None)
             if decompressor is None:
                 raise NotImplementedError(
-                    f"Decompressor not found for romat {self.payload_compressor}"
+                    f"Decompressor not found for format {self.payload_compressor}"
                 )
         else:
             decompressor, magic = self._get_payload_compressor_by_magic()
