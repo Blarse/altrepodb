@@ -107,7 +107,7 @@ def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
                 logger.info("Loading new repocop data to database...")
                 res = conn.execute("INSERT INTO PackagesRepocop (*) VALUES", data)
                 logger.info(
-                    f"Data loaded to database in {conn.last_query.elapsed:.3f} seconds"  # type: ignore
+                    f"Data loaded to database in {conn.last_query_elapsed:.3f} seconds"  # type: ignore
                 )
             except Exception as exc:
                 if issubclass(exc.__class__, (DatabaseError,)):
