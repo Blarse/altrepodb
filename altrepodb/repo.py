@@ -58,6 +58,7 @@ from .database import DatabaseClient
 from .misc import lut
 
 NAME = "repo"
+MAX_WORKERS_FOR_SRPM = 4
 
 
 class PackageHandler:
@@ -148,8 +149,8 @@ class PackageHandler:
             "specfile_date": spec_file.mtime,
             "specfile_content_base64": base64.b64encode(spec_contents),
         }
-        # XXX: force memory release here
-        # effect is quite noticeable
+        # XXX: try to force memory release here
+        # effect is slightly noticeable
         # START #
         del spec_file
         del spec_contents
@@ -437,7 +438,14 @@ def package_load_worker_pool(
 
     packages = LockedIterator((pkg for pkg in packages_list))
 
-    for i in range(config.workers):
+    # limit workers number when dealing with SRPM to reduce
+    # memory footprint while extracting spec files
+    if is_src:
+        num_of_workers = MAX_WORKERS_FOR_SRPM
+    else:
+        num_of_workers = config.workers
+
+    for i in range(num_of_workers):
         conn = DatabaseClient(config=config.dbconfig, logger=logger)
         connections.append(conn)
         worker = Worker(
