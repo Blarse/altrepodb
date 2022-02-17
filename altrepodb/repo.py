@@ -13,7 +13,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import gc
 import rpm
 import time
 import base64
@@ -25,6 +24,7 @@ from uuid import uuid4
 from pathlib import Path
 from collections import namedtuple
 from dataclasses import asdict
+from multiprocessing import Process, Queue
 from typing import Any, Iterable, Optional, Union
 
 import altrepodb.mapper as mapper
@@ -130,10 +130,24 @@ class PackageHandler:
 
         return pkghash
 
+    def _extract_spec_file(self, fname):
+        """Extracts spec file from SRPM using subprocess to force memory releasing."""
+
+        def _extract_spec_sp(fname: str, q: Queue):
+            q.put(extractSpecFromRPM(fname, raw=True))
+
+        q= Queue()
+        p = Process(target=_extract_spec_sp, args=(fname, q))
+        p.start()
+        spec_file, spec_contents = q.get()
+        p.join
+
+        return spec_file, spec_contents
+
     def insert_specfile(self, pkg_file, pkg_map):
         self.logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
         st = time.time()
-        spec_file, spec_contents = extractSpecFromRPM(pkg_file, raw=True)
+        spec_file, spec_contents = self._extract_spec_file(pkg_file)
         self.logger.debug(
             f"headers and spec file extracted in {(time.time() - st):.3f} seconds"
         )
@@ -149,13 +163,6 @@ class PackageHandler:
             "specfile_date": spec_file.mtime,
             "specfile_content_base64": base64.b64encode(spec_contents),
         }
-        # XXX: try to force memory release here
-        # effect is slightly noticeable
-        # START #
-        del spec_file
-        del spec_contents
-        gc.collect()
-        #  END  #
         self.conn.execute(
             "INSERT INTO Specfiles_insert (*) VALUES",
             [
