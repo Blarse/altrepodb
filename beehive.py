@@ -377,9 +377,6 @@ class Beehive:
     def _get_last_beehive_status_from_db(self) -> dict:
         self.logger.info("Fetching latest Beehive results loaded to DB")
         res = self.conn.execute(self.sql.get_last_beehive_changed)
-        self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
-        )
         last_bh_updated = {(el[0], el[1]): el[2] for el in res}  # type: ignore
         return last_bh_updated
 
@@ -392,9 +389,6 @@ class Beehive:
         sql_res = self.conn.execute(
             self.sql.get_pkgset_packages,
             params={"branch": t_key.branch, "date": modified},
-        )
-        self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
 
         packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}  # type: ignore
@@ -409,9 +403,6 @@ class Beehive:
                 self.sql.get_recent_pkgset_date,
                 params={"branch": t_key.branch, "date": modified},
             )
-            self.logger.debug(
-                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
-            )
             if not sql_res:
                 self.logger.error(
                     f"Failed to find recent lodaded date for {t_key.branch} in DB"
@@ -425,9 +416,6 @@ class Beehive:
             sql_res = self.conn.execute(
                 self.sql.get_pkgset_packages,
                 params={"branch": t_key.branch, "date": modified},
-            )
-            self.logger.debug(
-                f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
             )
 
             packages_from_db = {Package(*el[1:]): int(el[0]) for el in sql_res}  # type: ignore
@@ -444,9 +432,6 @@ class Beehive:
         sql_res = self.conn.execute(
             self.sql.get_all_packages_versions,
             params={"packages": [pkg.name for pkg in packages_], "branch": branch},
-        )
-        self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
         )
 
         if not sql_res:
@@ -564,9 +549,6 @@ class Beehive:
                 result, f"{mtime.strftime('%Y-%m-%d')}_{t_key.branch}_{t_key.arch}"
             )
         self.conn.execute(self.sql.insert_into_beehive_status, result)
-        self.logger.debug(
-            f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
-        )
         self.logger.info(
             f"Data for {t_key.branch}/{t_key.arch} on {mtime} inserted to DB"
         )
