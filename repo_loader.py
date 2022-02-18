@@ -18,8 +18,8 @@ import sys
 import argparse
 import configparser
 
-from altrepodb.utils import valid_date
 from altrepodb.logger import get_logger
+from altrepodb.utils import valid_date, get_logging_options
 from altrepodb.repo import RepoProcessor, RepoProcessorConfig, DatabaseConfig
 
 NAME = "repo"
@@ -78,6 +78,7 @@ def get_config(args):
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.workers = args.workers or 10
         args.dbname = args.dbname or "default"
@@ -94,7 +95,14 @@ def main():
     args = get_config(args)
     # avoid repository name accidentally contains capital letters
     args.pkgset = args.pkgset.lower()
-    logger = get_logger(NAME, args.pkgset, args.date)
+    logger = get_logger(
+        NAME,
+        tag=args.pkgset,
+        date=args.date,
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     logger.info(f"run with args: {args}")
     try:
         config = RepoProcessorConfig(
