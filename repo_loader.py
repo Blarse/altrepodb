@@ -14,10 +14,12 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import sys
 import argparse
 import configparser
 
-from altrepodb.utils import get_logger, valid_date
+from altrepodb.utils import valid_date
+from altrepodb.logger import get_logger
 from altrepodb.repo import RepoProcessor, RepoProcessorConfig, DatabaseConfig
 
 NAME = "repo"
@@ -87,6 +89,7 @@ def get_config(args):
 
 
 def main():
+    assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
     args = get_config(args)
     # avoid repository name accidentally contains capital letters
@@ -110,7 +113,7 @@ def main():
                 user=args.user,
                 password=args.password,
             ),
-            logger=logger,  # type: ignore
+            logger=logger,
         )
         rp = RepoProcessor(config=config)
         rp.run()
