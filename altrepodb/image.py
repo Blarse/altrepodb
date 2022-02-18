@@ -14,7 +14,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import json
 import lzma
 import time
 import shutil
@@ -394,8 +393,6 @@ class TAR(ImageHandler):
 
         if logger is not None:
             self.logger = logger
-        else:
-            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
@@ -447,8 +444,6 @@ class QCOW(ImageHandler):
 
         if logger is not None:
             self.logger = logger
-        else:
-            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
@@ -500,8 +495,6 @@ class IMG(ImageHandler):
 
         if logger is not None:
             self.logger = logger
-        else:
-            self.logger = DEFAULT_LOGGER
 
         p = Path(self.path)
         self._image = FilesystemImage(
