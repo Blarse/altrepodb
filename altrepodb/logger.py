@@ -200,7 +200,7 @@ def get_logger(
         if log_to_file:
             # file handler config
             fmt = logging.Formatter(
-                "%(asctime)s %(levelname)-9s[%(module)s:%(funcName)s:%(lineno)d]: %(message)s"
+                "%(asctime)s %(levelname)-9s[%(threadName)s][%(module)s.%(funcName)s:%(lineno)d]: %(message)s"
             )
 
             file_handler = handlers.RotatingFileHandler(
