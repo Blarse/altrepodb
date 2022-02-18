@@ -17,13 +17,12 @@ import sys
 import argparse
 import requests
 import configparser
-
+from typing import Any
 from dateutil import tz
 from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 
-from altrepodb.utils import get_logger
-from altrepodb.logger import LoggerProtocol
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 NAME = "watch"
@@ -65,7 +64,7 @@ def get_args():
     return args
 
 
-def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
+def load(args: Any, conn: DatabaseClient, logger: LoggerProtocol) -> None:
     logger.info("Check watch updates...")
 
     try:
@@ -123,7 +122,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         conn = DatabaseClient(
