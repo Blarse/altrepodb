@@ -18,11 +18,12 @@ import os
 import sys
 import argparse
 import configparser
+from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
 
-from altrepodb.utils import get_logger, cvt_datetime_local_to_utc
-from altrepodb.logger import LoggerProtocol
+from altrepodb.utils import cvt_datetime_local_to_utc
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 
@@ -60,7 +61,7 @@ OPTIMIZE TABLE TaskStates_buffer
 class TaskCleaner:
     """"""
 
-    def __init__(self, args, conn, logger) -> None:
+    def __init__(self, args: Any, conn: DatabaseClient, logger: LoggerProtocol) -> None:
         self.sql = SQL()
         self.conn = conn
         self.logger = logger
@@ -204,7 +205,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="clean")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         logger.info("Start checking for deleted tasks")

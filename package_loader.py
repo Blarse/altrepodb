@@ -23,18 +23,17 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from altrpm import rpm, extractSpecAndHeadersFromRPM
-from altrepodb.base import LoggerProtocol
 from altrepodb.repo import PackageHandler
 from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import (
     cvt,
-    get_logger,
     snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
     check_package_in_cache,
 )
+from altrepodb.logger import get_logger, LoggerLevel, LoggerProtocol
 
 NAME = "package"
 
@@ -227,7 +226,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         logger.info("Start loading RPM package to database")
