@@ -23,8 +23,7 @@ from dateutil import tz
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from altrepodb.utils import get_logger
-from altrepodb.logger import LoggerProtocol
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 NAME = "repocop"
@@ -126,7 +125,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         conn = DatabaseClient(

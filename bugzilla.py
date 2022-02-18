@@ -21,8 +21,7 @@ import configparser
 from collections import namedtuple
 from typing import Iterable
 
-from altrepodb.utils import get_logger
-from altrepodb.logger import LoggerProtocol
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "bugzilla"
@@ -147,7 +146,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         conn = DatabaseClient(

@@ -27,7 +27,8 @@ from bs4 import BeautifulSoup
 from collections import namedtuple
 
 import altrepodb.htmllistparse as htmllistparse
-from altrepodb.utils import get_logger, cvt, mmhash
+from altrepodb.utils import cvt, mmhash
+from altrepodb.logger import get_logger
 
 NAME = 'acl'
 

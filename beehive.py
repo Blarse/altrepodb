@@ -24,10 +24,10 @@ from requests import HTTPError
 from collections import namedtuple
 from dataclasses import dataclass
 
-from altrepodb.utils import get_logger, cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from altrepodb.utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from altrepodb.htmllistparse import fetch_listing
 from altrepodb.database import DatabaseConfig, DatabaseClient
-from altrepodb.logger import LoggerProtocol
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 
 
 NAME = "beehive"
@@ -659,7 +659,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME, tag="load")
     if args.debug:
-        logger.setLevel("DEBUG")
+        logger.setLevel(LoggerLevel.DEBUG)
     conn = None
     try:
         logger.info("Start loading data from Beehive")
