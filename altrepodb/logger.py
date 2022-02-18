@@ -160,7 +160,7 @@ def get_logger(
     name: str,
     tag: Optional[str] = None,
     date: Optional[datetime.date] = None,
-    log_to_file: bool = True,
+    log_to_file: bool = False,
     log_to_stderr: bool = True,
     log_to_syslog: bool = False,
     logging_level: int = DEFAULT_LOG_LEVEL
