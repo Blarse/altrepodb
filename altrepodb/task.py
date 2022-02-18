@@ -138,7 +138,7 @@ class TaskFromFileSystem:
             # return directory listing
             return [x for x in Path(path).iterdir()]
         except FileNotFoundError as e:
-            self.logger.debug(f"{e} - {path}")
+            self.logger.debug(str(e))
             return None
         except Exception as e:
             self.logger.error(f"{e} - {path}")
