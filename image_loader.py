@@ -23,12 +23,8 @@ from pathlib import Path
 from altrepodb.base import ImageProcessorConfig, LoggerProtocol, ImageMeta
 from altrepodb.image import ImageProcessor
 from altrepodb.database import DatabaseConfig
-from altrepodb.utils import (
-    get_logger,
-    valid_url,
-    valid_date,
-    valid_version,
-)
+from altrepodb.utils import valid_url, valid_date, valid_version
+from altrepodb.logger import get_logger
 
 NAME = "image"
 ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
@@ -187,8 +183,6 @@ def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
     logger = get_logger(NAME, tag="load")
-    if args.debug:
-        logger.setLevel("DEBUG")
     conn = None
     st = time.time()
     try:
