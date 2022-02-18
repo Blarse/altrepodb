@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import sys
@@ -21,6 +21,7 @@ import configparser
 from collections import namedtuple
 from typing import Iterable
 
+from altrepodb.utils import get_logging_options
 from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
@@ -37,7 +38,7 @@ BUGZILLA_URL_PARAMS = {
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, help='Path to configuration file')
+    parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
     parser.add_argument("-p", "--port", type=str, help="Database password")
@@ -52,13 +53,14 @@ def get_args():
         cfg = configparser.ConfigParser()
         with open(args.config) as f:
             cfg.read_file(f)
-        if cfg.has_section('DATABASE'):
-            section_db = cfg['DATABASE']
-            args.dbname = args.dbname or section_db.get('dbname', 'default')
-            args.host = args.host or section_db.get('host', 'localhost')
-            args.port = args.port or section_db.get('port', None)
-            args.user = args.user or section_db.get('user', 'default')
-            args.password = args.password or section_db.get('password', '')
+        if cfg.has_section("DATABASE"):
+            section_db = cfg["DATABASE"]
+            args.dbname = args.dbname or section_db.get("dbname", "default")
+            args.host = args.host or section_db.get("host", "localhost")
+            args.port = args.port or section_db.get("port", None)
+            args.user = args.user or section_db.get("user", "default")
+            args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -144,7 +146,14 @@ GROUP BY bz_id"""
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(NAME, tag="load")
+    print(f"DBG: args : {args}")
+    logger = get_logger(
+        NAME,
+        tag="load",
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
     conn = None
@@ -155,13 +164,16 @@ def main():
                 port=args.port,
                 name=args.dbname,
                 user=args.user,
-                password=args.password
+                password=args.password,
             ),
-            logger=logger
+            logger=logger,
         )
         load(conn, logger)
     except Exception as error:
-        logger.error(f"Error occurred during Bugzilla information loading: {error}", exc_info=True)
+        logger.error(
+            f"Error occurred during Bugzilla information loading: {error}",
+            exc_info=True,
+        )
         sys.exit(1)
     finally:
         if conn is not None:

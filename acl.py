@@ -27,7 +27,7 @@ from bs4 import BeautifulSoup
 from collections import namedtuple
 
 import altrepodb.htmllistparse as htmllistparse
-from altrepodb.utils import cvt, mmhash
+from altrepodb.utils import cvt, mmhash, get_logging_options
 from altrepodb.logger import get_logger
 
 NAME = 'acl'
@@ -293,6 +293,7 @@ def set_config(args):
             args.port = args.port or section_db.get('port', None)
             args.user = args.user or section_db.get('user', 'default')
             args.password = args.password or section_db.get('password', '')
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or 'default'
         args.host = args.host or 'localhost'
@@ -314,7 +315,13 @@ def load(args, conn):
 def main():
     args = get_args()
     args = set_config(args)
-    logger = get_logger(NAME, 'load')
+    logger = get_logger(
+        NAME,
+        tag='load',
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     logger.setLevel(logging.DEBUG)
     conn = None
     try:

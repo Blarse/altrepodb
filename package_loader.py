@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
@@ -31,6 +31,7 @@ from altrepodb.utils import (
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
+    get_logging_options,
     check_package_in_cache,
 )
 from altrepodb.logger import get_logger, LoggerLevel, LoggerProtocol
@@ -77,6 +78,7 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -224,7 +226,13 @@ def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(NAME, tag="load")
+    logger = get_logger(
+        NAME,
+        tag="load",
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
     conn = None
@@ -237,9 +245,9 @@ def main():
                 port=args.port,
                 name=args.dbname,
                 user=args.user,
-                password=args.password
+                password=args.password,
             ),
-            logger=logger
+            logger=logger,
         )
         if not Path(args.file).is_file():
             raise ValueError(f"{args.file} not a file")

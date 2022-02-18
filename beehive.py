@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import sys
@@ -24,7 +24,11 @@ from requests import HTTPError
 from collections import namedtuple
 from dataclasses import dataclass
 
-from altrepodb.utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime
+from altrepodb.utils import (
+    cvt_datetime_local_to_utc,
+    cvt_ts_to_datetime,
+    get_logging_options,
+)
 from altrepodb.htmllistparse import fetch_listing
 from altrepodb.database import DatabaseConfig, DatabaseClient
 from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
@@ -189,6 +193,7 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -657,7 +662,13 @@ def load(args, conn, logger) -> None:
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(NAME, tag="load")
+    logger = get_logger(
+        NAME,
+        tag="load",
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
     conn = None
@@ -670,13 +681,15 @@ def main():
                 port=args.port,
                 name=args.dbname,
                 user=args.user,
-                password=args.password
+                password=args.password,
             ),
-            logger=logger
+            logger=logger,
         )
         load(args, conn, logger)
     except Exception as error:
-        logger.error("Error occurred during Beehive information loading: {error}", exc_info=True)
+        logger.error(
+            "Error occurred during Beehive information loading: {error}", exc_info=True
+        )
         sys.exit(1)
     finally:
         if conn is not None:
