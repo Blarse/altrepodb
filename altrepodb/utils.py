@@ -223,29 +223,6 @@ class Display:
         )
 
 
-class Timing:
-    timing = False
-
-    @classmethod
-    def timeit(cls, logger_name):
-        def timer(f):
-            """Measuring execution time."""
-            log = logging.getLogger(logger_name)
-
-            @wraps(f)
-            def wrap(*args, **kw):
-                ts = time()
-                result = f(*args, **kw)
-                te = time()
-                if cls.timing:
-                    log.debug("F:{0} T:{1:.5f}".format(f.__name__, te - ts))
-                return result
-
-            return wrap
-
-        return timer
-
-
 def cvt(b: Any, t: type = str) -> Any:
     """Convert byte string or list of byte strings to strings or list strings.
     Return default vaues for bytes, string and int if input value is None."""
