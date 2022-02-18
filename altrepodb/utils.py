@@ -169,36 +169,6 @@ def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
     return None
 
 
-def get_logger(
-    name: str, tag: str = "", date: Union[datetime.date, None] = None
-) -> logging.Logger:
-    """Create and configure logger."""
-
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    if date is None:
-        date = datetime.date.today()
-    file_handler = handlers.RotatingFileHandler(
-        filename="{0}-{1}-{2}.log".format(name, tag, date.strftime("%Y-%m-%d")),
-        maxBytes=2 ** 26,
-        backupCount=10,
-    )
-    fmt = logging.Formatter(
-        "%(asctime)s\t%(levelname)s\t%(threadName)s\t%(funcName)s\t%(lineno)d\t%(message)s"
-    )
-    file_handler.setFormatter(fmt)
-    file_handler.setLevel(logging.DEBUG)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter("%(asctime)s\t%(message)s"))
-    stream_handler.setLevel(logging.INFO)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-    return logger
-
-
 class Display:
     MSG = "Processed {0} packages in {1:.3f} sec. {2:.3f} sec. per package on average."
 
