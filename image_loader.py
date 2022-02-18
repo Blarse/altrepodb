@@ -23,7 +23,7 @@ from pathlib import Path
 from altrepodb.base import ImageProcessorConfig, LoggerProtocol, ImageMeta
 from altrepodb.image import ImageProcessor
 from altrepodb.database import DatabaseConfig
-from altrepodb.utils import valid_url, valid_date, valid_version
+from altrepodb.utils import valid_url, valid_date, valid_version, get_logging_options
 from altrepodb.logger import get_logger
 
 NAME = "image"
@@ -78,7 +78,13 @@ def get_args():
         description="Load filesystem image structure to database",
     )
     parser.add_argument("path", type=str, help="Path to filesystem image file")
-    parser.add_argument("--edition", required=True, type=str, choices=EDITIONS, help="Filesystem image edition")
+    parser.add_argument(
+        "--edition",
+        required=True,
+        type=str,
+        choices=EDITIONS,
+        help="Filesystem image edition",
+    )
     parser.add_argument(
         "--version",
         required=True,
@@ -100,20 +106,48 @@ def get_args():
         default="",
         help="Filesystem image platform",
     )
-    parser.add_argument("--variant", required=True, type=str, choices=VARIANTS, help="Filesystem image variant")
-    parser.add_argument("--type", required=True, type=str, choices=IMAGE_TYPES, help="Filesystem image type")
-    parser.add_argument("--flavor", required=True, type=str, default="",help="Filesystem image flavor",)
-    parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="Filesystem image arch")
-    parser.add_argument("--branch", required=True, type=str, help="Filesystem image base branch name")
-    parser.add_argument("--date", required=True, type=valid_date, help="Filesystem image date")
-    parser.add_argument("--url", required=True, type=valid_url, help="Filesystem image download URL")
+    parser.add_argument(
+        "--variant",
+        required=True,
+        type=str,
+        choices=VARIANTS,
+        help="Filesystem image variant",
+    )
+    parser.add_argument(
+        "--type",
+        required=True,
+        type=str,
+        choices=IMAGE_TYPES,
+        help="Filesystem image type",
+    )
+    parser.add_argument(
+        "--flavor",
+        required=True,
+        type=str,
+        default="",
+        help="Filesystem image flavor",
+    )
+    parser.add_argument(
+        "--arch", required=True, type=str, choices=ARCHS, help="Filesystem image arch"
+    )
+    parser.add_argument(
+        "--branch", required=True, type=str, help="Filesystem image base branch name"
+    )
+    parser.add_argument(
+        "--date", required=True, type=valid_date, help="Filesystem image date"
+    )
+    parser.add_argument(
+        "--url", required=True, type=valid_url, help="Filesystem image download URL"
+    )
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
     parser.add_argument("-p", "--port", type=str, help="Database password")
     parser.add_argument("-u", "--user", type=str, help="Database login")
     parser.add_argument("-P", "--password", type=str, help="Database password")
-    parser.add_argument("-D", "--debug", action="store_true", help="Set logging level to debug")
+    parser.add_argument(
+        "-D", "--debug", action="store_true", help="Set logging level to debug"
+    )
     parser.add_argument(
         "-F",
         "--force",
@@ -139,6 +173,7 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -182,7 +217,13 @@ def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(NAME, tag="load")
+    logger = get_logger(
+        NAME,
+        tag="load",
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     conn = None
     st = time.time()
     try:
@@ -202,7 +243,9 @@ def main():
             f"Filesystem image {Path(args.path).name} loaded in {(time.time() - st):.3f} seconds"
         )
     except Exception as error:
-        logger.error(f"Error occurred during filesystem image loading: {error}", exc_info=True)
+        logger.error(
+            f"Error occurred during filesystem image loading: {error}", exc_info=True
+        )
         sys.exit(1)
     finally:
         if conn is not None:

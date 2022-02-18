@@ -23,7 +23,7 @@ from pathlib import Path
 from altrepodb.base import ImageProcessorConfig, LoggerProtocol, ImageMeta
 from altrepodb.iso import ISOProcessor
 from altrepodb.database import DatabaseConfig
-from altrepodb.utils import valid_url,  valid_date, valid_version
+from altrepodb.utils import valid_url, valid_date, valid_version, get_logging_options
 from altrepodb.logger import get_logger
 
 NAME = "iso"
@@ -53,7 +53,9 @@ def check_edition(edition: str) -> str:
             matched = True
             break
     if not matched:
-        raise argparse.ArgumentTypeError("ISO image edition doesn't match with any valid prefixes")
+        raise argparse.ArgumentTypeError(
+            "ISO image edition doesn't match with any valid prefixes"
+        )
 
     return edition
 
@@ -64,16 +66,51 @@ def get_args():
         description="Load ISO image structure to database",
     )
     parser.add_argument("path", type=str, help="Path to ISO image file")
-    parser.add_argument("--edition", required=True, type=str, choices=EDITIONS, help="ISO image edition")
-    parser.add_argument("--version", required=True, type=valid_version, help="ISO image version (e.g. 9.2, 8.1.3, 20211205)")
-    parser.add_argument("--release", required=True, type=str, choices=RELEASES, help="ISO image release type")
-    parser.add_argument("--platform", required=True, type=str, choices=PLATFORMS, default="", help="ISO image platform")
-    parser.add_argument("--variant", required=True, type=str, choices=VARIANTS, help="ISO image variant")
-    parser.add_argument("--flavor", required=True, type=str, choices=FLAVORS, default="", help="ISO image flavor")
-    parser.add_argument("--arch", required=True, type=str, choices=ARCHS, help="ISO image arch")
-    parser.add_argument("--branch", required=True, type=str, help="ISO image base branch name")
+    parser.add_argument(
+        "--edition", required=True, type=str, choices=EDITIONS, help="ISO image edition"
+    )
+    parser.add_argument(
+        "--version",
+        required=True,
+        type=valid_version,
+        help="ISO image version (e.g. 9.2, 8.1.3, 20211205)",
+    )
+    parser.add_argument(
+        "--release",
+        required=True,
+        type=str,
+        choices=RELEASES,
+        help="ISO image release type",
+    )
+    parser.add_argument(
+        "--platform",
+        required=True,
+        type=str,
+        choices=PLATFORMS,
+        default="",
+        help="ISO image platform",
+    )
+    parser.add_argument(
+        "--variant", required=True, type=str, choices=VARIANTS, help="ISO image variant"
+    )
+    parser.add_argument(
+        "--flavor",
+        required=True,
+        type=str,
+        choices=FLAVORS,
+        default="",
+        help="ISO image flavor",
+    )
+    parser.add_argument(
+        "--arch", required=True, type=str, choices=ARCHS, help="ISO image arch"
+    )
+    parser.add_argument(
+        "--branch", required=True, type=str, help="ISO image base branch name"
+    )
     parser.add_argument("--date", required=True, type=valid_date, help="ISO image date")
-    parser.add_argument("--url", required=True, type=valid_url, help="ISO image download URL")
+    parser.add_argument(
+        "--url", required=True, type=valid_url, help="ISO image download URL"
+    )
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
@@ -108,6 +145,7 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
+            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -144,14 +182,20 @@ def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
         image_type="iso",
         url=args.url,
     )
-    iso = ISOProcessor(config=config, image_meta=meta)    
+    iso = ISOProcessor(config=config, image_meta=meta)
     iso.run()
 
 
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(NAME, tag="load")
+    logger = get_logger(
+        NAME,
+        tag="load",
+        log_to_file=getattr(args, "log_to_file", False),
+        log_to_stderr=getattr(args, "log_to_console", True),
+        log_to_syslog=getattr(args, "log_to_syslog", False),
+    )
     conn = None
     st = time.time()
     try:
@@ -167,7 +211,9 @@ def main():
         if not Path(args.path).is_file():
             raise ValueError(f"{args.path} is not a file")
         load(args, config, logger)
-        logger.info(f"ISO image {Path(args.path).name} loaded in {(time.time() - st):.3f} seconds")
+        logger.info(
+            f"ISO image {Path(args.path).name} loaded in {(time.time() - st):.3f} seconds"
+        )
     except Exception as error:
         logger.error(f"Error occurred during ISO image loading: {error}", exc_info=True)
         sys.exit(1)
