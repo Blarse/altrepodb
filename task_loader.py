@@ -18,7 +18,7 @@ import sys
 import argparse
 import configparser
 
-from altrepodb.utils import get_logger
+from altrepodb.logger import get_logger
 from altrepodb.task import TaskProcessor
 from altrepodb.base import DatabaseConfig, TaskProcessorConfig
 
@@ -94,29 +94,26 @@ def main():
         args.url = args.url[:-1]
     tag = args.url.split("/")[-1]
     logger = get_logger(NAME, tag=tag)
-    if args.debug:
-        logger.setLevel("DEBUG")
     logger.info(f"run with args: {args}")
     try:
-        tp = TaskProcessor(
-            TaskProcessorConfig(
-                id=int(tag),
-                path=args.url,
-                logger=logger,
-                debug=args.debug,
-                flush=args.flush_buffers,
-                force=args.force,
-                workers=args.workers,
-                dumpjson=args.dumpjson,
-                dbconfig=DatabaseConfig(
-                    host=args.host,
-                    port=args.port,
-                    name=args.dbname,
-                    user=args.user,
-                    password=args.password,
-                ),
-            )
+        config = TaskProcessorConfig(
+            id=int(tag),
+            path=args.url,
+            debug=args.debug,
+            flush=args.flush_buffers,
+            force=args.force,
+            workers=args.workers,
+            dumpjson=args.dumpjson,
+            dbconfig=DatabaseConfig(
+                host=args.host,
+                port=args.port,
+                name=args.dbname,
+                user=args.user,
+                password=args.password,
+            ),
+            logger=logger,
         )
+        tp = TaskProcessor(config=config)
         tp.run()
     except Exception as error:
         logger.error(str(error), exc_info=True)
