@@ -1,5 +1,8 @@
 [DEFAULT]
 workers=10
+log_to_file=no
+log_to_syslog=no
+log_to_console=yes
 
 [DATABASE]
 dbname=repodb
