@@ -221,6 +221,7 @@ def main():
         tag="load",
         config=args.config,
     )
+    logger.info(f"Run with args: {args}")
     conn = None
     st = time.time()
     try:

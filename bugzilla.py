@@ -144,7 +144,6 @@ GROUP BY bz_id"""
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    print(f"DBG: args : {args}")
     logger = get_config_logger(
         NAME,
         tag="load",
@@ -152,6 +151,7 @@ def main():
     )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
+    logger.debug(f"Run with args: {args}")
     conn = None
     try:
         conn = DatabaseClient(

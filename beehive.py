@@ -664,6 +664,7 @@ def main():
     )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
+    logger.debug(f"Run with args: {args}")
     conn = None
     try:
         logger.info("Start loading data from Beehive")

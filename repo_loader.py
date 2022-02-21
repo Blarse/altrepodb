@@ -100,7 +100,7 @@ def main():
         date=args.date,
         config=args.config,
     )
-    logger.info(f"run with args: {args}")
+    logger.info(f"Run with args: {args}")
     try:
         config = RepoProcessorConfig(
             name=args.pkgset,

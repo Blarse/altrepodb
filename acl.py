@@ -320,6 +320,7 @@ def main():
         config=args.config,
     )
     logger.setLevel(logging.DEBUG)
+    logger.info(f"Run with args: {args}")
     conn = None
     try:
         conn = get_client(args)

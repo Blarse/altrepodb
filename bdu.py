@@ -23,7 +23,7 @@ import configparser
 import urllib.request as req
 from lxml import etree
 from io import BytesIO
-from altrepodb.utils import get_logger
+from altrepodb.logger import get_logger
 
 
 NAME = 'bdu'
@@ -250,6 +250,7 @@ def main():
     args = get_args()
     logger = get_logger(NAME)
     logger.setLevel(logging.DEBUG)
+    logger.debug(f"Run with args: {args}")
     conn = None
     try:
         conn = get_client(args)

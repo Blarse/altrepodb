@@ -231,6 +231,7 @@ def main():
     )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
+    logger.info(f"Run with args: {args}")
     conn = None
     try:
         logger.info("Start loading RPM package to database")

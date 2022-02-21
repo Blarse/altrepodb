@@ -98,7 +98,7 @@ def main():
         tag=tag,
         config=args.config,
     )
-    logger.info(f"run with args: {args}")
+    logger.info(f"Run with args: {args}")
     try:
         config = TaskProcessorConfig(
             id=int(tag),
