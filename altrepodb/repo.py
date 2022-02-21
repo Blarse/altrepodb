@@ -751,15 +751,15 @@ class RepoParser:
                     pkg_name: str = c.split()[1]  # type: ignore
                     pkg_sha256 = bytes.fromhex(c.split()[0])  # type: ignore
                     # calculate and store missing MD5 hashes for 'src.rpm'
-                    # TODO: workaround for missing/unhandled src.gostcrypto.xz
+                    # XXX: workaround for missing/unhandled src.gostcrypto.xz
                     if pkg_name not in self.repo.src_hashes:
-                        self.repo.src_hashes[pkg_name] = PkgHash()
                         self.logger.info(
                             f"{pkg_name}'s MD5 not found. Calculating it from file"
                         )
                         # calculate missing MD5 from file here
                         f = self.path.joinpath("files", "SRPMS", pkg_name)  # type: ignore
                         if f.is_file():
+                            self.repo.src_hashes[pkg_name] = PkgHash()
                             pkg_md5 = md5_from_file(f)
                             self.repo.src_hashes[pkg_name].md5 = pkg_md5
                         else:
@@ -768,7 +768,9 @@ class RepoParser:
                                 f"from {self.path.joinpath('files, ''SRPMS')}"
                             )
                             # raise RuntimeError("File not found")
-                            pass  # FIXME: workaround for mipsel branches
+                            # FIXME: workaround for mipsel and e2k branches with
+                            # extra SRPMs in Depot hash lists
+                            continue
                     self.repo.src_hashes[pkg_name].sha256 = pkg_sha256
             else:
                 # load to bin_hashes
