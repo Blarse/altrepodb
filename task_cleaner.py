@@ -22,8 +22,8 @@ from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
 
-from altrepodb.utils import cvt_datetime_local_to_utc, get_logging_options
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_logger
+from altrepodb.utils import cvt_datetime_local_to_utc
+from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
 from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
 
 
@@ -183,7 +183,6 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
-            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -204,12 +203,10 @@ def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    logger = get_logger(
+    logger = get_config_logger(
         NAME,
         tag="clean",
-        log_to_file=getattr(args, "log_to_file", False),
-        log_to_stderr=getattr(args, "log_to_console", True),
-        log_to_syslog=getattr(args, "log_to_syslog", False),
+        config=args.config,
     )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)

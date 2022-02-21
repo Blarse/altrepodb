@@ -18,8 +18,7 @@ import sys
 import argparse
 import configparser
 
-from altrepodb.logger import get_logger
-from altrepodb.utils import get_logging_options
+from altrepodb.logger import get_config_logger
 from altrepodb.task import TaskProcessor
 from altrepodb.base import DatabaseConfig, TaskProcessorConfig
 
@@ -79,7 +78,6 @@ def get_args():
             except ValueError:
                 workers = 0
             args.workers = max(workers, args.workers)
-            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -95,12 +93,10 @@ def main():
     if args.url.endswith("/"):
         args.url = args.url[:-1]
     tag = args.url.split("/")[-1]
-    logger = get_logger(
+    logger = get_config_logger(
         NAME,
         tag=tag,
-        log_to_file=getattr(args, "log_to_file", False),
-        log_to_stderr=getattr(args, "log_to_console", True),
-        log_to_syslog=getattr(args, "log_to_syslog", False),
+        config=args.config,
     )
     logger.info(f"run with args: {args}")
     try:

@@ -31,7 +31,6 @@ from altrepodb.utils import (
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
-    get_logging_options,
     check_package_in_cache,
 )
 from altrepodb.logger import get_logger, LoggerLevel, LoggerProtocol
@@ -78,7 +77,6 @@ def get_args():
             args.port = args.port or section_db.get("port", None)
             args.user = args.user or section_db.get("user", "default")
             args.password = args.password or section_db.get("password", "")
-            get_logging_options(args, section_db)
     else:
         args.dbname = args.dbname or "default"
         args.host = args.host or "localhost"
@@ -229,9 +227,7 @@ def main():
     logger = get_logger(
         NAME,
         tag="load",
-        log_to_file=getattr(args, "log_to_file", False),
-        log_to_stderr=getattr(args, "log_to_console", True),
-        log_to_syslog=getattr(args, "log_to_syslog", False),
+        # use defaults logging options
     )
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
