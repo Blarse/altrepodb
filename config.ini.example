@@ -1,8 +1,11 @@
 [DEFAULT]
 workers=10
+
+[LOGGING]
 log_to_file=no
 log_to_syslog=no
 log_to_console=yes
+syslog_ident=altrepodb
 
 [DATABASE]
 dbname=repodb

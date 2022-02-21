@@ -22,12 +22,9 @@ import argparse
 import datetime
 import threading
 import subprocess
-import configparser
 from time import time
 from dateutil import tz
 from pathlib import Path
-from functools import wraps
-from logging import handlers
 from hashlib import sha1, sha256, md5, blake2b
 from typing import Any, Iterable, Union, Hashable, Optional
 
@@ -117,27 +114,6 @@ def detect_arch(hdr):
     if package_name.startswith("i586-"):
         return "x86_64-i586"
     return cvt(hdr[rpm.RPMTAG_ARCH])
-
-
-def get_logging_options(
-    args: argparse.Namespace,
-    section: configparser.SectionProxy,
-    options_list: Optional[list[str]] = None,
-):
-    """Gets loggign options from configparser section and sets args
-    namespace boolean atrributes with the same name."""
-
-    if options_list is None:
-        options_list = ["log_to_file", "log_to_syslog", "log_to_console"]
-    # values evaluated as True : '1', 'true', 'yes', 'on'
-    # values evaluated as False : '0', 'no', 'false', 'off'
-    for opt in options_list:
-        try:
-            v = section.getboolean(opt)
-        except ValueError:
-            v = None
-        if v is not None:
-            args.__setattr__(opt, v)
 
 
 def valid_date(s: str) -> datetime.datetime:
