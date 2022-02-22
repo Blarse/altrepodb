@@ -28,7 +28,7 @@ from altrepodb.logger import get_config_logger
 
 NAME = "image"
 ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
-VARIANTS = ("install", "live", "rescue", "recovery")
+VARIANTS = ("install", "live", "rescue")
 RELEASES = ("alpha", "beta", "rc", "release")
 EDITIONS = (
     "alt-server",
