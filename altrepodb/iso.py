@@ -383,7 +383,7 @@ class ISO:
             self.logger.info(f"Processing '{sqfs.name}' SquashFS image")
             # get SquashFS meta information
             self.logger.debug(f"Calculate SquashFs image SHA1 checksum")
-            sqfs.meta.sha1 = sha1_from_file(Path(self._iso.mount.path).joinpath(sqfs.name), as_bytes=True)  # type: ignore
+            sqfs.meta.sha1 = sha1_from_file(Path(self._iso.mount.path).joinpath(sqfs.name))
             sqfs.meta.hash = snowflake_id_sqfs(mtime=sqfs.meta.mtime, sha1=sqfs.meta.sha1, size=sqfs.meta.size)  # type: ignore
             # parse SquashFS images packages and files
             self.logger.debug(f"Reading SquashFs image RPM packages")
