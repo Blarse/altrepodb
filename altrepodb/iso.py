@@ -383,7 +383,9 @@ class ISO:
             self.logger.info(f"Processing '{sqfs.name}' SquashFS image")
             # get SquashFS meta information
             self.logger.debug(f"Calculate SquashFs image SHA1 checksum")
-            sqfs.meta.sha1 = sha1_from_file(Path(self._iso.mount.path).joinpath(sqfs.name))
+            sqfs.meta.sha1 = sha1_from_file(
+                Path(self._iso.mount.path).joinpath(sqfs.name)
+            )
             sqfs.meta.hash = snowflake_id_sqfs(mtime=sqfs.meta.mtime, sha1=sqfs.meta.sha1, size=sqfs.meta.size)  # type: ignore
             # parse SquashFS images packages and files
             self.logger.debug(f"Reading SquashFs image RPM packages")
@@ -885,6 +887,10 @@ class ISOProcessor:
         files_md5 = {r[1] for r in res}
 
         orphan_files = [f for f in sqfs.files if f.md5 in files_md5]
+
+        # 6. cleaun-up
+        res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_files))
+        res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_packages))
 
         return packages, orphan_files
 
