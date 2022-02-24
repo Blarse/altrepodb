@@ -933,6 +933,7 @@ class ImageProcessor:
                 )
 
     def run(self) -> None:
+        st = time.time()
         # 1. check if image is already loaded to DB
         if not self.config.force:
             if self._check_image_tag_date_in_db(self.tag, self.meta.date):
@@ -976,3 +977,5 @@ class ImageProcessor:
         self._update_image_status()
         # 6. clean-up
         self.conn.disconnect()
+        # 7. log summary
+        self.logger.info(f"Image processed in {(time.time() - st):.3f} seconds")
