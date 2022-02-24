@@ -14,7 +14,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import json
+import time
 import shutil
 import tempfile
 import datetime
@@ -1247,27 +1247,28 @@ class ISOProcessor:
                 )
 
     def run(self) -> None:
-        # -1. check if ISO is already loaded to DB
+        st = time.time()
+        # 1. check if ISO is already loaded to DB
         if not self.config.force:
             if self._check_image_tag_date_in_db(self.tag, self.meta.date):
                 self.logger.info(f"ISO image '{self.tag}' already exists in database")
                 if not self.config.dryrun:
                     return
-        # 0. mount and parse ISO image
+        # 2. mount and parse ISO image
         self.iso.run()
         self.logger.info(f"Image tag : {self.tag}")
         self.logger.info(f"ISO info:\n{self.iso.iso.meta.isoinfo}")
-        # 1. check ISO packages in branch
+        # 3. check ISO packages in branch
         missing: list[Package] = []
 
         if self.iso.iso.packages:
-            # 1.1 check branch mismatching
+            # 3.1 check branch mismatching
             self.logger.info(f"Checking ISO image '{self.iso.iso.name}' branch")
             branch, date = self._find_base_repo(self.iso.iso.packages)
             self.logger.info(
                 f"Most likely branch for '{self.iso.iso.name}' is '{branch}' on '{date}'"
             )
-            #  1.2 check all RPM packages in database
+            #  3.2 check all RPM packages in database
             self.logger.info(f"Checking ISO image '{self.iso.iso.name}' packages")
             missing = self._check_packages_in_db(self.iso.iso.packages)
             if missing:
@@ -1285,24 +1286,24 @@ class ISOProcessor:
                 )
                 if not (self.config.dryrun or self.config.force):
                     raise ImageProcessingPackageNotInDBError(missing=missing)
-        # 2. Proceed with SquashFS images without packages
+        # 4. Proceed with SquashFS images without packages
         for sqfs in self.iso.sqfs:
             if sqfs.packages or not sqfs.files:
                 continue
             self.logger.info(f"Processing SquashFS image '{sqfs.name}' files")
             o_package, o_files = self._process_squashfs_files(sqfs)
             self._store_metapackage(sqfs, o_package, o_files)
-        # 3. check SquashFS packages consistency
+        # 5. check SquashFS packages consistency
         for sqfs in self.iso.sqfs:
             if not sqfs.packages:
                 continue
-            # 3.1 check branch mismatching
+            # 5.1 check branch mismatching
             self.logger.info(f"Checking SquashFS image '{sqfs.name}' branch")
             branch, date = self._find_base_repo(sqfs.packages)
             self.logger.info(
                 f"Most likely branch for '{sqfs.name}' is '{branch}' on '{date}'"
             )
-            # 3.2 check all RPM packages in database
+            # 5.2 check all RPM packages in database
             missing = []
             self.logger.info(f"Checking SquashFS image '{sqfs.name}' packages")
             missing = self._check_packages_in_db(sqfs.packages)
@@ -1313,9 +1314,11 @@ class ISOProcessor:
                 )
                 if not (self.config.dryrun or self.config.force):
                     raise ImageProcessingPackageNotInDBError(missing=missing)
-        # 4. build and store ISO image pkgset
+        # 6. build and store ISO image pkgset
         self._store_pkgsets(self._make_iso_pkgsets())
-        # 5. update repository status record with loaded imgae
+        # 7. update repository status record with loaded imgae
         self._update_image_status()
-        # 6. clean-up
+        # 8. clean-up
         self.conn.disconnect()
+        # 9. log summary
+        self.logger.info(f"Image processed in {(time.time() - st):.3f} seconds")
