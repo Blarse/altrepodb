@@ -168,6 +168,10 @@ class ImageMounter:
                             with Path(self.path).joinpath(e_name).open("wb") as f:
                                 for b in entry.get_blocks():
                                     f.write(b)
+                    # clean RPM DB cache files
+                    # XXX: fix 'error: cannot open Packages index using db4 -  (-30971)'
+                    for f in Path(self.path).glob("**/__db.*"):
+                        f.unlink()
         except Exception as e:
             raise ImageMountError(self._image_path, self.path) from e
 
