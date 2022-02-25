@@ -727,7 +727,7 @@ class ImageProcessor:
             )
         )
 
-    def _find_base_repo(self, packages: list[Package]) -> tuple[str, str]:
+    def _find_base_repo(self, packages: list[Package]):
         # find base branch by packages list
         # 1. create temporary table
         tmp_table = "_tmpPkgs"
@@ -760,13 +760,18 @@ class ImageProcessor:
             )
         )
         if not res:
-            raise ImageProcessingGuessBranchError
-        branch, date = res[0]
+            if not (self.config.dryrun or self.config.force):
+                raise ImageProcessingGuessBranchError
+            self.logger.warning(f"Failed to guess base branch for {self.meta.file}")
+        else:
+            branch, date = res[0]
+            self.logger.info(
+                f"Most likely branch for '{self.image.image.name}' is '{branch}' on '{date}'"
+            )
         # 5. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
-        return branch, date
 
-    def _check_packages_in_db(self, packages: list[Package]) -> list[Package]:
+    def _check_packages_in_db(self, packages: list[Package]):
         # check if packages is in database
         not_found: list[Package] = []
         # 1. create temporary table
@@ -791,7 +796,25 @@ class ImageProcessor:
         # 4. cleaun-up
         res = self.conn.execute(self.sql.drop_tmp_table.format(tmp_table=tmp_table))
 
-        return not_found
+        # return not_found
+        if not_found:
+            msg = (
+                f"{len(not_found)} packages not found in database\n"
+                + "\n".join(
+                    [
+                        f"[{p.hash}] {p.name}-{p.version}-{p.release} {p.arch}"
+                        for p in not_found
+                    ]
+                )
+            )
+            self.logger.debug(
+                f"Packages not found in database:\n{[p for p in not_found]}"
+            )
+            if not (self.config.dryrun or self.config.force):
+                self.logger.error(msg)
+                raise ImageProcessingPackageNotInDBError(missing=not_found)
+            else:
+                self.logger.warning(msg)
 
     def _make_image_pkgsets(self) -> list[PackageSet]:
         # build packageset structure from filesystem image for PackageSetName table
@@ -953,28 +976,10 @@ class ImageProcessor:
 
         # 3.1 check branch mismatching
         self.logger.info(f"Checking filesystem image '{self.image.image.name}' branch")
-        branch, date = self._find_base_repo(self.image.image.packages)
-        self.logger.info(
-            f"Most likely branch for '{self.image.image.name}' is '{branch}' on '{date}'"
-        )
+        self._find_base_repo(self.image.image.packages)
         # 3.2 check all RPM packages in database
         self.logger.info(f"Checking filesystem image '{self.image.image.name}' packages")
-        missing = self._check_packages_in_db(self.image.image.packages)
-        if missing:
-            self.logger.error(
-                f"{len(missing)} packages not found in database\n"
-                + "\n".join(
-                    [
-                        f"[{p.hash}] {p.name}-{p.version}-{p.release} {p.arch}"
-                        for p in missing
-                    ]
-                )
-            )
-            self.logger.debug(
-                f"Packages not found in database:\n{[p for p in missing]}"
-            )
-            if not (self.config.dryrun or self.config.force):
-                raise ImageProcessingPackageNotInDBError(missing=missing)
+        self._check_packages_in_db(self.image.image.packages)
         # 4. build and store filesystem image pkgset
         self._store_pkgsets(self._make_image_pkgsets())
         # 5. update repository status record with loaded imgae
