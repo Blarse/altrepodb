@@ -813,8 +813,7 @@ class ImageProcessor:
             if not (self.config.dryrun or self.config.force):
                 self.logger.error(msg)
                 raise ImageProcessingPackageNotInDBError(missing=not_found)
-            else:
-                self.logger.warning(msg)
+            self.logger.warning(msg)
 
     def _make_image_pkgsets(self) -> list[PackageSet]:
         # build packageset structure from filesystem image for PackageSetName table
