@@ -1157,7 +1157,7 @@ class TaskLoadHandler:
                 self.tf,
                 self.logger,
                 self.task.logs,
-                num_of_workers=None,
+                num_of_workers=0,
             )
         # 5 - proceed with TaskIterations
         if self.task.iterations:
@@ -1167,7 +1167,7 @@ class TaskLoadHandler:
                 self.tf,
                 self.logger,
                 self.task,
-                num_of_workers=None,
+                num_of_workers=0,
             )
         # 6 - load arepo packages
         if self.task.arepo:
