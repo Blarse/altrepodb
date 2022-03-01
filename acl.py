@@ -212,7 +212,7 @@ class Url:
         log.debug('{0}'.format(url))
         self.url = url
 
-    def _get_content(self, url=False, status=False):
+    def _get_content(self, url, status=False):
         try:
             r = urllib.request.urlopen(url)
         except urllib.error.URLError as e:
@@ -228,7 +228,7 @@ class Url:
                 return True
             return cvt(r.read())
 
-    def get(self, method=False, status=False):
+    def get(self, method=None, status=False):
         if method:
             p = self.url + method
         else:
