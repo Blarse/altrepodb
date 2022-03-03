@@ -263,6 +263,7 @@ class AclProcessor:
     def run(self) -> None:
         self.logger.info(f"Collect ACL information from {self._url}")
         if not self.url.check():
+            self.conn.disconnect()
             raise AclError(f"Failed to parse URL: {self._url}")
         try:
             acl = Acl(self.url, self.conn, self.logger)
