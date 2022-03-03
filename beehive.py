@@ -97,7 +97,7 @@ def main():
         logger.info("Start loading data from Beehive")
         logger.info("=" * 60)
         bh = Beehive(
-        config=BeehiveConfig(
+            config=BeehiveConfig(
                 base_url=BEEHIVE_BASE_URL,
                 branches=BEEHIVE_BRANCHES,
                 archs=BEEHIVE_ARCHS,
