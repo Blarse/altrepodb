@@ -1176,6 +1176,8 @@ CREATE TABLE ImageStatus
     img_show                Enum8('hide' = 0, 'show' = 1),
     img_start_date          DateTime,
     img_end_date            DateTime,
+    img_summary_ru          String, -- short description RU
+    img_summary_en          String, -- short description EN
     img_description_ru      String,
     img_description_en      String,
     img_mailing_list        LowCardinality(String), -- image edition mailing list URL

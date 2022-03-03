@@ -901,6 +901,8 @@ class ImageProcessor:
                 "img_show",
                 "img_start_date",
                 "img_end_date",
+                "img_summary_ru",
+                "img_summary_en",
                 "img_description_ru",
                 "img_description_en",
                 "img_mailing_list",
@@ -908,12 +910,14 @@ class ImageProcessor:
                 "img_json",
             ],
             defaults=[
-                "",
-                "",
-                "",
-                "",
-                "{}",
-            ],  # defaults for: 'img_descriptio_ru', ... , 'img_json'
+                "",   # img_summary_ru
+                "",   # img_summary_en
+                "",   # img_description_ru
+                "",   # img_description_ru
+                "",   # img_mailing_list
+                "",   # img_name_bugzilla
+                "{}", # img_hson
+            ],
         )
         # get last repositroy status from DB
         res = self.conn.execute(
@@ -935,6 +939,8 @@ class ImageProcessor:
                 img_start_date=datetime.datetime.now(),
                 img_end_date=datetime.datetime(2099, 1, 1),
                 img_json="{}",  # JSON string placeholder
+                img_summary_ru = f"{self.meta.branch} {self.meta.edition}",
+                img_summary_en = f"{self.meta.branch} {self.meta.edition}",
             )
             # store new ImageStatus record to DB
             if not self.config.dryrun:
