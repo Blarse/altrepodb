@@ -227,7 +227,7 @@ def get_logger(
 
 def parse_logger_config(fname: str, options: list[tuple[str, type]]) -> dict[str, Any]:
     """Parses logging options from configuration file. Options are
-    searched in 'LOGGING' section? but could be found in 'DEFAULT' section as well.
+    searched in 'LOGGING' section, but could be found in 'DEFAULT' section as well.
     Options passed with 'bool' type are gathered with configparser.getboolean() function.
 
     Args:
