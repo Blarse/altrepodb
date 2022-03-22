@@ -209,8 +209,8 @@ def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
         version_sub=su_,
         url=args.url,
     )
-    iso = ImageProcessor(config=config, image_meta=meta)
-    iso.run()
+    img = ImageProcessor(config=config, image_meta=meta)
+    img.run()
 
 
 def main():
