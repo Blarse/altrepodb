@@ -639,7 +639,8 @@ CREATE
 OR REPLACE VIEW task_plan_hashes AS
 SELECT DISTINCT
     task_id,
-    murmurHash3_64(concat(toString(task_id), toString(task_try), toString(task_iter), archs)) AS tplan_hash
+    murmurHash3_64(concat(toString(task_id), toString(task_try), toString(task_iter), archs)) AS tplan_hash,
+    archs AS tplan_arch
 FROM
 (
     SELECT
