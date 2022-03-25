@@ -1198,3 +1198,133 @@ CREATE TABLE ImageTagStatus
 )
 ENGINE = ReplacingMergeTree
 ORDER BY img_tag;
+
+
+-- branch packages history from tasks
+CREATE TABLE BranchPackageHistory
+(
+    pkgset_name         LowCardinality(String),
+    task_id             UInt32,
+    task_changed        DateTime,
+    task_message        String,
+    tplan_action        Enum8('add' = 0, 'delete' = 1),
+    pkg_hash            UInt64,
+    pkg_name            String,
+    pkg_epoch           UInt32,
+    pkg_version         String,
+    pkg_release         String,
+    pkg_arch            LowCardinality(String),
+    pkg_sourcepackage   UInt8,
+    chlog_date          DateTime,
+    chlog_name          String,
+    chlog_nick          LowCardinality(String),
+    chlog_evr           String,
+    chlog_text          String
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (pkg_hash, pkgset_name, pkg_name, pkg_sourcepackage, task_id);
+
+-- use 'INSERT INTO BranchPackageHistory' instead of MV hrader to fill in table
+CREATE MATERIALIZED VIEW mv_package_history TO BranchPackageHistory
+(
+    pkgset_name         LowCardinality(String),
+    task_id             UInt32,
+    task_changed        DateTime,
+    task_message        String,
+    tplan_action        Enum8('add' = 0, 'delete' = 1),
+    pkg_hash            UInt64,
+    pkg_name            String,
+    pkg_epoch           UInt32,
+    pkg_version         String,
+    pkg_release         String,
+    pkg_arch            LowCardinality(String),
+    pkg_sourcepackage   UInt8,
+    chlog_date          DateTime,
+    chlog_name          String,
+    chlog_nick          LowCardinality(String),
+    chlog_evr           String,
+    chlog_text          String
+) AS
+SELECT DISTINCT
+    pkgset_name,
+    task_id,
+    task_changed,
+    task_message,
+    tplan_action,
+    pkg_hash,
+    pkg_name,
+    pkg_epoch,
+    pkg_version,
+    pkg_release,
+    pkg_arch,
+    pkg_sourcepackage,
+    chlog_date,
+    chlog_name,
+    extract(replaceOne(extract(chlog_name, '<(.+@?.+)>+'), ' at ', '@'), '(.*)@') AS chlog_nick,
+    chlog_evr,
+    chlog_text
+FROM (
+    SELECT *
+    FROM (
+        SELECT
+            TI.*, TPP.tplan_action, TPP.pkg_hash
+        FROM (
+            SELECT
+                task_id,
+                task_changed,
+                task_message,
+                TR.task_repo AS pkgset_name
+            FROM TaskStates
+            LEFT JOIN (
+                SELECT DISTINCT task_id, task_repo
+                FROM Tasks
+            ) AS TR ON TR.task_id = TaskStates.task_id
+            WHERE task_state = 'DONE'
+        ) AS TI
+        LEFT JOIN (
+            SELECT task_id, tplan_hash, PH.tplan_action, PH.pkg_hash
+            FROM task_plan_hashes
+            LEFT JOIN (
+                SELECT
+                    tplan_hash,
+                    tplan_action,
+                    PH.pkgh_mmh AS pkg_hash
+                FROM TaskPlanPkgHash
+                LEFT JOIN (
+                    SELECT
+                        pkgh_mmh,
+                        pkgh_sha256
+                    FROM PackageHash
+                ) AS PH ON PH.pkgh_sha256 = tplan_sha256
+            ) AS PH ON PH.tplan_hash = task_plan_hashes.tplan_hash
+            WHERE pkg_hash != 0
+        ) AS TPP ON TPP.task_id = TI.task_id
+    ) AS TPI
+    LEFT JOIN (
+        SELECT
+            pkg_hash,
+            pkg_name,
+            pkg_epoch,
+            pkg_version,
+            pkg_release,
+            pkg_arch,
+            pkg_sourcepackage
+        FROM Packages
+    ) AS PI USING pkg_hash
+) AS TPPI
+LEFT JOIN (
+    SELECT PKGCHLG.* EXCEPT (chlog_hash), CHLG.chlog_text
+    FROM (
+        SELECT
+            pkg_hash,
+            pkg_changelog.date[1] AS chlog_date,
+            pkg_changelog.name[1] as chlog_name,
+            pkg_changelog.evr[1] AS chlog_evr,
+            pkg_changelog.hash[1] AS chlog_hash
+        FROM Packages
+    ) AS PKGCHLG
+    LEFT JOIN (
+        SELECT chlog_hash, chlog_text
+        FROM Changelog
+    ) AS CHLG ON CHLG.chlog_hash = PKGCHLG.chlog_hash
+) AS PCHLG USING pkg_hash;
