@@ -382,7 +382,7 @@ class ISO:
         for sqfs in self._sqfs:
             self.logger.info(f"Processing '{sqfs.name}' SquashFS image")
             # get SquashFS meta information
-            self.logger.debug(f"Calculate SquashFs image SHA1 checksum")
+            self.logger.debug(f"Calculate SquashFS image SHA1 checksum")
             sqfs.meta.sha1 = sha1_from_file(
                 Path(self._iso.mount.path).joinpath(sqfs.name)
             )
@@ -654,6 +654,7 @@ WHERE pkg_hash IN
 (
     SELECT pkg_hash FROM {tmp_table}
 )
+    AND pkg_arch IN {archs}
 """
 
     get_pkgs_not_in_db = """
@@ -839,6 +840,11 @@ class ISOProcessor:
         if branch == "":
             branch = self.meta.branch
 
+        # build packages arch filter
+        archs = ["noarch", self.meta.arch]
+        if self.meta.arch == "x86_64":
+            archs.append("x86_64-i586")
+
         # 1. create temporary table
         tmp_files = "_tmpFiles"
         res = self.conn.execute(
@@ -862,7 +868,9 @@ class ISOProcessor:
         )
         # 4. get found packages
         res = self.conn.execute(
-            self.sql.get_packages_info.format(tmp_table=tmp_packages)
+            self.sql.get_packages_info.format(
+                tmp_table=tmp_packages, archs=tuple(archs)
+            )
         )
         for r in res:
             packages.append(
@@ -1198,13 +1206,13 @@ class ISOProcessor:
                 "img_json",
             ],
             defaults=[
-                "",   # img_summary_ru
-                "",   # img_summary_en
-                "",   # img_description_ru
-                "",   # img_description_ru
-                "",   # img_mailing_list
-                "",   # img_name_bugzilla
-                "{}", # img_hson
+                "",  # img_summary_ru
+                "",  # img_summary_en
+                "",  # img_description_ru
+                "",  # img_description_ru
+                "",  # img_mailing_list
+                "",  # img_name_bugzilla
+                "{}",  # img_hson
             ],
         )
         # get last repositroy status from DB
@@ -1227,8 +1235,8 @@ class ISOProcessor:
                 img_start_date=datetime.datetime.now(),
                 img_end_date=datetime.datetime(2099, 1, 1),
                 img_json="{}",  # JSON string placeholder
-                img_summary_ru = f"{self.meta.branch} {self.meta.edition}",
-                img_summary_en = f"{self.meta.branch} {self.meta.edition}",
+                img_summary_ru=f"{self.meta.branch} {self.meta.edition}",
+                img_summary_en=f"{self.meta.branch} {self.meta.edition}",
             )
             # store new ImageStatus record to DB
             if not self.config.dryrun:
