@@ -1328,3 +1328,25 @@ LEFT JOIN (
         FROM Changelog
     ) AS CHLG ON CHLG.chlog_hash = PKGCHLG.chlog_hash
 ) AS PCHLG USING pkg_hash;
+
+-- SPDX licenses table
+CREATE TABLE SPDXLicenses
+(
+    spdx_id         String,
+    spdx_name       String,
+    spdx_text       String,
+    spdx_template   String,
+    spdx_urls       Array(String),
+    spdx_type       Enum8('license' = 0, 'exception' = 1)
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (spdx_id, spdx_type, spdx_name, spdx_text);
+
+-- License aliases look-up table
+CREATE TABLE LicenseAliases
+(
+    alias       String,
+    spdx_id     String
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (alias, spdx_id);

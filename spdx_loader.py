@@ -20,6 +20,7 @@ import configparser
 from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
+from collections import namedtuple
 
 from altrepodb.utils import run_command, RunCommandError
 from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
@@ -39,12 +40,19 @@ class SPDXError(Exception):
 
 @dataclass(frozen=True)
 class SQL:
-    get_last_date = """
-SELECT max(rc_test_date) FROM PackagesRepocop
+    get_spdx = """
+SELECT
+    spdx_id,
+    spdx_name,
+    spdx_text,
+    spdx_template,
+    spdx_urls,
+    spdx_type
+FROM SPDXLicenses
 """
 
-    insert_repocop = """
-INSERT INTO PackagesRepocop (*) VALUES
+    insert_spdx = """
+INSERT INTO SPDXLicenses (*) VALUES
 """
 
 
@@ -54,6 +62,28 @@ class SPDXConfig:
     logger: LoggerProtocol
     dbconfig: DatabaseConfig
     timeout: int = 30
+
+
+@dataclass(frozen=True)
+class License:
+    id: str
+    name: str
+    text: str
+    template: str
+    urls: list[str]
+
+
+DBLicense = namedtuple(
+    "DBLicense",
+    [
+        "spdx_id",
+        "spdx_name",
+        "spdx_text",
+        "spdx_template",
+        "spdx_urls",
+        "spdx_type",
+    ],
+)
 
 
 class SPDX:
@@ -67,6 +97,8 @@ class SPDX:
         self.logger = config.logger
         self.timeout = config.timeout
         self.spdx_root = Path.cwd().joinpath(SPDX_GIT_ROOT)
+        self._licenses: list[License] = []
+        self._exceptions: list[License] = []
 
     def _update_spdx_git(self) -> None:
         use_git_pull = False
@@ -86,7 +118,6 @@ class SPDX:
                 _, _, _, _ = run_command(
                     *[
                         "git",
-                        # "--git-dir",
                         f"--git-dir={str(self.spdx_root.joinpath('.git'))}",
                         "pull",
                         "origin",
@@ -99,13 +130,7 @@ class SPDX:
             else:
                 self.logger.debug("Clone SPDX git master")
                 _, _, _, _ = run_command(
-                    *[
-                        "git",
-                        "clone",
-                        "--depth=1",
-                        SPDX_URL,
-                        str(self.spdx_root)
-                    ],
+                    *["git", "clone", "--depth=1", SPDX_URL, str(self.spdx_root)],
                     raise_on_error=True,
                     logger=self.logger,
                     timeout=self.timeout,
@@ -114,70 +139,118 @@ class SPDX:
             raise SPDXError(f"Failed to update SPDX git repository") from e
         self.logger.info("SPDX git repository is up to date")
 
-    # def _get_header_modified(self) -> datetime:
-    #     try:
-    #         res = requests.head(self.url, timeout=self.timeout)
-    #     except RequestException as exc:
-    #         raise RepocopError(f"Failed to reach Repocop at {self.url}") from exc
+    def _collect_licenses(self):
+        # loop over licenses in cloned SPDX git
+        for license_file in (
+            f
+            for f in self.spdx_root.joinpath(SPDX_LICENSES).iterdir()
+            if f.is_file() and ".json" in f.name
+        ):
+            with open(license_file) as f:
+                license = json.load(f)
+                self._licenses.append(
+                    License(
+                        id=license["licenseId"],
+                        name=license["name"],
+                        text=license["licenseText"],
+                        template=license["standardLicenseTemplate"],
+                        urls=license["seeAlso"],
+                    )
+                )
 
-    #     return parsedate_to_datetime(res.headers["Last-Modified"])  # type: ignore
+    def _collect_license_exceptions(self):
+        # loop over license exceptions in cloned SPDX git
+        for license_file in (
+            f
+            for f in self.spdx_root.joinpath(SPDX_EXCEPTIONS).iterdir()
+            if f.is_file() and ".json" in f.name
+        ):
+            with open(license_file) as f:
+                license = json.load(f)
+                self._exceptions.append(
+                    License(
+                        id=license["licenseExceptionId"],
+                        name=license["name"],
+                        text=license["licenseExceptionText"],
+                        template=license["licenseExceptionTemplate"],
+                        urls=license["seeAlso"],
+                    )
+                )
 
-    # def _get_db_modified(self) -> datetime:
-    #     try:
-    #         res = self.conn.execute(self.sql.get_last_date)
-    #         last_update = res[0][0]  # type: ignore
-    #     except Exception as exc:
-    #         if issubclass(exc.__class__, (DatabaseError,)):
-    #             raise RepocopError("Failed get data from database") from exc
+    def _check_for_updates(self) -> list[DBLicense]:
+        db_licenses: list[License] = []
+        db_exceptions: list[License] = []
+        updated: list[DBLicense] = []
 
-    #     return last_update.replace(tzinfo=tz.tzutc())  # type: ignore
+        try:
+            res = self.conn.execute(self.sql.get_spdx)
+        except Exception as exc:
+            if issubclass(exc.__class__, (DatabaseError,)):
+                raise SPDXError("Failed get data from database") from exc
+            raise exc
+        if res:
+            for el in res:
+                if el[-1] == "license":
+                    db_licenses.append(License(*el[:-1]))
+                elif el[-1] == "exception":
+                    db_exceptions.append(License(*el[:-1]))
+                else:
+                    raise SPDXError("Inconsistent data from DB")
 
-    # def _get_repocop_status(self, repocop_updated: datetime) -> dict[str, Any]:
-    #     try:
-    #         res = requests.get(self.url, timeout=self.timeout)
-    #         self.logger.debug(f"URL request elapsed {res.elapsed.total_seconds():.3f}")
-    #     except RequestException as exc:
-    #         raise RepocopError(f"Failed get information from {self.url}") from exc
+        for license in self._licenses:
+            if license not in db_licenses:
+                updated.append(
+                    DBLicense(
+                        spdx_id=license.id,
+                        spdx_name=license.name,
+                        spdx_text=license.text,
+                        spdx_template=license.template,
+                        spdx_urls=license.urls,
+                        spdx_type="license"
+                    )
+                )
 
-    #     data = json.loads(bz2.decompress(res.content))
-    #     self.logger.debug(f"Got {len(data)} records from Repocop report")
-    #     for line in data:
-    #         line["rc_test_date"] = repocop_updated
+        for exception in self._exceptions:
+            if exception not in db_exceptions:
+                updated.append(
+                    DBLicense(
+                        spdx_id=exception.id,
+                        spdx_name=exception.name,
+                        spdx_text=exception.text,
+                        spdx_template=exception.template,
+                        spdx_urls=exception.urls,
+                        spdx_type="exception"
+                    )
+                )
 
-    #     return data
+        return updated
 
-    # def _save_to_db(self, data: dict[str, Any]) -> None:
-    #     try:
-    #         res = self.conn.execute(self.sql.insert_repocop, data)
-    #         self.logger.debug(
-    #             f"Data loaded to database in {self.conn.last_query_elapsed:.3f} seconds"
-    #         )
-    #     except Exception as exc:
-    #         if issubclass(exc.__class__, (DatabaseError,)):
-    #             self.logger.error("Failed load data to database", exc_info=True)
-    #             raise RepocopError("Failed load data to database") from exc
+    def _save_to_db(self, data: list[DBLicense]) -> None:
+        try:
+            res = self.conn.execute(self.sql.insert_spdx, data)
+        except Exception as exc:
+            if issubclass(exc.__class__, (DatabaseError,)):
+                raise SPDXError("Failed load data to database") from exc
+            raise exc
 
     def run(self) -> None:
-        self._update_spdx_git()
-
-    #     try:
-    #         self.logger.info(f"Check Repocop for updates")
-    #         repocop_date = self._get_header_modified()
-    #         last_db_update_date = self._get_db_modified()
-
-    #         if repocop_date > last_db_update_date:
-    #             self.logger.info(f"Fetching Repocop data from {self.url}...")
-    #             data = self._get_repocop_status(repocop_date)
-    #             self.logger.info("Loading new Repocop data to database...")
-    #             self._save_to_db(data)
-    #             self.logger.info("Repocop data loaded to database")
-    #         else:
-    #             self.logger.info("Repocop data is up-to-date")
-    #     except Exception as e:
-    #         self.logger.error("Error occured while processing Repocop data")
-    #         raise e
-    #     finally:
-    #         self.conn.disconnect()
+        try:
+            self.logger.info(f"Check SPDX for updates")
+            self._update_spdx_git()
+            self._collect_licenses()
+            self._collect_license_exceptions()
+            updated = self._check_for_updates()
+            if updated:
+                self.logger.info("Loading new SPDX data to database...")
+                self._save_to_db(updated)
+                self.logger.info("SPDX data loaded to database")
+            else:
+                self.logger.info("SPDX data is up-to-date")
+        except Exception as e:
+            self.logger.error("Error occured while processing SPDX data")
+            raise SPDXError from e
+        finally:
+            self.conn.disconnect()
 
 
 def get_args():
@@ -244,7 +317,8 @@ def main():
 
     except Exception as error:
         logger.error(
-            f"Error occurred while processing licenses from SPDX: {error}", exc_info=True
+            f"Error occurred while processing licenses from SPDX: {error}",
+            exc_info=True,
         )
         sys.exit(1)
 

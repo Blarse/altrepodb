@@ -1,0 +1,434 @@
+[
+    {
+        "alias": "AGPL-1.0",
+        "spdx_id": "AGPL-1.0-only"
+    },
+    {
+        "alias": "AGPL-1.0+",
+        "spdx_id": "AGPL-1.0-or-later"
+    },
+    {
+        "alias": "AGPL-3.0",
+        "spdx_id": "AGPL-3.0-only"
+    },
+    {
+        "alias": "AGPL-3.0+",
+        "spdx_id": "AGPL-3.0-or-later"
+    },
+    {
+        "alias": "APL",
+        "spdx_id": "APL-1.0"
+    },
+    {
+        "alias": "Aladdin",
+        "spdx_id": "Aladdin-8.0"
+    },
+    {
+        "alias": "Artistic-1",
+        "spdx_id": "Artistic-1.0"
+    },
+    {
+        "alias": "Artistic-2",
+        "spdx_id": "Artistic-2.0"
+    },
+    {
+        "alias": "BSD",
+        "spdx_id": "BSD-3-Clause"
+    },
+    {
+        "alias": "BSL",
+        "spdx_id": "BSL-1.0"
+    },
+    {
+        "alias": "CATOSL",
+        "spdx_id": "CATOSL-1.1"
+    },
+    {
+        "alias": "CC0",
+        "spdx_id": "CC0-1.0"
+    },
+    {
+        "alias": "Cryptix",
+        "spdx_id": "ALT-Cryptix"
+    },
+    {
+        "alias": "ErlPL",
+        "spdx_id": "ErlPL-1.1"
+    },
+    {
+        "alias": "FDL-1.1",
+        "spdx_id": "GFDL-1.1"
+    },
+    {
+        "alias": "FDL-1.2",
+        "spdx_id": "GFDL-1.2"
+    },
+    {
+        "alias": "Frameworx",
+        "spdx_id": "Frameworx-1.0"
+    },
+    {
+        "alias": "FreeImage",
+        "spdx_id": "FreeImage-1.0"
+    },
+    {
+        "alias": "GFDL-1.1",
+        "spdx_id": "GFDL-1.1-only"
+    },
+    {
+        "alias": "GFDL-1.1+",
+        "spdx_id": "GFDL-1.1-or-later"
+    },
+    {
+        "alias": "GFDL-1.2",
+        "spdx_id": "GFDL-1.2-only"
+    },
+    {
+        "alias": "GFDL-1.2+",
+        "spdx_id": "GFDL-1.2-or-later"
+    },
+    {
+        "alias": "GFDL-1.3",
+        "spdx_id": "GFDL-1.3-only"
+    },
+    {
+        "alias": "GFDL-1.3+",
+        "spdx_id": "GFDL-1.3-or-later"
+    },
+    {
+        "alias": "GL2PS",
+        "spdx_id": "GL2PS-2.0"
+    },
+    {
+        "alias": "GPL-1",
+        "spdx_id": "GPL-1.0"
+    },
+    {
+        "alias": "GPL-1.0",
+        "spdx_id": "GPL-1.0-only"
+    },
+    {
+        "alias": "GPL-1.0+",
+        "spdx_id": "GPL-1.0-or-later"
+    },
+    {
+        "alias": "GPL-2",
+        "spdx_id": "GPL-2.0"
+    },
+    {
+        "alias": "GPL-2.0",
+        "spdx_id": "GPL-2.0-only"
+    },
+    {
+        "alias": "GPL-2.0+",
+        "spdx_id": "GPL-2.0-or-later"
+    },
+    {
+        "alias": "GPL-3",
+        "spdx_id": "GPL-3.0"
+    },
+    {
+        "alias": "GPL-3.0",
+        "spdx_id": "GPL-3.0-only"
+    },
+    {
+        "alias": "GPL-3.0+",
+        "spdx_id": "GPL-3.0-or-later"
+    },
+    {
+        "alias": "GPLv2",
+        "spdx_id": "GPL-2.0-only"
+    },
+    {
+        "alias": "GPLv2+",
+        "spdx_id": "GPL-2.0-or-later"
+    },
+    {
+        "alias": "GPLv3",
+        "spdx_id": "GPL-3.0-only"
+    },
+    {
+        "alias": "GPLv3+",
+        "spdx_id": "GPL-3.0+"
+    },
+    {
+        "alias": "ICU",
+        "spdx_id": "ICU-1.8.1+"
+    },
+    {
+        "alias": "ICU-1.8.1+",
+        "spdx_id": "ICU-1.8.1-or-later"
+    },
+    {
+        "alias": "IPA",
+        "spdx_id": "IPA-1.0"
+    },
+    {
+        "alias": "IPL",
+        "spdx_id": "IPL-1.0"
+    },
+    {
+        "alias": "Interbase",
+        "spdx_id": "Interbase-1.0"
+    },
+    {
+        "alias": "JasPer",
+        "spdx_id": "JasPer-2.0"
+    },
+    {
+        "alias": "LGPL-2",
+        "spdx_id": "LGPL-2.0"
+    },
+    {
+        "alias": "LGPL-2.0",
+        "spdx_id": "LGPL-2.0-only"
+    },
+    {
+        "alias": "LGPL-2.0+",
+        "spdx_id": "LGPL-2.0-or-later"
+    },
+    {
+        "alias": "LGPL-2.1",
+        "spdx_id": "LGPL-2.1-only"
+    },
+    {
+        "alias": "LGPL-2.1+",
+        "spdx_id": "LGPL-2.1-or-later"
+    },
+    {
+        "alias": "LGPL-3",
+        "spdx_id": "LGPL-3.0"
+    },
+    {
+        "alias": "LGPL-3.0",
+        "spdx_id": "LGPL-3.0-only"
+    },
+    {
+        "alias": "LGPL-3.0+",
+        "spdx_id": "LGPL-3.0-or-later"
+    },
+    {
+        "alias": "LGPLv2",
+        "spdx_id": "LGPL-2.0"
+    },
+    {
+        "alias": "LGPLv2+",
+        "spdx_id": "LGPL-2.0+"
+    },
+    {
+        "alias": "LGPLv2.1",
+        "spdx_id": "LGPL-2.1"
+    },
+    {
+        "alias": "LGPLv2.1+",
+        "spdx_id": "LGPL-2.1+"
+    },
+    {
+        "alias": "LGPLv3",
+        "spdx_id": "LGPL-3.0"
+    },
+    {
+        "alias": "LGPLv3+",
+        "spdx_id": "LGPL-3.0-or-later"
+    },
+    {
+        "alias": "MITX",
+        "spdx_id": "ALT-MITX"
+    },
+    {
+        "alias": "NLOD",
+        "spdx_id": "NLOD-1.0"
+    },
+    {
+        "alias": "NOSL",
+        "spdx_id": "NOSL-1.0"
+    },
+    {
+        "alias": "NPOSL",
+        "spdx_id": "NPOSL-3.0"
+    },
+    {
+        "alias": "NVIDIA-340",
+        "spdx_id": "ALT-NVIDIA-340"
+    },
+    {
+        "alias": "NVIDIA-390",
+        "spdx_id": "ALT-NVIDIA-390"
+    },
+    {
+        "alias": "OCL",
+        "spdx_id": "OCL-1.0"
+    },
+    {
+        "alias": "OCL-1.0",
+        "spdx_id": "ALT-OCL-1.0"
+    },
+    {
+        "alias": "OCLC",
+        "spdx_id": "OCLC-2.0"
+    },
+    {
+        "alias": "ODC-By",
+        "spdx_id": "ODC-By-1.0"
+    },
+    {
+        "alias": "ODbL",
+        "spdx_id": "ODbL-1.0"
+    },
+    {
+        "alias": "OPL",
+        "spdx_id": "OPL-1.0"
+    },
+    {
+        "alias": "OSET-PL",
+        "spdx_id": "OSET-PL-2.1"
+    },
+    {
+        "alias": "OpenPub",
+        "spdx_id": "OpenPub-0.4"
+    },
+    {
+        "alias": "OpenPub-0.4",
+        "spdx_id": "ALT-OpenPub-0.4"
+    },
+    {
+        "alias": "PDDL",
+        "spdx_id": "PDDL-1.0"
+    },
+    {
+        "alias": "Perl",
+        "spdx_id": "ALT-Perl"
+    },
+    {
+        "alias": "Python",
+        "spdx_id": "Python-2.0"
+    },
+    {
+        "alias": "QPL",
+        "spdx_id": "QPL-1.0"
+    },
+    {
+        "alias": "RHeCos",
+        "spdx_id": "RHeCos-1.1"
+    },
+    {
+        "alias": "RPSL",
+        "spdx_id": "RPSL-1.0"
+    },
+    {
+        "alias": "RSCPL",
+        "spdx_id": "RSCPL-1.0"
+    },
+    {
+        "alias": "SCEA",
+        "spdx_id": "SCEA-1.0"
+    },
+    {
+        "alias": "SPL",
+        "spdx_id": "SPL-1.0"
+    },
+    {
+        "alias": "SimPL",
+        "spdx_id": "SimPL-2.0"
+    },
+    {
+        "alias": "SugarCRM",
+        "spdx_id": "SugarCRM-1.1.3"
+    },
+    {
+        "alias": "TPL",
+        "spdx_id": "ALT-TPL"
+    },
+    {
+        "alias": "UCD",
+        "spdx_id": "ALT-UCD"
+    },
+    {
+        "alias": "UPL",
+        "spdx_id": "UPL-1.0"
+    },
+    {
+        "alias": "VSL",
+        "spdx_id": "VSL-1.0"
+    },
+    {
+        "alias": "Watcom",
+        "spdx_id": "Watcom-1.0"
+    },
+    {
+        "alias": "XConsortium",
+        "spdx_id": "ALT-XConsortium"
+    },
+    {
+        "alias": "XFree86",
+        "spdx_id": "XFree86-1.1"
+    },
+    {
+        "alias": "XFree86-other",
+        "spdx_id": "ALT-XFree86-other"
+    },
+    {
+        "alias": "Zend",
+        "spdx_id": "Zend-2.0"
+    },
+    {
+        "alias": "eCos",
+        "spdx_id": "eCos-2.0"
+    },
+    {
+        "alias": "wxWidgets",
+        "spdx_id": "wxWindows"
+    },
+    {
+        "alias": "Bison-exception",
+        "spdx_id": "Bison-exception-2.2"
+    },
+    {
+        "alias": "CLISP-exception",
+        "spdx_id": "CLISP-exception-2.0"
+    },
+    {
+        "alias": "Classpath-exception",
+        "spdx_id": "Classpath-exception-2.0"
+    },
+    {
+        "alias": "Font-exception",
+        "spdx_id": "Font-exception-2.0"
+    },
+    {
+        "alias": "Nokia-Qt-exception",
+        "spdx_id": "Nokia-Qt-exception-1.1"
+    },
+    {
+        "alias": "OCCT-exception",
+        "spdx_id": "OCCT-exception-1.0"
+    },
+    {
+        "alias": "OpenJDK-assembly-exception",
+        "spdx_id": "OpenJDK-assembly-exception-1.0"
+    },
+    {
+        "alias": "Qt-GPL-exception",
+        "spdx_id": "Qt-GPL-exception-1.0"
+    },
+    {
+        "alias": "Qt-LGPL-exception",
+        "spdx_id": "Qt-LGPL-exception-1.1"
+    },
+    {
+        "alias": "WxWindows-exception",
+        "spdx_id": "WxWindows-exception-3.1"
+    },
+    {
+        "alias": "eCos-exception",
+        "spdx_id": "eCos-exception-2.0"
+    },
+    {
+        "alias": "freertos-exception",
+        "spdx_id": "freertos-exception-2.0"
+    },
+    {
+        "alias": "u-boot-exception",
+        "spdx_id": "u-boot-exception-2.0"
+    }
+]
