@@ -134,7 +134,7 @@ def get_args():
         "--branch", required=True, type=str, help="Filesystem image base branch name"
     )
     parser.add_argument(
-        "--date", required=True, type=valid_date, help="Filesystem image date"
+        "--date", required=True, type=valid_date, help="Filesystem image date [YYYY-MM-DD]"
     )
     parser.add_argument(
         "--url", required=True, type=valid_url, help="Filesystem image download URL"
