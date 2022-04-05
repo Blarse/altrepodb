@@ -107,7 +107,9 @@ def get_args():
     parser.add_argument(
         "--branch", required=True, type=str, help="ISO image base branch name"
     )
-    parser.add_argument("--date", required=True, type=valid_date, help="ISO image date")
+    parser.add_argument(
+        "--date", required=True, type=valid_date, help="ISO image date [YYYY-MM-DD]"
+    )
     parser.add_argument(
         "--url", required=True, type=valid_url, help="ISO image download URL"
     )
