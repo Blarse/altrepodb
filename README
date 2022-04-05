@@ -35,6 +35,10 @@
 
     cat sql/CveChecked-initial.json | clickhouse-client  -h 10.88.13.52 -d repodb --query="INSERT INTO CveChecked FORMAT JSONEachRow"
 
+Загрузка данных в License Aliases:
+
+    cat sql/license_aliases.json | clickhouse-client  -h 10.88.13.52 -d repodb2 --query="INSERT INTO LicenseAliases FORMAT JSONEachRow"
+
 
 Аргументы запуска extract.py:
     pkgset - обязательный позиционный аргумент. например: p9 или sisyphus или c8.1
