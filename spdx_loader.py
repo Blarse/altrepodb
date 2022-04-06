@@ -17,7 +17,6 @@ import sys
 import json
 import argparse
 import configparser
-from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
 from collections import namedtuple
