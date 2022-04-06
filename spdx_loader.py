@@ -45,7 +45,7 @@ SELECT
     spdx_id,
     spdx_name,
     spdx_text,
-    spdx_template,
+    spdx_header,
     spdx_urls,
     spdx_type
 FROM SPDXLicenses
@@ -69,7 +69,7 @@ class License:
     id: str
     name: str
     text: str
-    template: str
+    header: str
     urls: list[str]
 
 
@@ -79,7 +79,7 @@ DBLicense = namedtuple(
         "spdx_id",
         "spdx_name",
         "spdx_text",
-        "spdx_template",
+        "spdx_header",
         "spdx_urls",
         "spdx_type",
     ],
@@ -153,7 +153,7 @@ class SPDX:
                         id=license["licenseId"],
                         name=license["name"],
                         text=license["licenseText"],
-                        template=license["standardLicenseTemplate"],
+                        header=license.get("standardLicenseHeader", ""),
                         urls=license["seeAlso"],
                     )
                 )
@@ -172,7 +172,7 @@ class SPDX:
                         id=license["licenseExceptionId"],
                         name=license["name"],
                         text=license["licenseExceptionText"],
-                        template=license["licenseExceptionTemplate"],
+                        header=license.get("licenseComments", ""),
                         urls=license["seeAlso"],
                     )
                 )
@@ -204,7 +204,7 @@ class SPDX:
                         spdx_id=license.id,
                         spdx_name=license.name,
                         spdx_text=license.text,
-                        spdx_template=license.template,
+                        spdx_header=license.header,
                         spdx_urls=license.urls,
                         spdx_type="license"
                     )
@@ -217,7 +217,7 @@ class SPDX:
                         spdx_id=exception.id,
                         spdx_name=exception.name,
                         spdx_text=exception.text,
-                        spdx_template=exception.template,
+                        spdx_header=exception.header,
                         spdx_urls=exception.urls,
                         spdx_type="exception"
                     )

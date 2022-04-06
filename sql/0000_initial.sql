@@ -1335,7 +1335,7 @@ CREATE TABLE SPDXLicenses
     spdx_id         String,
     spdx_name       String,
     spdx_text       String,
-    spdx_template   String,
+    spdx_header     String,
     spdx_urls       Array(String),
     spdx_type       Enum8('license' = 0, 'exception' = 1)
 )
