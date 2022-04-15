@@ -30,7 +30,7 @@ os.environ["LANG"] = "C"
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("url", type=str, help="git.altlinux task url")
+    parser.add_argument("path", type=str, help="Path to task directory")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
@@ -102,7 +102,7 @@ def main():
     try:
         config = TaskProcessorConfig(
             id=int(tag),
-            path=args.url,
+            path=args.path,
             debug=args.debug,
             flush=args.flush_buffers,
             force=args.force,
