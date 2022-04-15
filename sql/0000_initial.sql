@@ -1224,7 +1224,7 @@ CREATE TABLE BranchPackageHistory
 ENGINE = ReplacingMergeTree
 ORDER BY (pkg_hash, pkgset_name, pkg_name, pkg_sourcepackage, task_id);
 
--- use 'INSERT INTO BranchPackageHistory' instead of MV hrader to fill in table
+-- use 'INSERT INTO BranchPackageHistory' instead of MV header to fill in table
 CREATE MATERIALIZED VIEW mv_package_history TO BranchPackageHistory
 (
     pkgset_name         LowCardinality(String),
@@ -1350,3 +1350,28 @@ CREATE TABLE LicenseAliases
 )
 ENGINE = ReplacingMergeTree
 ORDER BY (alias, spdx_id);
+
+
+-- task progress table for AMQP messages
+CREATE TABLE TaskProgress
+(
+    task_id             UInt32, -- required
+    task_try            UInt16, -- default 0
+    task_iter           UInt8,  -- default 0
+    subtask_id          UInt32, -- default 0
+    tp_girar_user       LowCardinality(String), -- required
+    tp_repo             LowCardinality(String), -- required
+    tp_owner            LowCardinality(String), -- required
+    tp_state            LowCardinality(String), -- required
+    tp_task_changed     DateTime,               -- required
+    tp_subtask_changed  Nullable(DateTime),     -- DateTime or None
+    tp_arch             LowCardinality(String), -- default ''
+    tp_json             String, -- message contents as json.dumps(%message%) -- required
+    tp_type             Enum8('task' = 0, 'subtask' = 1), -- required
+    tp_action           Enum8('state' = 0, 'abort' = 1, 'create' = 2, 'delete' = 3, 'share' = 4, 'deps' = 5, 'approve' = 6, 'disapprove' = 7, 'progress' = 8), -- required
+    ts                  DateTime64 MATERIALIZED now64()
+)
+ENGINE = MergeTree
+PRIMARY KEY (task_id)
+ORDER BY (task_id, subtask_id, tp_task_changed, tp_type, tp_action);
+
