@@ -90,9 +90,9 @@ def get_args():
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
-    if args.url.endswith("/"):
-        args.url = args.url[:-1]
-    tag = args.url.split("/")[-1]
+    if args.path.endswith("/"):
+        args.path = args.path[:-1]
+    tag = args.path.split("/")[-1]
     logger = get_config_logger(
         NAME,
         tag=tag,
