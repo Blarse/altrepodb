@@ -30,7 +30,7 @@ SPDX_URL = "https://github.com/spdx/license-list-data"
 SPDX_GIT_ROOT = "SPDX"
 SPDX_LICENSES = "json/details"
 SPDX_EXCEPTIONS = "json/exceptions"
-SPDX_GIT_TIMEOUT = 60
+SPDX_GIT_TIMEOUT = 60 * 5
 
 
 class SPDXError(Exception):
