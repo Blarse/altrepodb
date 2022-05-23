@@ -16,10 +16,10 @@
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Generator, Optional, Union, Any, DefaultDict
+from typing import Iterator, Optional, Union, Any, DefaultDict
 from dataclasses import dataclass, field, asdict
 
-from .logger import _LoggerOptional, LoggerProtocol, FakeLogger
+from .logger import _LoggerOptional, FakeLogger
 from .exceptions import RaisingThreadError
 
 # Logger
@@ -64,7 +64,7 @@ class LockedIterator:
 class GeneratorWrapper:
     """Wraps generator function and allow to test it's emptyness at any time."""
 
-    def __init__(self, iter: Generator):
+    def __init__(self, iter: Iterator):
         self.source = iter
         self.stored = False
 
