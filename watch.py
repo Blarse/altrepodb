@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import sys
@@ -24,8 +24,14 @@ from dataclasses import dataclass
 from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
+from altrepodb import (
+    get_config_logger,
+    LoggerLevel,
+    LoggerProtocol,
+    DatabaseClient,
+    DatabaseConfig,
+    DatabaseError,
+)
 
 NAME = "watch"
 URL_WATCH = "https://watch.altlinux.org/pub/watch/watch-total.txt"
@@ -86,15 +92,15 @@ class Watch:
     def _save_to_db(self, data: list[str], watch_modified: datetime) -> None:
         result = []
         for line in data:
-            line = line.split('\t')
-            if line != ['']:
+            line = line.split("\t")
+            if line != [""]:
                 el_dict = {
-                    'acl': line[0],
-                    'pkg_name': line[1],
-                    'old_version': line[2],
-                    'new_version': line[3],
-                    'url': line[4],
-                    'date_update': watch_modified,
+                    "acl": line[0],
+                    "pkg_name": line[1],
+                    "old_version": line[2],
+                    "new_version": line[3],
+                    "url": line[4],
+                    "date_update": watch_modified,
                 }
                 result.append(el_dict)
 
@@ -111,12 +117,12 @@ class Watch:
             last_db_update_date = self._get_db_modified()
 
             if watch_last_modified > last_db_update_date:
-                self.logger.info('Loading new watch data to database...')
-                data = res_watch.text.split('\n')
+                self.logger.info("Loading new watch data to database...")
+                data = res_watch.text.split("\n")
                 self._save_to_db(data, watch_last_modified)
                 self.logger.info("Watch data loaded to database")
             else:
-                self.logger.info('Watch data up-to-date')
+                self.logger.info("Watch data up-to-date")
         except Exception as e:
             self.logger.error("Error occured while processing Watch data")
             raise e
@@ -186,7 +192,9 @@ def main():
         )
         rp.run()
     except Exception as error:
-        logger.error(f"Error occurred during Watch information loading: {error}", exc_info=True)
+        logger.error(
+            f"Error occurred during Watch information loading: {error}", exc_info=True
+        )
         sys.exit(1)
 
 

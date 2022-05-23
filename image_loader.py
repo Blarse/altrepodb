@@ -20,11 +20,15 @@ import argparse
 import configparser
 from pathlib import Path
 
-from altrepodb.base import ImageProcessorConfig, ImageMeta
+from altrepodb import (
+    get_config_logger,
+    DatabaseConfig,
+    LoggerProtocol,
+    ImageMeta,
+    ImageProcessorConfig,
+)
 from altrepodb.image import ImageProcessor
-from altrepodb.database import DatabaseConfig
 from altrepodb.utils import valid_url, valid_date, valid_version
-from altrepodb.logger import get_config_logger, LoggerProtocol 
 
 NAME = "image"
 ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")
@@ -134,7 +138,10 @@ def get_args():
         "--branch", required=True, type=str, help="Filesystem image base branch name"
     )
     parser.add_argument(
-        "--date", required=True, type=valid_date, help="Filesystem image date [YYYY-MM-DD]"
+        "--date",
+        required=True,
+        type=valid_date,
+        help="Filesystem image date [YYYY-MM-DD]",
     )
     parser.add_argument(
         "--url", required=True, type=valid_url, help="Filesystem image download URL"

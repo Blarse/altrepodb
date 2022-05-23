@@ -21,8 +21,13 @@ import configparser
 from collections import namedtuple
 from typing import Iterable
 
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig
+from altrepodb import (
+    get_config_logger,
+    LoggerLevel,
+    LoggerProtocol,
+    DatabaseClient,
+    DatabaseConfig,
+)
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"

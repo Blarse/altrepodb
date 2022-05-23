@@ -26,7 +26,7 @@ from .database import DatabaseConfig, DatabaseClient
 from .logger import LoggerProtocol
 
 
-class EPType(Enum):
+class EndpointType(Enum):
     DIR = 1
     FILE1 = 2
     FILE2 = 3
@@ -34,7 +34,7 @@ class EPType(Enum):
 
 class Endpoint(NamedTuple):
     name: str
-    type: EPType
+    type: EndpointType
     path_prefix: str
     path_suffix: str
     destination: Optional[str] = None
@@ -44,7 +44,7 @@ class Target(NamedTuple):
     branch: str
     arch: str
     name: str
-    type: EPType
+    type: EndpointType
     url: str
     destination: Optional[str]
 
@@ -282,7 +282,7 @@ class Beehive:
 
         try:
             destination = target.destination
-            if target.type == EPType.FILE1:
+            if target.type == EndpointType.FILE1:
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
@@ -293,7 +293,7 @@ class Beehive:
                         (self._parse_name_evr(line_context[0]), float(line_context[1]))
                     )
                 return target, packages
-            if target.type == EPType.FILE2:
+            if target.type == EndpointType.FILE2:
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
@@ -304,7 +304,7 @@ class Beehive:
                         (self._parse_name_evr(line_context[0]), int(line_context[1]))
                     )
                 return target, packages
-            elif target.type == EPType.DIR:
+            elif target.type == EndpointType.DIR:
                 _, listing = fetch_listing(target.url, timeout=self.timeout)
                 if destination:
                     matches: list[FileInfo] = []

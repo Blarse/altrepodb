@@ -19,9 +19,8 @@ import argparse
 import configparser
 from pathlib import Path
 
-from altrepodb.database import DatabaseConfig
-from altrepodb.logger import LoggerLevel, get_config_logger
-from altrepodb.beehive import Beehive, BeehiveConfig, Endpoint, EPType
+from altrepodb import get_config_logger, LoggerLevel, DatabaseConfig
+from altrepodb.beehive import Beehive, BeehiveConfig, Endpoint, EndpointType
 
 
 NAME = "beehive"
@@ -33,12 +32,13 @@ BEEHIVE_BRANCHES = (
 )
 BEEHIVE_ARCHS = ("i586", "x86_64")
 BEEHIVE_ENDPOINTS = (
-    Endpoint("latest_dir_mtime", EPType.DIR, "logs", "", "latest"),
-    Endpoint("time_file_listing", EPType.FILE1, "logs", "latest/time.list", None),
-    Endpoint("error_dir_listing", EPType.DIR, "logs", "latest/error", None),
-    Endpoint("success_dir_listing", EPType.DIR, "logs", "latest/success", None),
-    Endpoint("ftbfs_since_file_listing", EPType.FILE2, "stats", "ftbfs-since", None),
+    Endpoint("latest_dir_mtime", EndpointType.DIR, "logs", "", "latest"),
+    Endpoint("time_file_listing", EndpointType.FILE1, "logs", "latest/time.list", None),
+    Endpoint("error_dir_listing", EndpointType.DIR, "logs", "latest/error", None),
+    Endpoint("success_dir_listing", EndpointType.DIR, "logs", "latest/success", None),
+    Endpoint("ftbfs_since_file_listing", EndpointType.FILE2, "stats", "ftbfs-since", None),
 )
+
 
 def get_args():
     parser = argparse.ArgumentParser()

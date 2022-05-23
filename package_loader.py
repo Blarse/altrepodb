@@ -24,7 +24,6 @@ from dataclasses import dataclass
 
 from altrpm import rpm, extractSpecAndHeadersFromRPM
 from altrepodb.repo import PackageHandler
-from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import (
     cvt,
     snowflake_id_pkg,
@@ -33,7 +32,13 @@ from altrepodb.utils import (
     blake2b_from_file,
     check_package_in_cache,
 )
-from altrepodb.logger import get_logger, LoggerLevel, LoggerProtocol
+from altrepodb import (
+    DatabaseClient,
+    DatabaseConfig,
+    get_logger,
+    LoggerLevel,
+    LoggerProtocol,
+)
 
 NAME = "package"
 
@@ -147,7 +152,12 @@ class PackageLoader:
             "specfile_date": spec_file.mtime,  # type: ignore
             "specfile_content_base64": base64.b64encode(spec_contents),  # type: ignore
         }
-        self.conn.execute(self.sql.insert_spec_file, [kw,])
+        self.conn.execute(
+            self.sql.insert_spec_file,
+            [
+                kw,
+            ],
+        )
         self.logger.info(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
 
     def _insert_package(self, srpm_hash, is_srpm):

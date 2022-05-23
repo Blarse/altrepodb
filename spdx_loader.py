@@ -22,8 +22,14 @@ from dataclasses import dataclass
 from collections import namedtuple
 
 from altrepodb.utils import run_command, RunCommandError
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
+from altrepodb import (
+    get_config_logger,
+    LoggerLevel,
+    LoggerProtocol,
+    DatabaseClient,
+    DatabaseConfig,
+    DatabaseError,
+)
 
 NAME = "spdx"
 SPDX_URL = "https://github.com/spdx/license-list-data"
@@ -205,7 +211,7 @@ class SPDX:
                         spdx_text=license.text,
                         spdx_header=license.header,
                         spdx_urls=license.urls,
-                        spdx_type="license"
+                        spdx_type="license",
                     )
                 )
 
@@ -218,7 +224,7 @@ class SPDX:
                         spdx_text=exception.text,
                         spdx_header=exception.header,
                         spdx_urls=exception.urls,
-                        spdx_type="exception"
+                        spdx_type="exception",
                     )
                 )
 

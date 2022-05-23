@@ -26,8 +26,14 @@ from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from requests.exceptions import RequestException
 
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
+from altrepodb import (
+    get_config_logger,
+    LoggerLevel,
+    LoggerProtocol,
+    DatabaseClient,
+    DatabaseConfig,
+    DatabaseError,
+)
 
 NAME = "repocop"
 URL_REPOCOP = "http://repocop.altlinux.org/pub/repocop/prometheus3/packages.altlinux-sisyphus.json.bz2"

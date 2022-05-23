@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from datetime import datetime
@@ -23,8 +23,13 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from altrepodb.utils import cvt_datetime_local_to_utc
-from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig
+from altrepodb import (
+    get_config_logger,
+    LoggerLevel,
+    LoggerProtocol,
+    DatabaseClient,
+    DatabaseConfig,
+)
 
 
 NAME = "task_cleaner"
@@ -221,9 +226,9 @@ def main():
                 port=args.port,
                 name=args.dbname,
                 user=args.user,
-                password=args.password
+                password=args.password,
             ),
-            logger=logger
+            logger=logger,
         )
         if not Path(args.path).is_dir():
             raise ValueError(f"{args.path} not a directory")
