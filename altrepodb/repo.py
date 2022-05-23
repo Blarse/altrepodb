@@ -19,12 +19,11 @@ import base64
 import datetime
 import itertools
 import threading
-import multiprocessing
+import multiprocessing as mp
 from uuid import uuid4
 from pathlib import Path
 from collections import namedtuple
 from dataclasses import asdict
-from multiprocessing import Process, Queue
 from typing import Any, Iterable, Optional, Union
 
 import altrepodb.mapper as mapper
@@ -33,11 +32,10 @@ from .utils import (
     cvt,
     unxz,
     md5_from_file,
-    sha256_from_file,
     blake2b_from_file,
     calculate_sha256_blake2b,
     check_package_in_cache,
-    join_dicts_with_as_string,
+    update_dictionary_with,
     Display,
 )
 from .base import (
@@ -130,13 +128,13 @@ class PackageHandler:
         return pkghash
 
     def _extract_spec_file(self, fname):
-        """Extracts spec file from SRPM using subprocess to force memory releasing."""
+        """Extracts spec file from SRPM using subprocess to force memory release."""
 
-        def _extract_spec_sp(fname: str, q: Queue):
+        def _extract_spec_sp(fname: str, q: mp.Queue):
             q.put(extractSpecFromRPM(fname, raw=True))
 
-        q= Queue()
-        p = Process(target=_extract_spec_sp, args=(fname, q))
+        q = mp.Queue()
+        p = mp.Process(target=_extract_spec_sp, args=(fname, q))
         p.start()
         spec_file, spec_contents = q.get()
         p.join
@@ -152,20 +150,19 @@ class PackageHandler:
         )
         self.logger.debug(f"Got {spec_file.name} spec file {spec_file.size} bytes long")
         st = time.time()
-        kw = {
-            "pkg_hash": pkg_map["pkg_hash"],
-            "pkg_name": pkg_map["pkg_name"],
-            "pkg_epoch": pkg_map["pkg_epoch"],
-            "pkg_version": pkg_map["pkg_version"],
-            "pkg_release": pkg_map["pkg_release"],
-            "specfile_name": spec_file.name,
-            "specfile_date": spec_file.mtime,
-            "specfile_content_base64": base64.b64encode(spec_contents),
-        }
         self.conn.execute(
             "INSERT INTO Specfiles_insert (*) VALUES",
             [
-                kw,
+                {
+                    "pkg_hash": pkg_map["pkg_hash"],
+                    "pkg_name": pkg_map["pkg_name"],
+                    "pkg_epoch": pkg_map["pkg_epoch"],
+                    "pkg_version": pkg_map["pkg_version"],
+                    "pkg_release": pkg_map["pkg_release"],
+                    "specfile_name": spec_file.name,
+                    "specfile_date": spec_file.mtime,
+                    "specfile_content_base64": base64.b64encode(spec_contents),
+                },
             ],
         )
         self.logger.debug(f"spec file loaded to DB in {(time.time() - st):.3f} seconds")
@@ -271,20 +268,23 @@ class PackageSetHandler:
             date = datetime.datetime.now().replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-        sql = "INSERT INTO PackageSetName (*) VALUES"
-        data = {
-            "pkgset_uuid": uuid,
-            "pkgset_puuid": puuid,
-            "pkgset_ruuid": ruuid,
-            "pkgset_depth": depth,
-            "pkgset_nodename": name,
-            "pkgset_date": date,
-            "pkgset_tag": tag,
-            "pkgset_complete": complete,
-            "pkgset_kv.k": [k for k, v in kw_args.items() if v is not None],
-            "pkgset_kv.v": [v for k, v in kw_args.items() if v is not None],
-        }
-        self.conn.execute(sql, [data])
+        self.conn.execute(
+            "INSERT INTO PackageSetName (*) VALUES",
+            [
+                {
+                    "pkgset_uuid": uuid,
+                    "pkgset_puuid": puuid,
+                    "pkgset_ruuid": ruuid,
+                    "pkgset_depth": depth,
+                    "pkgset_nodename": name,
+                    "pkgset_date": date,
+                    "pkgset_tag": tag,
+                    "pkgset_complete": complete,
+                    "pkgset_kv.k": [k for k, v in kw_args.items() if v is not None],
+                    "pkgset_kv.v": [v for k, v in kw_args.items() if v is not None],
+                },
+            ],
+        )
         self.logger.debug("insert package set name uuid: {0}".format(uuid))
 
     def insert_pkgset(self, uuid: str, pkghash: Union[list[int], set[int]]) -> None:
@@ -502,7 +502,7 @@ class RepoLoadHelper:
 
     def init_hash_temp_table(self, hashes: dict[str, PkgHash]) -> None:
         payload = []
-        result = self.conn.execute(
+        self.conn.execute(
 """
 CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
 (
@@ -519,7 +519,7 @@ CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
             payload.append(
                 {"name": k, "md5": hashes[k].md5, "sha256": hashes[k].sha256}
             )
-        result = self.conn.execute("INSERT INTO _tmpPkgHash (*) VALUES", payload)
+        self.conn.execute("INSERT INTO _tmpPkgHash (*) VALUES", payload)
         self.logger.debug(f"Inserted {len(payload)} hashes into _tmpPkgHash")
         # Free memory immediatelly
         del payload
@@ -594,7 +594,7 @@ class RepoParser:
         self.name = repo_name
         self.path = Path(repo_path)
         self.logger = logger
-        self.pkglists: list[str]
+        self.pkglists: list[str] = []
         self.repo = self._init_repo_structure()
 
     def _init_repo_structure(self):
@@ -648,7 +648,6 @@ class RepoParser:
                         break
             return comps
 
-        self.pkglists = []
         for arch_dir in [_ for _ in self.path.iterdir() if (_.is_dir() and _.name in lut.ARCHS)]:
             self.repo.archs.append(
                 RepoLeaf(
@@ -703,7 +702,7 @@ class RepoParser:
         """Get package's hashes from header lists with multiprocessing."""
 
         self.logger.info(f"Reading package's hashes from headers lists")
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as p:
+        with mp.Pool(processes=mp.cpu_count()) as p:
             for pkglist in p.map(get_hashes_from_pkglist, self.pkglists):
                 self.logger.info(f"Got {len(pkglist.hashes)} package hashes from {pkglist.fname}")
                 if pkglist.is_src:
@@ -780,6 +779,7 @@ class RepoParser:
                         self.repo.bin_hashes[pkg_name] = PkgHash()
                     self.repo.bin_hashes[pkg_name].sha256 = pkg_sha256
         # find packages with SHA256 or blake2b hash missing and calculate it from file
+        pkg_file = Path()
         # for source files
         for k, v in self.repo.src_hashes.items():
             if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
@@ -800,7 +800,6 @@ class RepoParser:
                 self.repo.src_hashes[k].blake2b
             ) = calculate_sha256_blake2b(pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b)
         # for binary files
-        pkg_file = Path()  # initialized just for type checking
         for k, v in self.repo.bin_hashes.items():
             if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
                 self.logger.info(f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file")
@@ -923,9 +922,9 @@ class RepoLoadHandler:
         self.psh.insert_pkgset(self.repo.src.uuid, pkgset)
         # store PackageSetName record for 'src'
         tmp_d = {"depth": "1", "type": "srpm", "size": str(len(pkgset))}
-        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
-        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.src.path, "SRPMS")
-        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+        tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs["class"], "class")
+        tmp_d = update_dictionary_with(tmp_d, self.repo.src.path, "SRPMS")
+        tmp_d = update_dictionary_with(tmp_d, self.repo.root.name, "repo")
         self.psh.insert_pkgset_name(
             name=self.repo.src.name,
             uuid=self.repo.src.uuid,
@@ -941,9 +940,9 @@ class RepoLoadHandler:
     def _load_architectures(self):
         for arch in self.repo.archs:
             tmp_d = {"depth": "1", "type": "arch", "size": "0"}
-            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
-            tmp_d = join_dicts_with_as_string(tmp_d, arch.path, "path")
-            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+            tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = update_dictionary_with(tmp_d, arch.path, "path")
+            tmp_d = update_dictionary_with(tmp_d, self.repo.root.name, "repo")
             self.psh.insert_pkgset_name(
                 name=arch.name,
                 uuid=arch.uuid,
@@ -1004,9 +1003,9 @@ class RepoLoadHandler:
             self.psh.insert_pkgset(comp.uuid, pkgset)
             # store PackageSetName record
             tmp_d = {"depth": "2", "type": "comp", "size": str(len(pkgset))}
-            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs["class"], "class")
-            tmp_d = join_dicts_with_as_string(tmp_d, comp.path, "path")
-            tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.name, "repo")
+            tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = update_dictionary_with(tmp_d, comp.path, "path")
+            tmp_d = update_dictionary_with(tmp_d, self.repo.root.name, "repo")
             self.psh.insert_pkgset_name(
                 name=comp.name,
                 uuid=comp.uuid,
@@ -1025,9 +1024,9 @@ class RepoLoadHandler:
             "type": "repo",
             "size": str(len(self.repo.src_hashes) + len(self.repo.bin_hashes)),
         }
-        tmp_d = join_dicts_with_as_string(tmp_d, self.repo.root.kwargs, None)
-        tmp_d = join_dicts_with_as_string(tmp_d, list(self.repo.all_archs), "archs")
-        tmp_d = join_dicts_with_as_string(tmp_d, list(self.repo.all_comps), "comps")
+        tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs, None)
+        tmp_d = update_dictionary_with(tmp_d, list(self.repo.all_archs), "archs")
+        tmp_d = update_dictionary_with(tmp_d, list(self.repo.all_comps), "comps")
         self.psh.insert_pkgset_name(
             name=self.repo.root.name,
             uuid=self.repo.root.uuid,
