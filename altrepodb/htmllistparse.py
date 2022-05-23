@@ -233,7 +233,7 @@ def parse(soup):
                 if colspan:
                     continue
                 if not heads:
-                    heads = ('name', 'modified', 'size', 'description')
+                    heads = ['name', 'modified', 'size', 'description']
                 elif not namefound:
                     heads[0] = 'name'
                 started = True
