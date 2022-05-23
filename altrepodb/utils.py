@@ -418,10 +418,10 @@ def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
     return md5_h.hexdigest(), sha256_h.hexdigest(), gost12_hexdigest
 
 
-def join_dicts_with_as_string(
-    d1: dict, d2: Union[dict, list, tuple, str], key: Hashable
-) -> dict:
-    """Join dictionary with dictionary, list, tuple or any object
+def update_dictionary_with(
+    d1: dict[Any, Any], d2: Union[dict[Any, Any], list[Any], tuple[Any], str], key: Hashable
+) -> dict[Any, Any]:
+    """Updates dictionary with dictionary, list, tuple or any object
     that can be represented as string.
     Stringify all elements of joined object if it is not dictionary.
     Do not preserve value in original dictionary if given 'key' exists.
