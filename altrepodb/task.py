@@ -22,7 +22,7 @@ from pathlib import Path
 from copy import deepcopy
 from collections import defaultdict, namedtuple
 from dataclasses import asdict
-from typing import Iterable, Any, Iterator, Union, Generator
+from typing import Any, Iterator, Iterable, Union
 
 from altrpm import rpm, readHeaderListFromXZFile
 from .repo import PackageHandler
@@ -71,6 +71,7 @@ from .exceptions import (
 NAME = "task"
 
 # Named tuples
+LogLine = namedtuple("LogLine", ["line", "ts", "message"])
 TaskPlanDiffPkgInfo = namedtuple(
     "TaskPlanDiffPkgInfo", ["name", "evr", "file", "srpm", "arch"]
 )
@@ -354,7 +355,7 @@ class TaskFilesParser:
         log_file: _StringOrPath,
         log_type: str,
         log_start_time: datetime.datetime,
-    ) -> Generator:
+    ) -> Iterator[LogLine]:
         """Task logs parser generator
 
         Args:
@@ -374,8 +375,6 @@ class TaskFilesParser:
         # matches with '[00:03:15] '
         build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
 
-        LogLine = namedtuple("LogLine", ["line", "ts", "message"])
-
         if not Path(log_file).is_file():
             self.logger.error(f"File '{log_file}' not found")
             return tuple()
@@ -391,7 +390,7 @@ class TaskFilesParser:
         line_cnt = 0
 
         # srpm build log parser
-        def srpm_log(line: str) -> tuple:
+        def srpm_log(line: str) -> LogLine:
             nonlocal line_cnt
             nonlocal first_line
 
@@ -427,7 +426,7 @@ class TaskFilesParser:
         srpm_log.last_dt = None
 
         # build log parser
-        def build_log(line: str) -> tuple:
+        def build_log(line: str) -> LogLine:
             nonlocal line_cnt
             nonlocal first_line
 
@@ -445,7 +444,7 @@ class TaskFilesParser:
             return LogLine(line=line_cnt, ts=ts, message=msg)
 
         # events log parser
-        def events_log(line: str) -> tuple:
+        def events_log(line: str) -> Union[LogLine, None]:
             nonlocal line_cnt
             nonlocal first_line
 
@@ -459,7 +458,7 @@ class TaskFilesParser:
                         f"File '{log_file}' first line doesn't contain"
                         f" valid datetime. Log file parsing aborted."
                     )
-                    return tuple()
+                    return None
                 dt = dt[0]
                 events_log.last_dt = dt
                 first_line = False
@@ -494,7 +493,7 @@ class TaskFilesParser:
                 if len(line) > 0:  # skip an empty lines
                     p = parser(line)
                     if not p:
-                        return p
+                        raise StopIteration
                     else:
                         yield p
 
@@ -1858,31 +1857,36 @@ class TaskProcessor:
         # create DB client and check connection
         self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
 
+    def _dump_task_to_json(self):
+        p = Path.joinpath(Path.cwd(), "JSON")
+        p.mkdir(exist_ok=True)
+        dump_to_json(
+            # FIXME: Task object dictionary contains a long integers that out of JSON standard numbers range
+            task_as_dict(self.task),
+            Path.joinpath(
+                p,
+                (
+                    f"dump-{str(self.task.state.task_id)}-"
+                    f"{datetime.date.today().strftime('%Y-%m-%d')}.json"
+                ),
+            ),
+        )
+
     def run(self) -> None:
         ts = time.time()
         self.logger.info(f"reading task structure for {self.config.path}")
         self.task = self.task_parser.read_task_structure()
         self.logger.info(f"task structure loaded in {(time.time() - ts):.3f} seconds")
         if self.config.dumpjson:
-            p = Path.joinpath(Path.cwd(), "JSON")
-            p.mkdir(exist_ok=True)
-            dump_to_json(
-                # FIXME: Task object dictionary contains a long integers that out of JSON standard numbers range
-                task_as_dict(self.task),
-                Path.joinpath(
-                    p,
-                    (
-                        f"dump-{str(self.task.state.task_id)}-"
-                        f"{datetime.date.today().strftime('%Y-%m-%d')}.json"
-                    ),
-                ),
-            )
+            self._dump_task_to_json()
+
         task_loader = TaskLoadHandler(
             self.conn, self.task_parser.tf, self.logger, self.task, self.config
         )
         self.logger.info(
             f"loading task {self.config.id} to database {self.config.dbconfig.name}"
         )
+
         try:
             task_loader.save()
             if self.config.flush:
