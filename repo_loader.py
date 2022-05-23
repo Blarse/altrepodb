@@ -20,7 +20,8 @@ import configparser
 
 from altrepodb.logger import get_config_logger
 from altrepodb.utils import valid_date
-from altrepodb.repo import RepoProcessor, RepoProcessorConfig, DatabaseConfig
+from altrepodb.base import DatabaseConfig
+from altrepodb.repo import RepoProcessor, RepoProcessorConfig
 
 NAME = "repo"
 

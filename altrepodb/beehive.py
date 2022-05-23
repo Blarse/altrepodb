@@ -20,10 +20,10 @@ from requests import HTTPError
 from typing import Optional, NamedTuple, Any
 from enum import Enum
 
-from altrepodb.utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime, dump_to_json
-from altrepodb.htmllistparse import fetch_listing
-from altrepodb.database import DatabaseConfig, DatabaseClient
-from altrepodb.base import LoggerProtocol
+from .utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime, dump_to_json
+from .htmllistparse import fetch_listing
+from .database import DatabaseConfig, DatabaseClient
+from .logger import LoggerProtocol
 
 
 class EPType(Enum):

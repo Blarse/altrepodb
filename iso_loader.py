@@ -20,11 +20,11 @@ import argparse
 import configparser
 from pathlib import Path
 
-from altrepodb.base import ImageProcessorConfig, LoggerProtocol, ImageMeta
+from altrepodb.base import ImageProcessorConfig, ImageMeta
 from altrepodb.iso import ISOProcessor
 from altrepodb.database import DatabaseConfig
 from altrepodb.utils import valid_url, valid_date, valid_version
-from altrepodb.logger import get_config_logger
+from altrepodb.logger import get_config_logger, LoggerProtocol
 
 NAME = "iso"
 ARCHS = ("i586", "x86_64", "aarch64", "ppc64le")

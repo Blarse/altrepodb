@@ -21,7 +21,6 @@ import datetime
 import configparser
 import urllib.error
 import urllib.request
-import clickhouse_driver as chd
 from bs4 import BeautifulSoup
 from collections import namedtuple
 from dataclasses import dataclass

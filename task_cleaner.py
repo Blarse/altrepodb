@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.logger import LoggerProtocol, LoggerLevel, get_config_logger
-from altrepodb.database import DatabaseClient, DatabaseConfig, DatabaseError
+from altrepodb.database import DatabaseClient, DatabaseConfig
 
 
 NAME = "task_cleaner"

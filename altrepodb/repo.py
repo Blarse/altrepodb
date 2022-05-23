@@ -49,12 +49,11 @@ from .base import (
     SrcRepoLeaf,
     RootRepoLeaf,
     LockedIterator,
-    DatabaseConfig,
-    LoggerProtocol,
     RepoProcessorConfig,
 )
 from .exceptions import PackageLoadError, RepoParsingError, RepoProcessingError
 from .database import DatabaseClient
+from .logger import LoggerProtocol
 from .misc import lut
 
 NAME = "repo"
