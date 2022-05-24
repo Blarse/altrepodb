@@ -18,8 +18,9 @@ import sys
 import argparse
 import configparser
 
-from altrepodb.task import TaskProcessor
-from altrepodb import get_config_logger, DatabaseConfig, TaskProcessorConfig
+from altrepodb.task.processor import TaskProcessor
+from altrepodb.task.base import TaskProcessorConfig
+from altrepodb import get_config_logger, DatabaseConfig
 
 
 NAME = "task"
