@@ -49,7 +49,7 @@ CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
     name    String,
     md5     FixedString(16),
     sha256  FixedString(32)
-)"""
+)"""  # noqa: E122
         )
         for k in hashes:
             # workaround to a possible bug in the repository structure
@@ -67,14 +67,14 @@ CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
     def update_hases_from_db(self, repo_cache: dict[str, PkgHash]) -> None:
         result = self.conn.execute(
 """
-SELECT t1.name, t1.md5, t2.mmh, t2.sha1 
-FROM _tmpPkgHash AS t1 
+SELECT t1.name, t1.md5, t2.mmh, t2.sha1
+FROM _tmpPkgHash AS t1
 LEFT JOIN
 (
     SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1
     FROM PackageHash_buffer
 ) AS t2
-ON t1.md5 = t2.md5""",
+ON t1.md5 = t2.md5""",   # noqa: E122
             settings={"strings_as_bytes": True},
         )
         cnt1 = cnt2 = 0

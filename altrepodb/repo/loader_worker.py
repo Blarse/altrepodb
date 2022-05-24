@@ -99,14 +99,18 @@ class Worker(threading.Thread):
                             self.logger.debug(
                                 f"calculate BLAKE2b for {pkg_filename} file"
                             )
-                            self.src_hashes[pkg_filename].blake2b = blake2b_from_file(package)
+                            self.src_hashes[pkg_filename].blake2b = blake2b_from_file(
+                                package
+                            )
                     else:
                         #  store pkg mmh and sha1
                         self.bin_hashes[pkg_filename].sf = map_package["pkg_hash"]
                         self.bin_hashes[pkg_filename].sha1 = map_package["pkg_cs"]
                         # set source rpm name and hash
                         if map_package["pkg_sourcerpm"] in self.src_hashes:
-                            kw["pkg_srcrpm_hash"] = self.src_hashes[map_package["pkg_sourcerpm"]].sf
+                            kw["pkg_srcrpm_hash"] = self.src_hashes[
+                                map_package["pkg_sourcerpm"]
+                            ].sf
                         else:
                             kw["pkg_srcrpm_hash"] = None
                         # check if BLAKE2b hash found and if not, calculate it from file
@@ -114,7 +118,9 @@ class Worker(threading.Thread):
                             self.logger.debug(
                                 f"calculate BLAKE2b for {pkg_filename} file"
                             )
-                            self.bin_hashes[pkg_filename].blake2b = blake2b_from_file(package)
+                            self.bin_hashes[pkg_filename].blake2b = blake2b_from_file(
+                                package
+                            )
 
                 # check if 'pkg_srcrpm_hash' is None - it's Ok for 'x86_64-i586'
                 if (
@@ -171,7 +177,7 @@ def package_load_worker_pool(
     packages_list: Iterable,
     config: RepoProcessorConfig,
     logger: Optional[logging.Logger] = None,
-    display: Union[Display, None] = None
+    display: Union[Display, None] = None,
 ):
     lock = threading.Lock()
     workers: list[Worker] = []

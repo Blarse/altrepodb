@@ -180,7 +180,9 @@ class PackageHandler:
         del hashes["sf"]
         return hashes
 
-    def insert_pkg_hashes(self, pkg_hashes: dict[Any, dict[str, Union[int, bytes]]]) -> None:
+    def insert_pkg_hashes(
+        self, pkg_hashes: dict[Any, dict[str, Union[int, bytes]]]
+    ) -> None:
         """Inserts multiple packages hashes to DB
 
         Args:
