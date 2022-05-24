@@ -28,6 +28,7 @@ DEFAULT_LOGGER = FakeLogger(name="")
 # Types
 _StringOrPath = Union[str, Path]
 
+
 #  Classes
 class RaisingTread(threading.Thread):
     """Base threading class that raises exception stored in self.exc at join()"""
@@ -141,20 +142,6 @@ class TaskProcessorConfig:
     force: bool = False
     workers: int = 4
     dumpjson: bool = False
-
-
-@dataclass
-class RepoProcessorConfig:
-    name: str
-    path: _StringOrPath
-    date: datetime
-    dbconfig: DatabaseConfig
-    logger: _LoggerOptional
-    tag: str = ""
-    debug: bool = False
-    force: bool = False
-    verbose: bool = False
-    workers: int = 8
 
 
 @dataclass
@@ -274,44 +261,6 @@ class Task:
     arepo: list[str]
     plan: TaskPlan
     pkg_hashes: DefaultDict[str, PkgHash]
-
-
-@dataclass
-class RepoLeaf:
-    name: str
-    path: str
-    uuid: str
-    puuid: str
-
-
-@dataclass
-class RootRepoLeaf(RepoLeaf):
-    kwargs: dict[str, str]
-
-
-@dataclass
-class SrcRepoLeaf(RepoLeaf):
-    path: list[str]
-
-
-@dataclass
-class Repository:
-    root: RootRepoLeaf
-    src: SrcRepoLeaf
-    archs: list[RepoLeaf]
-    comps: list[RepoLeaf]
-    src_hashes: dict[str, PkgHash]
-    bin_hashes: dict[str, PkgHash]
-    bin_pkgs: dict[tuple[str, str], tuple[str, ...]]
-    use_blake2b: bool
-
-    @property
-    def all_archs(self):
-        return {arch.name for arch in self.archs}
-
-    @property
-    def all_comps(self):
-        return {comp.name for comp in self.comps}
 
 
 @dataclass
