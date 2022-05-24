@@ -15,12 +15,11 @@
 
 import re
 import mmh3
+import logging
 from time import time
 from datetime import datetime
 from threading import Lock
-from typing import Any, Hashable, Union
-
-from altrepodb.logger import LoggerProtocol
+from typing import Any, Hashable, Optional, Union
 
 
 class Display:
@@ -29,10 +28,9 @@ class Display:
     """Show information about progress."""
 
     def __init__(
-        self, logger: LoggerProtocol, timer_init_delta: float = 0, step: int = 1000
+        self, logger: Optional[logging.Logger] = None, timer_init_delta: float = 0, step: int = 1000
     ):
         self.lock = Lock()
-        self.logger = logger
         self.counter = 0
         self.timer = None
         self.step = step
@@ -40,6 +38,10 @@ class Display:
         self.timer_short = None
         self.timesum_short = 0
         self.timer_init_delta = timer_init_delta
+        if logger is None:
+            self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
+        else:
+            self.logger = logger
 
     def _showmsg(self):
         t = time() - self.timer  # type: ignore

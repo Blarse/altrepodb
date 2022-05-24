@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import multiprocessing as mp
 from uuid import uuid4
 from typing import Union
@@ -22,7 +23,6 @@ from collections import namedtuple
 from altrpm import rpm as rpmt, readHeaderListFromXZFile
 from altrepodb.misc import lut
 from altrepodb.utils import cvt, md5_from_file, calculate_sha256_blake2b
-from altrepodb.logger import LoggerProtocol
 
 from .base import PkgHash, Repository, RepoLeaf, SrcRepoLeaf, RootRepoLeaf
 from .exceptions import RepoParsingError
@@ -52,10 +52,10 @@ def get_hashes_from_pkglist(fname: str) -> PkglistResult:
 class RepoParser:
     """Read and parse repository structure."""
 
-    def __init__(self, repo_name: str, repo_path: _StringOrPath, logger: LoggerProtocol) -> None:
+    def __init__(self, repo_name: str, repo_path: _StringOrPath) -> None:
         self.name = repo_name
         self.path = Path(repo_path)
-        self.logger = logger
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.pkglists: list[str] = []
         self.repo = self._init_repo_structure()
 

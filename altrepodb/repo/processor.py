@@ -14,12 +14,11 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import time
+import logging
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 
-from altrepodb.base import DEFAULT_LOGGER, RepoProcessorConfig
-from altrepodb.logger import LoggerProtocol
 from altrepodb.database import DatabaseConfig
 
 from .base import StringOrPath
@@ -34,7 +33,7 @@ class RepoProcessorConfig:
     path: StringOrPath
     date: datetime
     dbconfig: DatabaseConfig
-    logger: Optional[LoggerProtocol]
+    logger: Optional[logging.Logger]
     tag: str = ""
     debug: bool = False
     force: bool = False
@@ -51,7 +50,7 @@ class RepoProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER
+            self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
@@ -62,15 +61,8 @@ class RepoProcessor:
         ts = time.time()
         self.logger.info("Start loading repository")
         try:
-            rp = RepoParser(
-                repo_name=self.config.name,
-                repo_path=self.config.path,
-                logger=self.logger
-            )
-            rlh = RepoLoadHandler(
-                config=self.config,
-                logger=self.logger
-            )
+            rp = RepoParser(repo_name=self.config.name, repo_path=self.config.path)
+            rlh = RepoLoadHandler(config=self.config)
             rlh.check_repo_in_db()
             self.logger.info(f"Start loading repository structure")
             rp.parse_repository()

@@ -16,14 +16,13 @@
 import rpm
 import time
 import base64
+import logging
 import itertools
 import multiprocessing as mp
 from dataclasses import asdict
 from typing import Any, Union
 
 from altrpm import extractSpecFromRPM
-
-from altrepodb.logger import LoggerProtocol
 from altrepodb.database import DatabaseClient
 
 from .base import PkgHash
@@ -43,9 +42,9 @@ from .mapper import (
 class PackageHandler:
     """Handle package header parsing and insertion to DB."""
 
-    def __init__(self, conn: DatabaseClient, logger: LoggerProtocol):
+    def __init__(self, conn: DatabaseClient):
         self.conn = conn
-        self.logger = logger
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     @staticmethod
     def get_header(rpmfile: str) -> rpm_header:

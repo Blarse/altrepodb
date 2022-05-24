@@ -13,19 +13,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import datetime
 from typing import Optional, Union
 
-from altrepodb.logger import LoggerProtocol
 from altrepodb.database import DatabaseClient
 
 
 class PackageSetHandler:
     """Handle package set records insertion to DB."""
 
-    def __init__(self, conn: DatabaseClient, logger: LoggerProtocol):
+    def __init__(self, conn: DatabaseClient):
         self.conn = conn
-        self.logger = logger
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     def insert_pkgset_name(
         self,

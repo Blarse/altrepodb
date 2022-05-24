@@ -14,13 +14,13 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import time
+import logging
 from pathlib import Path
 
 from altrepodb.database import DatabaseClient
-from altrepodb.logger import LoggerProtocol
-from altrepodb.utils import Display, update_dictionary_with
 
 from .base import Repository
+from .utils import Display, update_dictionary_with
 from .processor import RepoProcessorConfig
 from .exceptions import RepoProcessingError
 from .packageset import PackageSetHandler
@@ -31,18 +31,18 @@ from .loader_worker import package_load_worker_pool
 class RepoLoadHandler:
     """Handles repository structure loading to DB."""
 
-    def __init__(self, config: RepoProcessorConfig, logger: LoggerProtocol) -> None:
+    def __init__(self, config: RepoProcessorConfig) -> None:
         self.config = config
-        self.logger = logger
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.cache = set()
         self.repo : Repository
-        self.conn = DatabaseClient(config=self.config.dbconfig, logger=self.logger)
-        self.rlh = RepoLoadHelper(conn=self.conn, logger=self.logger)
-        self.psh = PackageSetHandler(conn=self.conn, logger=self.logger)
+        self.conn = DatabaseClient(config=self.config.dbconfig)
+        self.rlh = RepoLoadHelper(conn=self.conn)
+        self.psh = PackageSetHandler(conn=self.conn)
 
         self.display = None
         if self.config.verbose:
-            self.display = Display(log=self.logger)
+            self.display = Display(logger=self.logger)
 
 
     def check_repo_in_db(self):
@@ -104,8 +104,8 @@ class RepoLoadHandler:
             pkg_cache=self.cache,
             packages_list=packages_list,
             config=self.config,
-            logger=self.logger,
             display=self.display,
+            logger=self.logger
         )
         # build pkgset for PackageSet record
         pkgset.update(pkgset_cached)
@@ -185,8 +185,8 @@ class RepoLoadHandler:
                 pkg_cache=self.cache,
                 packages_list=packages_list,
                 config=self.config,
-                logger=self.logger,
                 display=self.display,
+                logger=self.logger
             )
             # build pkgset for PackageSet record
             pkgset.update(pkgset_cached)

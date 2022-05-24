@@ -13,16 +13,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import threading
-from typing import Iterable, Union
+from typing import Iterable, Optional, Union
 from pathlib import Path
 
 from altrepodb.base import LockedIterator
-from altrepodb.utils import Display, blake2b_from_file, check_package_in_cache
-from altrepodb.logger import LoggerProtocol
+from altrepodb.utils import blake2b_from_file, check_package_in_cache
 from altrepodb.database import DatabaseClient
 
 from .base import Repository
+from .utils import Display
 from .mapper import get_partial_pkg_map
 from .package import PackageHandler, PkgHash
 from .processor import RepoProcessorConfig
@@ -37,7 +38,7 @@ class Worker(threading.Thread):
     def __init__(
         self,
         connection: DatabaseClient,
-        logger: LoggerProtocol,
+        logger: logging.Logger,
         lock: threading.Lock,
         pkg_cache: set,
         src_hashes: dict[str, PkgHash],
@@ -61,7 +62,7 @@ class Worker(threading.Thread):
         self.exc = None
         self.exc_args = None
         self.lock = lock
-        self.ph = PackageHandler(connection, logger)
+        self.ph = PackageHandler(connection)
         super().__init__(*args, **kwargs)
 
     def run(self):
@@ -163,18 +164,21 @@ class Worker(threading.Thread):
 
 
 def package_load_worker_pool(
-    logger: LoggerProtocol,
     repo: Repository,
     is_src: bool,
     pkgset: set,
     pkg_cache: set,
     packages_list: Iterable,
-    display: Union[Display, None],
     config: RepoProcessorConfig,
+    logger: Optional[logging.Logger] = None,
+    display: Union[Display, None] = None
 ):
     lock = threading.Lock()
     workers: list[Worker] = []
     connections: list[DatabaseClient] = []
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
 
     packages = LockedIterator((pkg for pkg in packages_list))
 
