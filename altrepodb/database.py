@@ -13,11 +13,11 @@
 # You should have received a copy of the GNU General Public License 
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from typing import Any
+import logging
+from typing import Any, Optional
 from clickhouse_driver import Client, errors
 
-from .base import DatabaseConfig, DEFAULT_LOGGER
-from .logger import _LoggerOptional
+from .base import DatabaseConfig
 
 class DatabaseError(Exception):
     pass
@@ -43,13 +43,13 @@ class DatabaseExceptionRaisedError(DatabaseError):
 class DatabaseClient:
     """Clickhouse database client protocol."""
 
-    def __init__(self, config: DatabaseConfig, logger: _LoggerOptional) -> None:
+    def __init__(self, config: DatabaseConfig, logger: Optional[logging.Logger] = None) -> None:
         self.config = config
         self.connected = False
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER
+            self.logger = logging.getLogger(__name__)
         self.conn = self._get_connection()
 
     @property
