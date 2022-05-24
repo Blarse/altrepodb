@@ -22,9 +22,10 @@ from collections import namedtuple
 
 from altrpm import rpm as rpmt, readHeaderListFromXZFile
 from altrepodb.misc import lut
-from altrepodb.utils import cvt, md5_from_file, calculate_sha256_blake2b
+from altrepodb.utils import unxz, md5_from_file, calculate_sha256_blake2b
 
 from .base import PkgHash, Repository, RepoLeaf, SrcRepoLeaf, RootRepoLeaf
+from .utils import convert
 from .exceptions import RepoParsingError
 
 _StringOrPath = Union[str, Path]
@@ -42,9 +43,9 @@ def get_hashes_from_pkglist(fname: str) -> PkglistResult:
         src_list = False
     hsh = {}
     for hdr in hdrs:
-        pkg_name = cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYFILENAME])
-        pkg_md5 = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYMD5]))
-        pkg_blake2b = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_APTINDEXLEGACYBLAKE2B]))
+        pkg_name = convert(hdr[rpmt.RPMTAG_APTINDEXLEGACYFILENAME])
+        pkg_md5 = bytes.fromhex(convert(hdr[rpmt.RPMTAG_APTINDEXLEGACYMD5]))
+        pkg_blake2b = bytes.fromhex(convert(hdr[rpmt.RPMTAG_APTINDEXLEGACYBLAKE2B]))
         hsh[pkg_name] = (pkg_md5, pkg_blake2b)
     return PkglistResult(src_list, fname, hsh)
 
@@ -146,6 +147,7 @@ class RepoParser:
                     f = base_subdir.joinpath(pkglist_name + ".xz")
                     if f.is_file():
                         self.pkglists.append(str(f))
+
                 # check if blake2b hashes used by release file contents
                 def check_release_for_blake2b(file: Path) -> bool:
                     """Search BLAKE2b hashes mentioned in release file from reposiory tree."""
@@ -163,7 +165,7 @@ class RepoParser:
     def _get_hashes_from_package_lists(self):
         """Get package's hashes from header lists with multiprocessing."""
 
-        self.logger.info(f"Reading package's hashes from headers lists")
+        self.logger.info("Reading package's hashes from headers lists")
         with mp.Pool(processes=mp.cpu_count()) as p:
             for pkglist in p.map(get_hashes_from_pkglist, self.pkglists):
                 self.logger.info(f"Got {len(pkglist.hashes)} package hashes from {pkglist.fname}")
