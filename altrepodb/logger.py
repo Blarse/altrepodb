@@ -172,7 +172,7 @@ def get_logger(
     log_to_syslog: bool = False,
     logging_level: int = DEFAULT_LOG_LEVEL,
     syslog_ident: str = PROJECT_NAME
-) -> LoggerProtocol:
+) -> logging.Logger:
     """Get logger instance with specific name as child of root logger.
     Creates root logger if it doesn't exists."""
 
@@ -271,7 +271,7 @@ def get_config_logger(
     tag: Optional[str] = None,
     date: Optional[datetime.date] = None,
     config: Optional[str] = None
-) -> LoggerProtocol:
+) -> logging.Logger:
     """Get logger instance with options parsed from configuration file.
     If `config` is None the default values are used.
 
@@ -282,7 +282,7 @@ def get_config_logger(
         config (Optional[str], optional): path to configuration file. Defaults to None.
 
     Returns:
-        LoggerProtocol: logger instance
+        logging.Logger instance
     """
 
     opts = {}
