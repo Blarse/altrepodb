@@ -25,7 +25,7 @@ from typing import Any, Union
 from altrpm import extractSpecFromRPM
 from altrepodb.database import DatabaseClient
 
-from .base import PkgHash
+from .base import PkgHash, StringOrPath
 from .mapper import (
     ChangelogRecord,
     get_package_map,
@@ -52,7 +52,7 @@ class PackageHandler:
         ts = rpm.TransactionSet()
         return ts.hdrFromFdno(rpmfile)
 
-    def insert_package(self, hdr: rpm_header, pkg_file: str, **kwargs) -> None:
+    def insert_package(self, hdr: rpm_header, pkg_file: StringOrPath, **kwargs) -> None:
         """Insert information about package into database.
 
         Also:
@@ -108,21 +108,22 @@ class PackageHandler:
 
         return pkghash
 
-    def _extract_spec_file(self, fname: str) -> tuple[Any, bytes]:
+    def _extract_spec_file(self, fname: StringOrPath) -> tuple[Any, bytes]:
         """Extracts spec file from SRPM using subprocess to force memory release."""
 
         def _extract_spec_sp(fname: str, q: mp.Queue):
             q.put(extractSpecFromRPM(fname, raw=True))
 
-        q = mp.Queue()
-        p = mp.Process(target=_extract_spec_sp, args=(fname, q))
+        ctx = mp.get_context('spawn')
+        q = ctx.Queue()
+        p = ctx.Process(target=_extract_spec_sp, args=(fname, q))
         p.start()
         spec_file, spec_contents = q.get()
-        p.join
+        p.join()
 
         return spec_file, spec_contents
 
-    def insert_specfile(self, pkg_file: str, pkg_map: dict[str, Any]) -> None:
+    def insert_specfile(self, pkg_file: StringOrPath, pkg_map: dict[str, Any]) -> None:
         self.logger.debug(f"extracting spec file form {pkg_map['pkg_filename']}")
         st = time.time()
         spec_file, spec_contents = self._extract_spec_file(pkg_file)
