@@ -25,7 +25,7 @@ from dataclasses import asdict
 from typing import Any, Iterator, Iterable, Union
 
 from altrpm import rpm, readHeaderListFromXZFile
-from .repo import PackageHandler
+from .repo.package import PackageHandler
 from .logger import LoggerProtocol
 from .utils import (
     cvt,
@@ -246,7 +246,7 @@ class TaskFilesParser:
     ) -> tuple[list[TaskPlanDiffPkgInfo], list[TaskPlanDiffPkgInfo]]:
         """Parse package list diff file. Returns tuple of added and deleted packages lists."""
 
-        diff_pattern = re.compile("^[+-]+[a-zA-Z0-9]+\S+")  # type: ignore
+        diff_pattern = re.compile(r"^[+-]+[a-zA-Z0-9]+\S+")  # type: ignore
         p_added: list[TaskPlanDiffPkgInfo] = []
         p_deleted: list[TaskPlanDiffPkgInfo] = []
         try:
@@ -330,7 +330,7 @@ class TaskFilesParser:
     def parse_hash_diff(hash_file: _StringOrPath) -> tuple[dict, dict]:
         """Parse hash diff file. Returns added and deleted hashes as dictionaries."""
 
-        hash_pattern = re.compile("^[+-]+[0-9a-f]{64}\s+")  # type: ignore
+        hash_pattern = re.compile(r"^[+-]+[0-9a-f]{64}\s+")  # type: ignore
         h_added: dict[str, bytes] = {}
         h_deleted: dict[str, bytes] = {}
         try:
@@ -369,11 +369,11 @@ class TaskFilesParser:
             generator of tuples of line number, timestamp and message
         """
         # matches with '2020-May-15 10:30:00 '
-        events_pattern = re.compile("^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")  # type: ignore
+        events_pattern = re.compile(r"^\d{4}-[A-Z][a-z]{2}-\d{2}\s\d{2}:\d{2}:\d{2}")  # type: ignore
         # matches with '<13>Sep 13 17:53:14 '
-        srpm_pattern = re.compile("^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")  # type: ignore
+        srpm_pattern = re.compile(r"^<\d+>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}")  # type: ignore
         # matches with '[00:03:15] '
-        build_pattern = re.compile("^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
+        build_pattern = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]")  # type: ignore
 
         if not Path(log_file).is_file():
             self.logger.error(f"File '{log_file}' not found")
@@ -538,11 +538,11 @@ class LogLoaderWorker(RaisingTread):
                         (
                             dict(
                                 tlog_hash=log.hash,
-                                tlog_line=l,
-                                tlog_ts=t,
-                                tlog_message=m,
+                                tlog_line=line_,
+                                tlog_ts=time_,
+                                tlog_message=msg_,
                             )
-                            for l, t, m in log_parsed
+                            for line_, time_, msg_ in log_parsed
                         ),
                     )
                     self.logger.debug(
@@ -633,7 +633,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.count_list = count_list
         self.count = 0
         self.lock = lock
-        self.ph = PackageHandler(conn=conn, logger=logger)
+        self.ph = PackageHandler(conn=conn)
         super().__init__(*args, **kwargs)
 
     def _calculate_hash_from_array_by_CH(self, hashes: list) -> int:
@@ -887,7 +887,7 @@ class PackageLoaderWorker(RaisingTread):
         self.packages = packages
         self.count_list = count_list
         self.count = 0
-        self.ph = PackageHandler(conn=conn, logger=logger)
+        self.ph = PackageHandler(conn=conn)
         super().__init__(*args, **kwargs)
 
     def _insert_package(self, pkg, srpm_hash, is_srpm):
@@ -1326,7 +1326,7 @@ class TaskParser:
         # get task ID
         self.task.id = self.tf.get_int("task/id")
         if self.task.id == 0:
-            raise TaskLoaderParserError(f"Failed to get task ID. Aborting")
+            raise TaskLoaderParserError("Failed to get task ID. Aborting")
         self.task.state.task_id = self.task.id
         # get task state
         if self.tf.check_file("task/state"):
