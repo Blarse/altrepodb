@@ -12,10 +12,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
-
+import logging
+import datetime
 from dataclasses import dataclass
 from typing import Optional, Union
 from pathlib import Path
+
+from altrepodb.database import DatabaseConfig
 
 # Types
 StringOrPath = Union[str, Path]
@@ -66,3 +69,17 @@ class Repository:
     @property
     def all_comps(self):
         return {comp.name for comp in self.comps}
+
+
+@dataclass
+class RepoProcessorConfig:
+    name: str
+    path: StringOrPath
+    date: datetime.datetime
+    dbconfig: DatabaseConfig
+    logger: Optional[logging.Logger]
+    tag: str = ""
+    debug: bool = False
+    force: bool = False
+    verbose: bool = False
+    workers: int = 8

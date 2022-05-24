@@ -19,9 +19,8 @@ from pathlib import Path
 
 from altrepodb.database import DatabaseClient
 
-from .base import Repository
+from .base import Repository, RepoProcessorConfig
 from .utils import Display, update_dictionary_with
-from .processor import RepoProcessorConfig
 from .exceptions import RepoProcessingError
 from .packageset import PackageSetHandler
 from .loader_helper import RepoLoadHelper
@@ -35,7 +34,7 @@ class RepoLoadHandler:
         self.config = config
         self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.cache = set()
-        self.repo : Repository
+        self.repo: Repository
         self.conn = DatabaseClient(config=self.config.dbconfig)
         self.rlh = RepoLoadHelper(conn=self.conn)
         self.psh = PackageSetHandler(conn=self.conn)
@@ -43,7 +42,6 @@ class RepoLoadHandler:
         self.display = None
         if self.config.verbose:
             self.display = Display(logger=self.logger)
-
 
     def check_repo_in_db(self):
         if self.rlh.check_repo_date_name_in_db(self.config.name, self.config.date.date()):
@@ -75,7 +73,7 @@ class RepoLoadHandler:
         # load source packages fom 'files/SRPMS'
         src_dir = Path(self.config.path).joinpath("files/SRPMS")
         if not src_dir.is_dir():
-            raise RepoProcessingError(f"'/files/SRPMS' directory not found")
+            raise RepoProcessingError("'/files/SRPMS' directory not found")
         self.logger.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
         for pkg in self.repo.src_hashes:
             pkg_count += 1

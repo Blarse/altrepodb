@@ -15,30 +15,11 @@
 
 import time
 import logging
-from datetime import datetime
-from dataclasses import dataclass
-from typing import Optional
 
-from altrepodb.database import DatabaseConfig
-
-from .base import StringOrPath
+from .base import RepoProcessorConfig
 from .parser import RepoParser
 from .loader import RepoLoadHandler
 from .exceptions import RepoParsingError, RepoProcessingError
-
-
-@dataclass
-class RepoProcessorConfig:
-    name: str
-    path: StringOrPath
-    date: datetime
-    dbconfig: DatabaseConfig
-    logger: Optional[logging.Logger]
-    tag: str = ""
-    debug: bool = False
-    force: bool = False
-    verbose: bool = False
-    workers: int = 8
 
 
 class RepoProcessor:
@@ -64,7 +45,7 @@ class RepoProcessor:
             rp = RepoParser(repo_name=self.config.name, repo_path=self.config.path)
             rlh = RepoLoadHandler(config=self.config)
             rlh.check_repo_in_db()
-            self.logger.info(f"Start loading repository structure")
+            self.logger.info("Start loading repository structure")
             rp.parse_repository()
             self.logger.info(
                 f"Repository structure loaded, caches initialized in {(time.time() - ts):.3f} sec."
