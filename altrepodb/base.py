@@ -16,7 +16,7 @@
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Iterator, Optional, Union, Any, DefaultDict
+from typing import Iterator, Optional, Union, Any
 from dataclasses import dataclass, field, asdict
 
 from .logger import _LoggerOptional, FakeLogger
@@ -132,19 +132,6 @@ class DatabaseConfig:
 
 
 @dataclass
-class TaskProcessorConfig:
-    id: int
-    path: _StringOrPath
-    dbconfig: DatabaseConfig
-    logger: _LoggerOptional
-    debug: bool = False
-    flush: bool = True
-    force: bool = False
-    workers: int = 4
-    dumpjson: bool = False
-
-
-@dataclass
 class PkgHash:
     sf: Optional[int] = None
     md5: Optional[bytes] = None
@@ -163,104 +150,6 @@ class PkgInfo:
     comp: str
     path: str
     subtask_id: int
-
-
-@dataclass
-class TaskSubtask:
-    task_id: int
-    subtask_id: int
-    task_repo: str = ""
-    task_owner: str = ""
-    task_changed: Optional[datetime] = None
-    subtask_changed: Optional[datetime] = None
-    userid: str = ""
-    type: str = ""
-    sid: str = ""
-    dir: str = ""
-    package: str = ""
-    pkg_from: str = ""
-    tag_author: str = ""
-    tag_id: str = ""
-    tag_name: str = ""
-    srpm: str = ""
-    srpm_name: str = ""
-    srpm_evr: str = ""
-    deleted: int = 0
-
-
-@dataclass
-class TaskState:
-    task_id: int
-    task_try: int
-    task_iter: int
-    state: str
-    changed: Optional[datetime] = None
-    runby: str = ""
-    depends: list[int] = field(default_factory=list)
-    prev: int = 0
-    shared: int = 0
-    testonly: int = 0
-    failearly: int = 0
-    message: str = ""
-    version: str = ""
-
-
-@dataclass
-class TaskApproval:
-    task_id: int
-    subtask_id: int
-    type: str
-    date: Optional[datetime] = None
-    name: str = ""
-    message: str = ""
-    revoked: Optional[int] = None
-
-
-@dataclass
-class TaskIteration:
-    task_id: int
-    subtask_id: int
-    subtask_arch: str
-    task_changed: Optional[datetime] = None
-    titer_ts: Optional[datetime] = None
-    titer_status: str = ""
-    task_try: int = 0
-    task_iter: int = 0
-    titer_srpm: str = ""
-    titer_rpms: list[str] = field(default_factory=list)
-    # FIXME: mmh(SHA1) should be replaced by something to work with snowflake_id's
-    titer_chroot_base: list[int] = field(default_factory=list)
-    titer_chroot_br: list[int] = field(default_factory=list)
-
-
-@dataclass
-class TaskPlan:
-    hashes: dict[str, int]
-    pkg_add: dict[str, dict[str, PkgInfo]]
-    pkg_del: dict[str, dict[str, PkgInfo]]
-    hash_add: dict[str, dict[str, bytes]]
-    hash_del: dict[str, dict[str, bytes]]
-
-
-@dataclass
-class TaskLog:
-    type: str
-    path: str
-    hash: int
-    hash_string: str
-
-
-@dataclass
-class Task:
-    id: int
-    subtasks: list[TaskSubtask]
-    state: TaskState
-    approvals: list[TaskApproval]
-    iterations: list[TaskIteration]
-    logs: list[TaskLog]
-    arepo: list[str]
-    plan: TaskPlan
-    pkg_hashes: DefaultDict[str, PkgHash]
 
 
 @dataclass
