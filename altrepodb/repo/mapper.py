@@ -101,8 +101,8 @@ def snowflake_id_pkg(hdr: rpm_header, epoch: int = 1_000_000_000) -> int:
         int: showflake like ID
     """
 
-    buildtime: int = cvt(hdr[rpmt.RPMTAG_BUILDTIME], int)  # type: ignore
-    sha1: bytes = bytes.fromhex(cvt(hdr[rpmt.RPMTAG_SHA1HEADER]))  # type: ignore
+    buildtime: int = convert(hdr[rpmt.RPMTAG_BUILDTIME], int)  # type: ignore
+    sha1: bytes = bytes.fromhex(convert(hdr[rpmt.RPMTAG_SHA1HEADER]))  # type: ignore
     md5: bytes = hdr[rpmt.RPMTAG_SIGMD5]  # bytes
     gpg: bytes = hdr[rpmt.RPMTAG_SIGGPG]  # bytes
 
@@ -193,7 +193,7 @@ def get_package_map(hdr: rpm_header) -> dict[str, Any]:
     return map_package
 
 
-def get_partial_pkg_map(hdr: rpm_header, key_list: Union[list[str], tuple[str,...]]) -> dict[str, Any]:
+def get_partial_pkg_map(hdr: rpm_header, key_list: Union[list[str], tuple[str, ...]]) -> dict[str, Any]:
     map_package = get_package_map(hdr)
     res = {}
     for key in key_list:
