@@ -1,16 +1,16 @@
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import logging
@@ -19,8 +19,10 @@ from clickhouse_driver import Client, errors
 
 from .base import DatabaseConfig
 
+
 class DatabaseError(Exception):
     pass
+
 
 class DatabaseConnectionError(DatabaseError):
     """Raised when failed to connect to database."""
@@ -43,7 +45,9 @@ class DatabaseExceptionRaisedError(DatabaseError):
 class DatabaseClient:
     """Clickhouse database client protocol."""
 
-    def __init__(self, config: DatabaseConfig, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(
+        self, config: DatabaseConfig, logger: Optional[logging.Logger] = None
+    ) -> None:
         self.config = config
         self.connected = False
         if logger is not None:
@@ -74,13 +78,17 @@ class DatabaseClient:
             client.connection.connect()
             self.connected = True
         except errors.NetworkError as error:
-            self.logger.error(f"Failed connect to Database")
-            raise DatabaseConnectionError(f"Failed connect to Database", error)
+            self.logger.error("Failed connect to Database")
+            raise DatabaseConnectionError("Failed connect to Database", error)
         except errors.Error as error:
-            self.logger.error(f"An exception occurred while connecting to database: {error}")
-            raise DatabaseExceptionRaisedError(f"Failed connect to Database", error)
+            self.logger.error(
+                f"An exception occurred while connecting to database: {error}"
+            )
+            raise DatabaseExceptionRaisedError("Failed connect to Database", error)
         except Exception as error:
-            self.logger.error(f"An exception occurred while connecting to database: {error}")
+            self.logger.error(
+                f"An exception occurred while connecting to database: {error}"
+            )
             raise error
         return client
 
@@ -90,12 +98,16 @@ class DatabaseClient:
         try:
             res = self.conn.execute(*args, **kwargs)
         except errors.Error as error:
-            self.logger.error(f"Database exception occurred while processing SQL request: {error}")
+            self.logger.error(
+                f"Database exception occurred while processing SQL request: {error}"
+            )
             raise DatabaseExceptionRaisedError(
-                f"Database exception occurred while processing SQL request", error
+                "Database exception occurred while processing SQL request", error
             )
         except Exception as error:
-            self.logger.error(f"An exception occurred while processing SQL request: {error}")
+            self.logger.error(
+                f"An exception occurred while processing SQL request: {error}"
+            )
             raise error
         self.logger.debug(
             f"SQL request elapsed {self.conn.last_query.elapsed:.3f} seconds"  # type: ignore
@@ -103,7 +115,7 @@ class DatabaseClient:
         return res
 
     def disconnect(self) -> None:
-        self.logger.debug(f"Closing connection to database")
+        self.logger.debug("Closing connection to database")
         if self.connected:
             self.conn.disconnect()
             self.connected = False
