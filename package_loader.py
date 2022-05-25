@@ -19,26 +19,24 @@ import time
 import base64
 import argparse
 import configparser
+from typing import Any
 from pathlib import Path
+from logging import Logger
 from dataclasses import dataclass
 
 from altrpm import rpm, extractSpecAndHeadersFromRPM
-from altrepodb.repo import PackageHandler
+from altrepodb.base import StringOrPath
+from altrepodb.repo.utils import convert
+from altrepodb.repo.mapper import snowflake_id_pkg
+from altrepodb.repo.package import PackageHandler
 from altrepodb.utils import (
-    cvt,
-    snowflake_id_pkg,
     md5_from_file,
     sha256_from_file,
     blake2b_from_file,
     check_package_in_cache,
 )
-from altrepodb import (
-    DatabaseClient,
-    DatabaseConfig,
-    get_logger,
-    LoggerLevel,
-    LoggerProtocol,
-)
+from altrepodb.database import DatabaseClient, DatabaseConfig
+from altrepodb.logger import get_logger, LoggerLevel
 
 NAME = "package"
 
@@ -108,14 +106,16 @@ INSERT INTO Specfiles_insert (*) VALUES
 
 
 class PackageLoader:
-    def __init__(self, pkg_file, conn, logger, args) -> None:
+    def __init__(
+        self, pkg_file: StringOrPath, conn: DatabaseClient, logger: Logger, args: Any
+    ) -> None:
         self.sql = SQL()
         self.pkg = Path(pkg_file)
         self.conn = conn
         self.logger = logger
         self.force = args.force
         self.cache = self._init_cache()
-        self.ph = PackageHandler(conn, logger)
+        self.ph = PackageHandler(conn)
 
     def _init_cache(self) -> set:
         result = self.conn.execute(
@@ -144,10 +144,10 @@ class PackageLoader:
         st = time.time()
         kw = {
             "pkg_hash": snowflake_id_pkg(hdr),
-            "pkg_name": cvt(hdr[rpm.RPMTAG_NAME]),
-            "pkg_epoch": cvt(hdr[rpm.RPMTAG_EPOCH], int),
-            "pkg_version": cvt(hdr[rpm.RPMTAG_VERSION]),
-            "pkg_release": cvt(hdr[rpm.RPMTAG_RELEASE]),
+            "pkg_name": convert(hdr[rpm.RPMTAG_NAME]),
+            "pkg_epoch": convert(hdr[rpm.RPMTAG_EPOCH], int),
+            "pkg_version": convert(hdr[rpm.RPMTAG_VERSION]),
+            "pkg_release": convert(hdr[rpm.RPMTAG_RELEASE]),
             "specfile_name": spec_file.name,  # type: ignore
             "specfile_date": spec_file.mtime,  # type: ignore
             "specfile_content_base64": base64.b64encode(spec_contents),  # type: ignore
@@ -166,10 +166,10 @@ class PackageLoader:
         hdr = self._get_header()
         pkg_name = self.pkg.name
         # load only source packages for a now
-        if not int(bool(hdr["RPMTAG_SOURCEPACKAGE"])):
+        if not int(bool(hdr[rpm.RPMTAG_SOURCEPACKAGE])):
             raise ValueError("Binary package files loading not supported yet")
 
-        sha1 = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
+        sha1 = bytes.fromhex(convert(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
         hashes = {"sha1": sha1, "mmh": snowflake_id_pkg(hdr)}
 
         kw["pkg_hash"] = hashes["mmh"]
@@ -195,7 +195,8 @@ class PackageLoader:
             self.ph.insert_pkg_hash_single(hashes)
             self.cache.add(hashes["mmh"])
             self.logger.info(
-                f"package loaded in {(time.time() - st):.3f} seconds : {hashes['sha1'].hex()} : {kw['pkg_filename']}"
+                f"package loaded in {(time.time() - st):.3f} seconds : "
+                f"{hashes['sha1'].hex()} : {kw['pkg_filename']}"
             )
         else:
             self.logger.info(
@@ -224,7 +225,7 @@ class PackageLoader:
             self.conn.execute(self.sql.flush_tables_buffer.format(buffer=buffer))
 
 
-def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
+def load(args, conn: DatabaseClient, logger: Logger) -> None:
     pkgl = PackageLoader(args.file, conn, logger, args)
     pkgl.load_package()
     if args.flush_buffers:

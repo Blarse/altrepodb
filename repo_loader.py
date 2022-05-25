@@ -18,7 +18,8 @@ import sys
 import argparse
 import configparser
 
-from altrepodb import get_config_logger, DatabaseConfig
+from altrepodb.logger import get_config_logger
+from altrepodb.database import DatabaseConfig
 from altrepodb.utils import valid_date
 from altrepodb.repo.processor import RepoProcessor, RepoProcessorConfig
 

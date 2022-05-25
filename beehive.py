@@ -19,7 +19,8 @@ import argparse
 import configparser
 from pathlib import Path
 
-from altrepodb import get_config_logger, LoggerLevel, DatabaseConfig
+from altrepodb.logger import get_config_logger, LoggerLevel
+from altrepodb.database import DatabaseConfig
 from altrepodb.beehive import Beehive, BeehiveConfig, Endpoint, EndpointType
 
 
@@ -116,7 +117,7 @@ def main():
         bh.run()
     except Exception as error:
         logger.error(
-            "Error occurred during Beehive information loading: {error}", exc_info=True
+            f"Error occurred during Beehive information loading: {error}", exc_info=True
         )
         sys.exit(1)
     finally:

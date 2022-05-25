@@ -20,7 +20,8 @@ import configparser
 
 from altrepodb.task.processor import TaskProcessor
 from altrepodb.task.base import TaskProcessorConfig
-from altrepodb import get_config_logger, DatabaseConfig
+from altrepodb.logger import get_config_logger
+from altrepodb.database import DatabaseConfig
 
 
 NAME = "task"

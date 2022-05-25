@@ -18,16 +18,12 @@ import csv
 import argparse
 import requests
 import configparser
+from logging import Logger
 from collections import namedtuple
 from typing import Iterable
 
-from altrepodb import (
-    get_config_logger,
-    LoggerLevel,
-    LoggerProtocol,
-    DatabaseClient,
-    DatabaseConfig,
-)
+from altrepodb.logger import get_config_logger, LoggerLevel
+from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "bugzilla"
 BUGZILLA_URL = "https://bugzilla.altlinux.org/buglist.cgi"
@@ -82,7 +78,7 @@ def tuples_list_to_dict(x: Iterable) -> dict:
     return res
 
 
-def load(conn: DatabaseClient, logger: LoggerProtocol) -> None:
+def load(conn: DatabaseClient, logger: Logger) -> None:
     # get bugs CSV from Bugzilla
     logger.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
@@ -121,7 +117,7 @@ GROUP BY bz_id"""
         if k not in bz_from_db or v != bz_from_db[k]:
             bz_diff[k] = v
     if not bz_diff:
-        logger.info(f"No bug updates found. Exiting...")
+        logger.info("No bug updates found. Exiting...")
     else:
         logger.info(f"{len(bz_diff)} records updated. Saving to database...")
         # store updated bugs to database

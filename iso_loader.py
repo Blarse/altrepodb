@@ -19,14 +19,11 @@ import time
 import argparse
 import configparser
 from pathlib import Path
+from logging import Logger
 
-from altrepodb import (
-    get_config_logger,
-    DatabaseConfig,
-    LoggerProtocol,
-    ImageMeta,
-    ImageProcessorConfig,
-)
+from altrepodb.base import ImageMeta, ImageProcessorConfig
+from altrepodb.logger import get_config_logger
+from altrepodb.database import DatabaseConfig
 from altrepodb.iso import ISOProcessor
 from altrepodb.utils import valid_url, valid_date, valid_version
 
@@ -164,7 +161,7 @@ def get_args():
     return args
 
 
-def load(args, dbconfig: DatabaseConfig, logger: LoggerProtocol) -> None:
+def load(args, dbconfig: DatabaseConfig, logger: Logger) -> None:
     config = ImageProcessorConfig(
         path=args.path,
         logger=logger,

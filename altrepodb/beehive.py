@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import requests
 import datetime
 from dataclasses import dataclass
@@ -20,10 +21,9 @@ from requests import HTTPError
 from typing import Optional, NamedTuple, Any
 from enum import Enum
 
-from .utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime, dump_to_json
+from .utils import cvt_datetime_local_to_utc, cvt_ts_to_datetime
 from .htmllistparse import fetch_listing
 from .database import DatabaseConfig, DatabaseClient
-from .logger import LoggerProtocol
 
 
 class EndpointType(Enum):
@@ -202,7 +202,7 @@ class BeehiveConfig:
     base_url: str
     archs: tuple[str, ...]
     branches: tuple[str, ...]
-    logger: LoggerProtocol
+    logger: logging.Logger
     dbconfig: DatabaseConfig
     endpoints: tuple[Endpoint, ...]
     timeout: int = 30
@@ -425,7 +425,7 @@ class Beehive:
         branch = t_key.branch
         #  convert list of packages to set for fast searching
         packages_ = set(packages)
-        self.logger.info(f"Fetching packages info from DB")
+        self.logger.info("Fetching packages info from DB")
         sql_res = self.conn.execute(
             self.sql.get_all_packages_versions,
             params={"packages": [pkg.name for pkg in packages_], "branch": branch},
@@ -453,11 +453,11 @@ class Beehive:
         pkgs_from_beehive = set(packages_from_beehive.keys())
 
         if not packages_from_db:
-            self.logger.info(f"Empty 'packages_from_db' list. Exiting..")
+            self.logger.info("Empty 'packages_from_db' list. Exiting..")
             return [], []
 
         if not pkgs_from_beehive:
-            self.logger.info(f"Empty 'pkgs_from_beehive' list. Exiting..")
+            self.logger.info("Empty 'pkgs_from_beehive' list. Exiting..")
             return [], []
 
         pkgs_missing = []
@@ -470,7 +470,7 @@ class Beehive:
 
         mismatched_packages = []
         not_found_packages = []
-        self.logger.info(f"Check packages from beehive that are not in DB")
+        self.logger.info("Check packages from beehive that are not in DB")
         for pkg in pkgs_from_beehive:
             if pkg not in pkgs_from_db:
                 self.logger.debug(f"Package {pkg} not found in DB")

@@ -20,16 +20,12 @@ import argparse
 import configparser
 from typing import Any
 from pathlib import Path
+from logging import Logger
 from dataclasses import dataclass
 
 from altrepodb.utils import cvt_datetime_local_to_utc
-from altrepodb import (
-    get_config_logger,
-    LoggerLevel,
-    LoggerProtocol,
-    DatabaseClient,
-    DatabaseConfig,
-)
+from altrepodb.logger import get_config_logger, LoggerLevel
+from altrepodb.database import DatabaseClient, DatabaseConfig
 
 
 NAME = "task_cleaner"
@@ -66,7 +62,7 @@ OPTIMIZE TABLE TaskStates_buffer
 class TaskCleaner:
     """"""
 
-    def __init__(self, args: Any, conn: DatabaseClient, logger: LoggerProtocol) -> None:
+    def __init__(self, args: Any, conn: DatabaseClient, logger: Logger) -> None:
         self.sql = SQL()
         self.conn = conn
         self.logger = logger
@@ -121,7 +117,7 @@ class TaskCleaner:
                         .read_text(encoding="latin-1")
                         .strip()
                     )
-                except FileNotFoundError as e:
+                except FileNotFoundError:
                     self.logger.debug(f"State file not found for task {task}")
                 except Exception as e:
                     self.logger.error(
@@ -198,7 +194,7 @@ def get_args():
     return args
 
 
-def load(args, conn: DatabaseClient, logger: LoggerProtocol) -> None:
+def load(args, conn: DatabaseClient, logger: Logger) -> None:
     tc = TaskCleaner(args, conn, logger)
     tc.process_tasks()
     if not args.dry_run:
@@ -213,13 +209,17 @@ def main():
         tag="clean",
         config=args.config,
     )
+
     if args.debug:
         logger.setLevel(LoggerLevel.DEBUG)
+
     logger.info(f"Run with args: {args}")
     conn = None
+
     try:
         logger.info("Start checking for deleted tasks")
         logger.info("=" * 60)
+
         conn = DatabaseClient(
             config=DatabaseConfig(
                 host=args.host,
@@ -230,19 +230,27 @@ def main():
             ),
             logger=logger,
         )
+
         if not Path(args.path).is_dir():
             raise ValueError(f"{args.path} not a directory")
+
         if args.task_id is not None and args.task_id <= 0:
             raise ValueError(f"Incorrect task id {args.task_id}")
+
         if args.task_id is None:
             args.task_id = 0
-        load(args, conn, logger)
+
+        tc = TaskCleaner(args, conn, logger)
+        tc.process_tasks()
+        if not args.dry_run:
+            tc.flush()
     except Exception as error:
         logger.error(f"Error occurred during task processing: {error}", exc_info=True)
         sys.exit(1)
     finally:
         if conn is not None:
             conn.disconnect()
+
     logger.info("=" * 60)
     logger.info("Stop checking for deleted tasks")
 

@@ -19,14 +19,12 @@ from datetime import datetime
 from typing import Iterator, Optional, Union, Any
 from dataclasses import dataclass, field, asdict
 
-from .logger import _LoggerOptional, FakeLogger
+from .logger import LoggerOptional
 from .exceptions import RaisingThreadError
 
-# Logger
-DEFAULT_LOGGER = FakeLogger(name="")
 
 # Types
-_StringOrPath = Union[str, Path]
+StringOrPath = Union[str, Path]
 
 
 #  Classes
@@ -154,8 +152,8 @@ class PkgInfo:
 
 @dataclass
 class ImageProcessorConfig:
-    path: _StringOrPath
-    logger: _LoggerOptional
+    path: StringOrPath
+    logger: LoggerOptional
     dbconfig: DatabaseConfig
     debug: bool = False
     force: bool = False
