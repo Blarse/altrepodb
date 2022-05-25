@@ -16,17 +16,18 @@
 import os
 import time
 import shutil
+import logging
 import tempfile
 import datetime
-from dataclasses import asdict, dataclass
 from collections import namedtuple
-from typing import Any, Union
+from dataclasses import asdict, dataclass
+from typing import Any
 from pathlib import Path
 from uuid import uuid4
 
 from multiprocessing import Process, Queue
 
-from .repo import PackageSetHandler
+from .repo.packageset import PackageSetHandler
 from .base import (
     File,
     Package,
@@ -35,10 +36,10 @@ from .base import (
     PackageSet,
     ImageProcessorConfig,
     stringify_image_meta,
-    DEFAULT_LOGGER,
+    StringOrPath,
 )
 from .rpmdb import RPMDBPackages, RPMDBOpenError
-from .logger import LoggerProtocol, _LoggerOptional
+from .logger import LoggerOptional
 from .exceptions import (
     RunCommandError,
     ImageMountError,
@@ -49,7 +50,7 @@ from .exceptions import (
     ImageProcessingError,
     ImageInvalidError,
     ImageProcessingGuessBranchError,
-    ImageProcessingBranchMismatchError,
+    # ImageProcessingBranchMismatchError,
     ImageProcessingPackageNotInDBError,
     ImageProcessingExecutableNotFoundError,
 )
@@ -64,9 +65,6 @@ from .utils import (
 )
 from .database import DatabaseClient
 
-
-#  custom types
-_StringOrPath = Union[str, Path]
 
 # module constants
 RUN_COMMAND_TIMEOUT = 10
@@ -85,7 +83,7 @@ class ImageMounter:
     type: str
     path: str
     ismount: bool
-    _log: _LoggerOptional
+    _log: LoggerOptional
     _tmpdir: tempfile.TemporaryDirectory
     _image_path: str
 
@@ -94,7 +92,7 @@ class ImageMounter:
         image_name: str,
         image_path: str,
         image_type: str,
-        logger: _LoggerOptional = None,
+        logger: LoggerOptional = None,
     ):
         self.name = image_name
         self.type = image_type
@@ -204,13 +202,13 @@ class ISOImage:
 
 class ISO:
     def __init__(
-        self, iso_name: str, iso_path: _StringOrPath, logger: _LoggerOptional = None
+        self, iso_name: str, iso_path: StringOrPath, logger: LoggerOptional = None
     ) -> None:
         self._parsed = False
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = DEFAULT_LOGGER
+            self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.iso_name = iso_name
         self.iso_path = str(iso_path)
         self._sqfs: list[SquashFSImage] = []
@@ -261,7 +259,7 @@ class ISO:
             self.logger.error(f"Failed to mount ISO image {self._iso.path}")
             raise ImageOpenError(self._iso.path) from e
 
-        self.logger.info(f"Processing SquashFS images from ISO")
+        self.logger.info("Processing SquashFS images from ISO")
         for sqfs_name in ("live", "rescue", "altinst"):
             sqfs_path = os.path.join(self._iso.mount.path, sqfs_name)
             if os.path.isfile(sqfs_path):
@@ -292,9 +290,9 @@ class ISO:
         def parse_file(content: str) -> dict[int, str]:
             res = {}
             for line in content.split("\n"):
-                l = line.split(":")
-                if len(l) > 2:
-                    res[int(l[2])] = l[0]
+                line_ = line.split(":")
+                if len(line_) > 2:
+                    res[int(line_[2])] = line_[0]
             return res
 
         uid = parse_file(path.joinpath("etc/passwd").read_text())
@@ -318,7 +316,7 @@ class ISO:
             stat_ = file.stat()
             try:
                 md5_ = md5_from_file(file)
-            except Exception as e:
+            except Exception:
                 self.logger.debug(
                     f"Failed to calculate MD5 checksum for file : {str(file.relative_to(Path.cwd()))}"
                 )
@@ -343,7 +341,7 @@ class ISO:
 
     def _process_iso(self):
         # read ISO image meta information
-        self.logger.info(f"Gathering ISO image meta information")
+        self.logger.info("Gathering ISO image meta information")
         for file in [
             f
             for f in Path(self._iso.mount.path).joinpath(".disk").iterdir()
@@ -362,7 +360,7 @@ class ISO:
             self._iso.meta.isoinfo = out
         self.logger.debug(f"ISO image meta information: {self._iso.meta}")
         # parse ISO image packages
-        self.logger.info(f"Gathering ISO image RPM packages information")
+        self.logger.info("Gathering ISO image RPM packages information")
         iso_rpms_dir = Path(self._iso.mount.path).joinpath("ALTLinux")
         if iso_rpms_dir.is_dir():
             for pkg in (
@@ -376,19 +374,19 @@ class ISO:
         )
 
     def _process_squashfs(self):
-        self.logger.info(f"Gathering SquashFS images meta information")
+        self.logger.info("Gathering SquashFS images meta information")
         # save CWD
         cwd_ = Path.cwd()
         for sqfs in self._sqfs:
             self.logger.info(f"Processing '{sqfs.name}' SquashFS image")
             # get SquashFS meta information
-            self.logger.debug(f"Calculate SquashFS image SHA1 checksum")
+            self.logger.debug("Calculate SquashFS image SHA1 checksum")
             sqfs.meta.sha1 = sha1_from_file(
                 Path(self._iso.mount.path).joinpath(sqfs.name)
             )
             sqfs.meta.hash = snowflake_id_sqfs(mtime=sqfs.meta.mtime, sha1=sqfs.meta.sha1, size=sqfs.meta.size)  # type: ignore
             # parse SquashFS images packages and files
-            self.logger.debug(f"Reading SquashFs image RPM packages")
+            self.logger.debug("Reading SquashFs image RPM packages")
             try:
                 rpmdb = RPMDBPackages(
                     str(Path(sqfs.mount.path).joinpath("var/lib/rpm"))
@@ -402,7 +400,7 @@ class ISO:
                     f"No RPM packages found in '{sqfs.name}' SquashFS image"
                 )
             if not sqfs.packages:
-                self.logger.info(f"Collecting SquashFS image files information")
+                self.logger.info("Collecting SquashFS image files information")
                 # change dir to mounted SquashFS to handle symlink resolving
                 os.chdir(sqfs.mount.path)
                 # get uid and gid lookup tables from /etc/passwd and /etc/groups files
@@ -429,7 +427,7 @@ class ISO:
         try:
             # run ISO image checksums calculatio in parallel process
             self.logger.info(
-                f"Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
+                "Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
             )
 
             def checksums_from_file_mp(path: str, q: Queue):
@@ -456,9 +454,7 @@ class ISO:
 
             self._parsed = True
         except ImageProcessingError:
-            self.logger.error(
-                f"Error occured while processing ISO image", exc_info=True
-            )
+            self.logger.error("Error occured while processing ISO image", exc_info=True)
             raise
         finally:
             self._close()
@@ -726,7 +722,7 @@ class ISOProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER
+            self.logger = logging.getLogger(__name__)
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
@@ -990,7 +986,7 @@ class ISOProcessor:
                         file_verifyflag=file.verifyflag,
                     )._asdict()
                 )
-            res = self.conn.execute(self.sql.insert_files, files_list)
+            _ = self.conn.execute(self.sql.insert_files, files_list)
             self.logger.info(
                 f"{len(files_list)} files inserted for package {package.name}"
             )
@@ -1063,9 +1059,9 @@ class ISOProcessor:
         }
         if not self.config.dryrun:
             # store package
-            res = self.conn.execute(self.sql.insert_package, [pkg_])
+            _ = self.conn.execute(self.sql.insert_package, [pkg_])
             # store package hashes
-            res = self.conn.execute(
+            _ = self.conn.execute(
                 self.sql.insert_package_hashes,
                 [
                     {
@@ -1163,7 +1159,7 @@ class ISOProcessor:
 
     def _store_pkgsets(self, pkgsets: list[PackageSet]) -> None:
         # store ISO image pkgset
-        psh = PackageSetHandler(conn=self.conn, logger=self.logger)
+        psh = PackageSetHandler(conn=self.conn)
         # load ISO package set components from leaves to root
         for pkgset in reversed(pkgsets):
             psn = asdict(pkgset)
