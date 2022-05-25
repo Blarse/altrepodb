@@ -17,6 +17,7 @@ import os
 import lzma
 import time
 import shutil
+import logging
 import tarfile
 import datetime
 import tempfile
@@ -27,17 +28,16 @@ from typing import Union, Optional
 from pathlib import Path
 from uuid import uuid4
 
-from .repo import PackageSetHandler
+from .repo.packageset import PackageSetHandler
 from .base import (
     Package,
     ImageMeta,
     PackageSet,
     ImageProcessorConfig,
-    DEFAULT_LOGGER,
     stringify_image_meta,
 )
 from .rpmdb import RPMDBPackages, RPMDBOpenError
-from .logger import LoggerProtocol, _LoggerOptional
+from .logger import LoggerOptional
 from .exceptions import (
     RunCommandError,
     ImageMountError,
@@ -48,7 +48,7 @@ from .exceptions import (
     ImageProcessingError,
     ImageInvalidError,
     ImageProcessingGuessBranchError,
-    ImageProcessingBranchMismatchError,
+    # ImageProcessingBranchMismatchError,
     ImageProcessingPackageNotInDBError,
     ImageProcessingExecutableNotFoundError,
 )
@@ -84,7 +84,7 @@ class ImageMounter:
     type: str
     path: str
     ismount: bool
-    _log: LoggerProtocol
+    _log: logging.Logger
     _tmpdir: tempfile.TemporaryDirectory
     _image_path: str
 
@@ -93,12 +93,12 @@ class ImageMounter:
         image_name: str,
         image_path: str,
         image_type: str,
-        logger: _LoggerOptional = None,
+        logger: LoggerOptional = None,
     ):
         if logger is not None:
             self._log = logger
         else:
-            self._log = DEFAULT_LOGGER
+            self._log = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
         self.name = image_name
         self.type = image_type
@@ -149,7 +149,7 @@ class ImageMounter:
 
     def _mount_tar(self) -> None:
         try:
-            self._log.info(f"Mounting TAR archive")
+            self._log.info("Mounting TAR archive")
             with libarchive.file_reader(self._image_path) as arch:
                 for entry in arch:
                     # copy '/etc/os-release' file to temporary directory
@@ -210,20 +210,20 @@ class ImageMounter:
                 timeout=RUN_COMMAND_TIMEOUT,
             )
             u_size = 0
-            for l in sout.splitlines():
-                if l.strip().startswith("Uncompressed size:"):
-                    u_size = int(l.replace("\u202f", "").split("(")[-1][:-3])
+            for line in sout.splitlines():
+                if line.strip().startswith("Uncompressed size:"):
+                    u_size = int(line.replace("\u202f", "").split("(")[-1][:-3])
                     break
             self._log.info(f"Uncompressed image size is {bytes2human(u_size)}")
             if u_size == 0:
-                raise ImageProcessingError(f"Failed to get uncompressed image size")
+                raise ImageProcessingError("Failed to get uncompressed image size")
             # 1.2 check if there is enough space in user home directory
             homedir = Path.home()
             st_ = os.statvfs(homedir)
             freespace = st_.f_bsize * st_.f_bavail
             if (u_size * 1.1) > freespace:
                 raise ImageProcessingError(
-                    f"Not enough space to umcompress filesystem image"
+                    "Not enough space to umcompress filesystem image"
                 )
 
             # 2. uncompress image
@@ -320,7 +320,7 @@ class ImageHandler:
 
     def __init__(self, name: str, path: _StringOrPath):
         self._parsed = False
-        self.logger = DEFAULT_LOGGER
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.name = name
         self.path = str(path)
         self._image: FilesystemImage = None  # type: ignore
@@ -352,14 +352,14 @@ class ImageHandler:
             raise ImageOpenError(self.path) from e
 
     def _get_checksums(self):
-        self.logger.info(f"Calculate MD5, SHA1, SHA256 and GOST12 checksums from file")
+        self.logger.info("Calculate MD5, SHA1, SHA256 and GOST12 checksums from file")
         try:
             md5_, sha256_, gost12_ = checksums_from_file(self.path)
             self._image.meta.md5_cs = md5_
             self._image.meta.sha256_cs = sha256_
             self._image.meta.gost12_cs = gost12_
         except Exception as e:
-            self.logger.error(f"Failed to calculate image checksums")
+            self.logger.error("Failed to calculate image checksums")
             raise ImageProcessingError from e
 
     def _process_image(self):
@@ -376,7 +376,7 @@ class ImageHandler:
             self._parsed = True
         except ImageProcessingError as e:
             self.logger.error(
-                f"Error occured while processing filesystem image", exc_info=True
+                "Error occured while processing filesystem image", exc_info=True
             )
             raise e
         finally:
@@ -391,7 +391,7 @@ class ImageHandler:
 
 class TAR(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -426,7 +426,7 @@ class TAR(ImageHandler):
             self._image.meta.osrelease = p.joinpath("os-release").read_text()
 
         # read packages from RPMDB
-        self.logger.debug(f"Reading filesystem image RPM packages")
+        self.logger.debug("Reading filesystem image RPM packages")
         try:
             rpmdb = RPMDBPackages(p)
             self._image.packages = rpmdb.packages_list
@@ -442,7 +442,7 @@ class TAR(ImageHandler):
 
 class QCOW(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -477,7 +477,7 @@ class QCOW(ImageHandler):
             self._image.meta.osrelease = p.joinpath("/etc/os-release").read_text()
 
         # read packages from RPMDB
-        self.logger.debug(f"Reading filesystem image RPM packages")
+        self.logger.debug("Reading filesystem image RPM packages")
         try:
             rpmdb = RPMDBPackages(p.joinpath(QCOW_RPMDB_PREFIX))
             self._image.packages = rpmdb.packages_list
@@ -493,7 +493,7 @@ class QCOW(ImageHandler):
 
 class IMG(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: _LoggerOptional = None
+        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -528,7 +528,7 @@ class IMG(ImageHandler):
             self._image.meta.osrelease = p.joinpath("/etc/os-release").read_text()
 
         # read packages from RPMDB
-        self.logger.debug(f"Reading filesystem image RPM packages")
+        self.logger.debug("Reading filesystem image RPM packages")
         try:
             rpmdb = RPMDBPackages(p.joinpath(IMG_RPMDB_PREFIX))
             self._image.packages = rpmdb.packages_list
@@ -681,7 +681,7 @@ class ImageProcessor:
         if self.config.logger is not None:
             self.logger = self.config.logger
         else:
-            self.logger = DEFAULT_LOGGER
+            self.logger = logging.getLogger(__name__)
 
         if self.config.debug:
             self.logger.setLevel("DEBUG")
@@ -867,7 +867,7 @@ class ImageProcessor:
 
     def _store_pkgsets(self, pkgsets: list[PackageSet]) -> None:
         # store image pkgset
-        psh = PackageSetHandler(conn=self.conn, logger=self.logger)
+        psh = PackageSetHandler(conn=self.conn)
         # load image package set components from leaves to root
         for pkgset in reversed(pkgsets):
             psn = asdict(pkgset)
@@ -910,13 +910,13 @@ class ImageProcessor:
                 "img_json",
             ],
             defaults=[
-                "",   # img_summary_ru
-                "",   # img_summary_en
-                "",   # img_description_ru
-                "",   # img_description_ru
-                "",   # img_mailing_list
-                "",   # img_name_bugzilla
-                "{}", # img_hson
+                "",    # img_summary_ru
+                "",    # img_summary_en
+                "",    # img_description_ru
+                "",    # img_description_ru
+                "",    # img_mailing_list
+                "",    # img_name_bugzilla
+                "{}",  # img_hson
             ],
         )
         # get last repositroy status from DB
@@ -939,8 +939,8 @@ class ImageProcessor:
                 img_start_date=datetime.datetime.now(),
                 img_end_date=datetime.datetime(2099, 1, 1),
                 img_json="{}",  # JSON string placeholder
-                img_summary_ru = f"{self.meta.branch} {self.meta.edition}",
-                img_summary_en = f"{self.meta.branch} {self.meta.edition}",
+                img_summary_ru=f"{self.meta.branch} {self.meta.edition}",
+                img_summary_en=f"{self.meta.branch} {self.meta.edition}",
             )
             # store new ImageStatus record to DB
             if not self.config.dryrun:
@@ -977,8 +977,8 @@ class ImageProcessor:
         self.logger.info(f"Image tag : {self.tag}")
         self.logger.info(f"Image 'os-release' :\n{self.image.image.meta.osrelease}")
         # 3. check filesystem packages in branch
-        missing: list[Package] = []
-
+        # missing: list[Package] = []
+        pass
         # 3.1 check branch mismatching
         self.logger.info(f"Checking filesystem image '{self.image.image.name}' branch")
         self._find_base_repo(self.image.image.packages)

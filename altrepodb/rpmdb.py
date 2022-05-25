@@ -15,20 +15,18 @@
 
 import rpm
 from pathlib import Path
-from typing import Union
 
 from altrpm import rpm as rpmt
-from .base import Package
-from .utils import cvt, detect_arch, snowflake_id_pkg, SupressStdoutStderr
-
-
-_StrOrPath = Union[str, Path]
+from .base import Package, StringOrPath
+from .utils import SupressStdoutStderr
+from .repo.utils import convert
+from .repo.mapper import detect_arch, snowflake_id_pkg
 
 
 class RPMDBOpenError(Exception):
     """Rises when failed to open RPMDB from SquashFS image at ISO."""
 
-    def __init__(self, path: _StrOrPath = ""):
+    def __init__(self, path: StringOrPath = ""):
         self.path = str(path)
         super().__init__(f"Failed to open RPM DB in {self.path}")
 
@@ -36,13 +34,13 @@ class RPMDBOpenError(Exception):
 class RPMDBPackages:
     """Reads RPM database and retrieves packages info."""
 
-    def __init__(self, dbpath: _StrOrPath):
+    def __init__(self, dbpath: StringOrPath):
         self.dbpath = str(dbpath)
         self.packages_list: list[Package] = []
         self.packages_count: int = 0
         self.ts = self._read_rpm_db()
 
-    def _read_rpm_db(self):
+    def _read_rpm_db(self) -> None:
         # add macro to be used by RPM
         rpm.addMacro("_dbpath", self.dbpath)  # type: ignore
         # open RPM DB
@@ -61,14 +59,14 @@ class RPMDBPackages:
                 Package(
                     iname=Path(),
                     hash=snowflake_id_pkg(hdr),
-                    name=cvt(hdr[rpmt.RPMTAG_NAME]),
-                    epoch=cvt(hdr[rpmt.RPMTAG_EPOCH], int),
-                    version=cvt(hdr[rpmt.RPMTAG_VERSION]),
-                    release=cvt(hdr[rpmt.RPMTAG_RELEASE]),
+                    name=convert(hdr[rpmt.RPMTAG_NAME]),
+                    epoch=convert(hdr[rpmt.RPMTAG_EPOCH], int),
+                    version=convert(hdr[rpmt.RPMTAG_VERSION]),
+                    release=convert(hdr[rpmt.RPMTAG_RELEASE]),
                     arch=detect_arch(hdr),
-                    disttag=cvt(hdr[rpmt.RPMTAG_DISTTAG]),
+                    disttag=convert(hdr[rpmt.RPMTAG_DISTTAG]),
                     is_srpm=bool(hdr[rpmt.RPMTAG_SOURCEPACKAGE]),
-                    buildtime=cvt(hdr[rpmt.RPMTAG_BUILDTIME]),
+                    buildtime=convert(hdr[rpmt.RPMTAG_BUILDTIME]),
                 )
             )
 
@@ -81,20 +79,20 @@ class RPMDBPackages:
         return self.packages_count
 
     @staticmethod
-    def get_package_info(package: _StrOrPath) -> Package:
+    def get_package_info(package: StringOrPath) -> Package:
         package_iname = Path(package)
         ts = rpm.TransactionSet()
         hdr = ts.hdrFromFdno(str(package_iname))
         pkg = Package(
             iname=package_iname,
             hash=snowflake_id_pkg(hdr),
-            name=cvt(hdr[rpmt.RPMTAG_NAME]),
-            epoch=cvt(hdr[rpmt.RPMTAG_EPOCH], int),
-            version=cvt(hdr[rpmt.RPMTAG_VERSION]),
-            release=cvt(hdr[rpmt.RPMTAG_RELEASE]),
+            name=convert(hdr[rpmt.RPMTAG_NAME]),
+            epoch=convert(hdr[rpmt.RPMTAG_EPOCH], int),
+            version=convert(hdr[rpmt.RPMTAG_VERSION]),
+            release=convert(hdr[rpmt.RPMTAG_RELEASE]),
             arch=detect_arch(hdr),
-            disttag=cvt(hdr[rpmt.RPMTAG_DISTTAG]),
+            disttag=convert(hdr[rpmt.RPMTAG_DISTTAG]),
             is_srpm=bool(hdr[rpmt.RPMTAG_SOURCEPACKAGE]),
-            buildtime=cvt(hdr[rpmt.RPMTAG_BUILDTIME]),
+            buildtime=convert(hdr[rpmt.RPMTAG_BUILDTIME]),
         )
         return pkg
