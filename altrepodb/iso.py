@@ -24,8 +24,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from pathlib import Path
 from uuid import uuid4
-
-from multiprocessing import Process, Queue
+import multiprocessing as mp
 
 from .repo.packageset import PackageSetHandler
 from .base import (
@@ -421,20 +420,22 @@ class ISO:
         # restore work directory
         os.chdir(cwd_)
 
+    @staticmethod
+    def _checksums_from_file_mp(path: str, q: mp.Queue):
+        q.put(checksums_from_file(path))
+
     def run(self):
         self.logger.info(f"Processing {self._iso.name} ISO image")
         self._check_system_executables()
         try:
-            # run ISO image checksums calculatio in parallel process
+            # run ISO image checksums calculation in parallel process
             self.logger.info(
                 "Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
             )
 
-            def checksums_from_file_mp(path: str, q: Queue):
-                q.put(checksums_from_file(path))
-
-            q = Queue()
-            p = Process(target=checksums_from_file_mp, args=(self._iso.path, q))
+            ctx = mp.get_context('spawn')
+            q = ctx.Queue()
+            p = ctx.Process(target=self._checksums_from_file_mp, args=(self._iso.path, q))
             p.start()
             # process ISO contents
             self._open_iso()
