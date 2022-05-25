@@ -1,0 +1,122 @@
+# This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
+# Copyright (c) 2021-2022 BaseALT Ltd
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 3.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import argparse
+import configparser
+
+from altrepodb.logger import get_config_logger, LoggerLevel
+from altrepodb.database import DatabaseConfig
+from altrepodb.acl import AclConfig, AclProcessor
+
+NAME = "acl"
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "url",
+        type=str,
+        default="http://git.altlinux.org/acl",
+        nargs="?",
+        help="git.altlinux ACL directory url",
+    )
+    parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
+    parser.add_argument("-d", "--dbname", type=str, help="Database name")
+    parser.add_argument("-s", "--host", type=str, help="Database host")
+    parser.add_argument("-p", "--port", type=str, help="Database password")
+    parser.add_argument("-u", "--user", type=str, help="Database login")
+    parser.add_argument("-P", "--password", type=str, help="Database password")
+    parser.add_argument(
+        "-D", "--debug", action="store_true", help="Set logging level to debug"
+    )
+    args = parser.parse_args()
+    if args.config is not None:
+        cfg = configparser.ConfigParser()
+        with open(args.config) as f:
+            cfg.read_file(f)
+        if cfg.has_section("DATABASE"):
+            section_db = cfg["DATABASE"]
+            args.dbname = args.dbname or section_db.get("dbname", "default")
+            args.host = args.host or section_db.get("host", "localhost")
+            args.port = args.port or section_db.get("port", None)
+            args.user = args.user or section_db.get("user", "default")
+            args.password = args.password or section_db.get("password", "")
+    else:
+        args.dbname = args.dbname or "default"
+        args.host = args.host or "localhost"
+        args.port = args.port or None
+        args.user = args.user or "default"
+        args.password = args.password or ""
+    return args
+
+
+def set_config(args):
+    if args.config is not None:
+        cfg = configparser.ConfigParser()
+        with open(args.config) as f:
+            cfg.read_file(f)
+        # database
+        if cfg.has_section("DATABASE"):
+            section_db = cfg["DATABASE"]
+            args.dbname = args.dbname or section_db.get("dbname", "default")
+            args.host = args.host or section_db.get("host", "localhost")
+            args.port = args.port or section_db.get("port", None)
+            args.user = args.user or section_db.get("user", "default")
+            args.password = args.password or section_db.get("password", "")
+    else:
+        args.dbname = args.dbname or "default"
+        args.host = args.host or "localhost"
+        args.port = args.port or None
+        args.user = args.user or "default"
+        args.password = args.password or ""
+    return args
+
+
+def main():
+    args = get_args()
+    args = set_config(args)
+    logger = get_config_logger(
+        NAME,
+        tag="load",
+        config=args.config,
+    )
+    if args.debug:
+        logger.setLevel(LoggerLevel.DEBUG)
+    logger.info(f"Run with args: {args}")
+    try:
+        acl = AclProcessor(
+            AclConfig(
+                url=args.url,
+                logger=logger,
+                dbconfig=DatabaseConfig(
+                    host=args.host,
+                    port=args.port,
+                    name=args.dbname,
+                    user=args.user,
+                    password=args.password,
+                ),
+            )
+        )
+        acl.run()
+    except Exception as error:
+        logger.error(str(error), exc_info=True)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

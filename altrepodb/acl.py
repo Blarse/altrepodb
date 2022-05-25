@@ -14,32 +14,23 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import re
-import sys
 import time
-import argparse
 import datetime
-import configparser
 import urllib.error
 import urllib.request
+from logging import Logger
 from bs4 import BeautifulSoup
 from collections import namedtuple
 from dataclasses import dataclass
 
-import altrepodb.htmllistparse as htmllistparse
-from altrepodb.utils import cvt, mmhash
-from altrepodb import (
-    get_config_logger,
-    LoggerLevel,
-    LoggerProtocol,
-    DatabaseClient,
-    DatabaseConfig
-)
-
-NAME = "acl"
+from .utils import mmhash
+from .repo.utils import convert
+from .database import DatabaseClient, DatabaseConfig
+from .htmllistparse import parse as html_list_parse
 
 
 class Url:
-    def __init__(self, url: str, timeout: int, logger: LoggerProtocol):
+    def __init__(self, url: str, timeout: int, logger: Logger):
         self.url = url
         self.log = logger
         self.timeout = timeout
@@ -59,7 +50,7 @@ class Url:
         if r.getcode() == 200:
             if status:
                 return True
-            return cvt(r.read())
+            return convert(r.read())
 
     def get(self, method=None, status=False):
         if method:
@@ -75,7 +66,7 @@ class Url:
 
 
 class Acl:
-    def __init__(self, url: Url, conn: DatabaseClient, logger: LoggerProtocol):
+    def __init__(self, url: Url, conn: DatabaseClient, logger: Logger):
         self.url = url
         self.conn = conn
         self.log = logger
@@ -98,7 +89,7 @@ class Acl:
         f = self.url.get("/{0}".format(filename)).splitlines()  # type: ignore
         listacl = []
         for line in f:
-            # initialize set () for the branch if it does not exist in the database
+            # initialize set for branch if it does not exist in the database
             if branch not in self.dbhash.keys():
                 self.dbhash[branch] = set()
             # check hash for loaded ACL exists in latest database
@@ -114,9 +105,9 @@ class Acl:
         get murmurhash from database for latest existing ACLs
         :return: False if parsed with errors else True
         """
-        sql = """SELECT acl_branch, 
-           murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list)))
-            FROM last_acl"""
+        sql = """
+SELECT acl_branch, murmurHash3_64(concat(acl_for,arrayStringConcat(acl_list)))
+FROM last_acl"""
         try:
             result = self.conn.execute(sql)
         except Exception as error:
@@ -185,7 +176,7 @@ class Acl:
         # html listing parser
         try:
             soup = BeautifulSoup(a, "html.parser")
-            listing = htmllistparse.parse(soup)
+            listing = html_list_parse(soup)
         except Exception as error:
             self.log.error("Error parse URL")
             self.log.error(error, exc_info=True)  # type: ignore
@@ -252,7 +243,7 @@ class AclError(Exception):
 @dataclass
 class AclConfig:
     url: str
-    logger: LoggerProtocol
+    logger: Logger
     dbconfig: DatabaseConfig
     timeout: int = 10
 
@@ -277,101 +268,3 @@ class AclProcessor:
             raise AclError("Error occured while processimg ACL") from e
         finally:
             self.conn.disconnect()
-
-
-def get_args():
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "url",
-        type=str,
-        default="http://git.altlinux.org/acl",
-        nargs="?",
-        help="git.altlinux ACL directory url",
-    )
-    parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
-    parser.add_argument("-d", "--dbname", type=str, help="Database name")
-    parser.add_argument("-s", "--host", type=str, help="Database host")
-    parser.add_argument("-p", "--port", type=str, help="Database password")
-    parser.add_argument("-u", "--user", type=str, help="Database login")
-    parser.add_argument("-P", "--password", type=str, help="Database password")
-    parser.add_argument(
-        "-D", "--debug", action="store_true", help="Set logging level to debug"
-    )
-    args = parser.parse_args()
-    if args.config is not None:
-        cfg = configparser.ConfigParser()
-        with open(args.config) as f:
-            cfg.read_file(f)
-        if cfg.has_section("DATABASE"):
-            section_db = cfg["DATABASE"]
-            args.dbname = args.dbname or section_db.get("dbname", "default")
-            args.host = args.host or section_db.get("host", "localhost")
-            args.port = args.port or section_db.get("port", None)
-            args.user = args.user or section_db.get("user", "default")
-            args.password = args.password or section_db.get("password", "")
-    else:
-        args.dbname = args.dbname or "default"
-        args.host = args.host or "localhost"
-        args.port = args.port or None
-        args.user = args.user or "default"
-        args.password = args.password or ""
-    return args
-
-
-def set_config(args):
-    if args.config is not None:
-        cfg = configparser.ConfigParser()
-        with open(args.config) as f:
-            cfg.read_file(f)
-        # database
-        if cfg.has_section("DATABASE"):
-            section_db = cfg["DATABASE"]
-            args.dbname = args.dbname or section_db.get("dbname", "default")
-            args.host = args.host or section_db.get("host", "localhost")
-            args.port = args.port or section_db.get("port", None)
-            args.user = args.user or section_db.get("user", "default")
-            args.password = args.password or section_db.get("password", "")
-    else:
-        args.dbname = args.dbname or "default"
-        args.host = args.host or "localhost"
-        args.port = args.port or None
-        args.user = args.user or "default"
-        args.password = args.password or ""
-    return args
-
-
-def main():
-    args = get_args()
-    args = set_config(args)
-    logger = get_config_logger(
-        NAME,
-        tag="load",
-        config=args.config,
-    )
-    if args.debug:
-        logger.setLevel(LoggerLevel.DEBUG)
-    logger.info(f"Run with args: {args}")
-    try:
-        acl = AclProcessor(
-            AclConfig(
-                url=args.url,
-                logger=logger,
-                dbconfig=DatabaseConfig(
-                    host=args.host,
-                    port=args.port,
-                    name=args.dbname,
-                    user=args.user,
-                    password=args.password,
-                ),
-            )
-        )
-        acl.run()
-    except Exception as error:
-        logger.error(str(error), exc_info=True)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
