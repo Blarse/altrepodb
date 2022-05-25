@@ -13,12 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from .base import (  # noqa: F401
-    ImageMeta,
-    ImageProcessorConfig,
-)
-from .logger import LoggerLevel, LoggerProtocol, get_logger, get_config_logger  # noqa: F401
-from .database import DatabaseClient, DatabaseConfig, DatabaseError  # noqa: F401
-
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __version__ = "2.2.5"

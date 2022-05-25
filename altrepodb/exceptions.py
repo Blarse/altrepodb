@@ -23,39 +23,6 @@ class RunCommandError(Exception):
         self.message = message
 
 
-class PackageLoadError(Exception):
-    """Raised from PackageLoader worker."""
-
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__()
-
-
-class NotImplementedError(Exception):
-    """Exception raised for not implemented functional
-
-    Attributes:
-        function - not implemented function description
-    """
-
-    def __init__(self, message: str = "Function not implemented", function: Any = None):
-        self.message = message
-        self.function = function
-        super().__init__()
-
-
-class RepoParsingError(Exception):
-    """Raised when error occured during repository structure parsing."""
-
-    pass
-
-
-class RepoProcessingError(Exception):
-    """Raised when error occured during repository processing."""
-
-    pass
-
-
 # Threaded workers exception
 class RaisingThreadError(Exception):
     """Custom exception class used in RaisingThread subclasses
@@ -108,7 +75,7 @@ class ImageProcessingGuessBranchError(ImageProcessingError):
     """Rises when failed to guess branch by set of packages."""
 
     def __init__(self):
-        super().__init__(f"Failed to guess branch by packages.")
+        super().__init__("Failed to guess branch by packages.")
 
 
 class ImageInvalidError(ImageProcessingError):
@@ -164,29 +131,3 @@ class ImageRunCommandError(ImageProcessingError):
     """Rises when subprocess commandline exited with non zero code."""
 
     pass
-
-
-# Task loding xceptions
-class TaskLoaderError(Exception):
-    pass
-
-
-class TaskLoaderInvalidPathError(TaskLoaderError):
-    def __init__(self, path: str):
-        self.path = path
-        super().__init__(f"Invalid task path {self.path}")
-
-
-class TaskLoaderProcessingError(TaskLoaderError):
-    def __init__(self, id: int, exc: Exception):
-        self.id = id
-        self.exc = exc
-        super().__init__(
-            f"An error occured while loadint task {id} to database. Error: {exc}"
-        )
-
-
-class TaskLoaderParserError(TaskLoaderError):
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(message)

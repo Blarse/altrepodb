@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import os
 import re
 import json
@@ -20,23 +21,15 @@ import lzma
 import mmh3
 import argparse
 import datetime
-import threading
 import subprocess
-from time import time
 from dateutil import tz
 from pathlib import Path
 from hashlib import sha1, sha256, md5, blake2b
-from typing import Any, Iterable, Union, Hashable, Optional
+from typing import Any, Iterable, Union, Optional
 
-from altrpm import rpm
-from .logger import LoggerProtocol, FakeLogger, _LoggerOptional
+from .base import StringOrPath
+from .logger import LoggerOptional
 from .exceptions import RunCommandError
-
-# custom types
-_FileName = Union[str, os.PathLike]
-
-
-DEFAULT_LOGGER = FakeLogger
 
 
 def mmhash(val: Any) -> int:
@@ -57,41 +50,6 @@ def _snowflake_id(timestamp: int, lower_32bit: int, epoch: int) -> int:
     return sf_id
 
 
-def snowflake_id_pkg(hdr: dict, epoch: int = 1_000_000_000) -> int:
-    """Genarates showflake-like ID using data from RPM package header object.
-    Returns 64 bit wide unsigned integer:
-        - most significant 32 bits package build time delta from epoch
-        - less significant 32 bits are mutmurHash from package sign header (SHA1 + MD5 + GPG)
-
-    Args:
-        hdr (dict): RPM package header object
-        epoch (int, optional): Base epoch for timestamp part calculation. Defaults to 1_000_000_000.
-
-    Returns:
-        int: showflake like ID
-    """
-
-    buildtime: int = cvt(hdr[rpm.RPMTAG_BUILDTIME], int)  # type: ignore
-    sha1: bytes = bytes.fromhex(cvt(hdr[rpm.RPMTAG_SHA1HEADER]))  # type: ignore
-    md5: bytes = hdr[rpm.RPMTAG_SIGMD5]  # bytes
-    gpg: bytes = hdr[rpm.RPMTAG_SIGGPG]  # bytes
-
-    if md5 is None:
-        md5 = b""
-    if gpg is None:
-        gpg = b""
-    # combine multiple GPG signs in one
-    if isinstance(gpg, list):
-        gpg_ = b""
-        for k in gpg:
-            gpg_ += k  # type: ignore
-        gpg = gpg_
-
-    data = sha1 + md5 + gpg
-    sf_hash = mmh3.hash(data, signed=False)
-    return _snowflake_id(timestamp=buildtime, lower_32bit=sf_hash, epoch=epoch)
-
-
 def snowflake_id_sqfs(
     mtime: int, sha1: bytes, size: int, epoch: int = 1_000_000_000
 ) -> int:
@@ -105,15 +63,6 @@ def snowflake_id_sqfs(
     sf_hash = mmh3.hash(data, signed=False) & 0xFFFFFFFF
 
     return _snowflake_id(timestamp=mtime, lower_32bit=sf_hash, epoch=epoch)
-
-
-def detect_arch(hdr):
-    """Converts package architecture from header."""
-
-    package_name = cvt(hdr[rpm.RPMTAG_NAME])
-    if package_name.startswith("i586-"):
-        return "x86_64-i586"
-    return cvt(hdr[rpm.RPMTAG_ARCH])
 
 
 def valid_date(s: str) -> datetime.datetime:
@@ -151,7 +100,7 @@ def valid_url(url: str) -> str:
     """Check if string is valid URL."""
 
     url_match = re.compile(
-        "((([A-Za-z]{3,9}:(?:\/\/)?)(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)((?:\/[\+~%\/.\w\-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)"  # type: ignore
+        r"((([A-Za-z]{3,9}:(?:\/\/)?)(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)((?:\/[\+~%\/.\w\-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)"  # type: ignore
     )
     if not url_match.search(url):
         raise argparse.ArgumentTypeError("Not a valid URL")
@@ -166,144 +115,7 @@ def check_package_in_cache(cache: Iterable, pkghash: Any) -> Union[Any, None]:
     return None
 
 
-class Display:
-    MSG = "Processed {0} packages in {1:.3f} sec. {2:.3f} sec. per package on average."
-
-    """Show information about progress."""
-
-    def __init__(
-        self, log: LoggerProtocol, timer_init_delta: float = 0, step: int = 1000
-    ):
-        self.lock = threading.Lock()
-        self.log = log
-        self.counter = 0
-        self.timer = None
-        self.step = step
-        self.timesum = 0
-        self.timer_short = None
-        self.timesum_short = 0
-        self.timer_init_delta = timer_init_delta
-
-    def _showmsg(self):
-        t = time() - self.timer  # type: ignore
-        self.log.info(self.MSG.format(self.step, t, t / self.step))
-        self.log.info("Total: {0}".format(self.counter))
-
-    def _update(self):
-        self.counter += 1
-        t = time()
-        self.timesum_short += t - self.timer_short  # type: ignore
-        self.timer_short = time()
-        if self.counter % self.step == 0:
-            self._showmsg()
-            t = time()
-            self.timesum += t - self.timer  # type: ignore
-            self.timer = time()
-
-    def inc(self):
-        with self.lock:
-            if self.timer is None:
-                self.timer = time()
-                self.timer_short = time()
-            self._update()
-
-    def conclusion(self):
-        if self.timesum_short > self.timesum:
-            self.timesum = self.timesum_short
-        self.timesum += self.timer_init_delta
-        self.log.info(
-            self.MSG.format(
-                self.counter,
-                self.timesum,
-                self.timesum / (self.counter if self.counter else 1),
-            )
-        )
-
-
-def cvt(b: Any, t: type = str) -> Any:
-    """Convert byte string or list of byte strings to strings or list strings.
-    Return default vaues for bytes, string and int if input value is None."""
-
-    if isinstance(b, bytes) and t is str:
-        return b.decode("latin-1")
-    if isinstance(b, list):
-        return [cvt(i) for i in b]
-    if b is None:
-        if t is bytes:
-            return b""
-        if t is str:
-            return ""
-        if t is int:
-            return 0
-    return b
-
-
-def cvt_ts(ts: Union[int, list[int]]) -> Any:
-    """Convert timestamp or list of timestamps to datetime object or list
-    of datetime objects."""
-
-    if isinstance(ts, int):
-        return datetime.datetime.fromtimestamp(ts)
-    if isinstance(ts, list):
-        return [cvt_ts(i) for i in ts]
-    return ts
-
-
-def changelog_to_list(dates: list, names: list, texts: list) -> list:
-    """Compile changelog records to dict of elements."""
-
-    if not len(dates) == len(names) == len(texts):
-        raise ValueError
-    chlog = []
-    for date_, name_, text_ in zip(dates, names, texts):
-        tmp = cvt(name_)
-        if len(tmp.split(">")) == 2:  # type: ignore
-            name = tmp.split(">")[0] + ">"  # type: ignore
-            evr = tmp.split(">")[1].strip()  # type: ignore
-        else:
-            name = tmp
-            evr = ""
-        chlog.append((int(date_), name, evr, cvt(text_), mmhash(cvt(text_))))
-    return chlog
-
-
-def convert_file_class(fc: str) -> str:
-    """Converts file class value from RPM header to CH Enum."""
-
-    lut = {
-        "directory": "directory",
-        "symbolic link to": "symlink",
-        "socket": "socket",
-        "character special": "char",
-        "block special": "block",
-        "fifo (named pipe)": "fifo",
-        "file": "file",
-    }
-    if fc == "":
-        return lut["file"]
-    else:
-        for k, v in lut.items():
-            if fc.startswith(k):
-                return v
-    return ""
-
-
-# packager parsing regex
-packager_pattern = re.compile("\W?([\w\-\@'. ]+?)\W? (\W.+?\W )?<(.+?)>")  # type: ignore
-
-
-def packager_parse(packager: str) -> Union[tuple[str, str], None]:
-    """Parse packager for name and email."""
-
-    m = packager_pattern.search(packager)
-    if m is not None:
-        name_ = m.group(1).strip()
-        email_ = m.group(3).strip().replace(" at ", "@")
-        return name_, email_
-    return None
-
-
-def sha1_from_file(fname: _FileName) -> bytes:
+def sha1_from_file(fname: StringOrPath) -> bytes:
     """Calculates SHA1 hash from file."""
 
     hash = sha1()
@@ -313,7 +125,7 @@ def sha1_from_file(fname: _FileName) -> bytes:
     return hash.digest()
 
 
-def sha256_from_file(fname: _FileName) -> bytes:
+def sha256_from_file(fname: StringOrPath) -> bytes:
     """Calculates SHA256 hash from file."""
 
     hash = sha256()
@@ -323,7 +135,7 @@ def sha256_from_file(fname: _FileName) -> bytes:
     return hash.digest()
 
 
-def md5_from_file(fname: _FileName) -> bytes:
+def md5_from_file(fname: StringOrPath) -> bytes:
     """Calculates MD5 hash from file."""
 
     hash = md5()
@@ -333,7 +145,7 @@ def md5_from_file(fname: _FileName) -> bytes:
     return hash.digest()
 
 
-def blake2b_from_file(fname: _FileName) -> bytes:
+def blake2b_from_file(fname: StringOrPath) -> bytes:
     """Calculates blake2b hash from file."""
 
     hash = blake2b()
@@ -344,7 +156,7 @@ def blake2b_from_file(fname: _FileName) -> bytes:
 
 
 def calculate_sha256_blake2b(
-    fname: _FileName,
+    fname: StringOrPath,
     sha256_in: Optional[bytes],
     blake2b_in: Optional[bytes],
     en_blake2b: bool,
@@ -370,7 +182,7 @@ def calculate_sha256_blake2b(
     )
 
 
-def hashes_from_file(fname: _FileName) -> tuple[bytes, bytes, bytes]:
+def hashes_from_file(fname: StringOrPath) -> tuple[bytes, bytes, bytes]:
     """Calculates md5, sha256 and blake2b hashes from file."""
 
     md5_h = md5()
@@ -385,7 +197,7 @@ def hashes_from_file(fname: _FileName) -> tuple[bytes, bytes, bytes]:
     return md5_h.digest(), sha256_h.digest(), blake2b_h.digest()
 
 
-def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
+def checksums_from_file(fname: StringOrPath) -> tuple[str, str, str]:
     """Calculates MD5, SHA256 and GOST12 hashes from file."""
 
     CHUNK_SIZE = 16384  # read file by 16 kB chunks
@@ -416,32 +228,6 @@ def checksums_from_file(fname: _FileName) -> tuple[str, str, str]:
     gost12_hexdigest = res.decode("utf-8").split(" ")[0]
 
     return md5_h.hexdigest(), sha256_h.hexdigest(), gost12_hexdigest
-
-
-def update_dictionary_with(
-    d1: dict[Any, Any], d2: Union[dict[Any, Any], list[Any], tuple[Any], str], key: Hashable
-) -> dict[Any, Any]:
-    """Updates dictionary with dictionary, list, tuple or any object
-    that can be represented as string.
-    Stringify all elements of joined object if it is not dictionary.
-    Do not preserve value in original dictionary if given 'key' exists.
-    If joined object is not dictionary and key is None returns original dictionary."""
-
-    res = d1
-    if not isinstance(d1, dict):
-        return d1
-    if isinstance(d2, dict):
-        res.update(d2)
-        # return res
-    elif isinstance(d2, list) or isinstance(d2, tuple):
-        if key is None:
-            return d1
-        res.update({key: ", ".join([str(v) for v in d2])})
-    else:
-        if key is None:
-            return d1
-        res.update({key: str(d2)})
-    return res
 
 
 def cvt_ts_to_datetime(
@@ -485,7 +271,7 @@ def val_from_json_str(json_str: str, val_key: str) -> Any:
             return None
 
 
-def unxz(fname: _FileName, mode_binary: bool = False) -> Union[bytes, str]:
+def unxz(fname: StringOrPath, mode_binary: bool = False) -> Union[bytes, str]:
     """Reads '.xz' compressed file contents."""
 
     if mode_binary:
@@ -502,13 +288,13 @@ def run_command(
     *args,
     env: Optional[dict[str, str]] = None,
     raise_on_error: bool = False,
-    logger: _LoggerOptional = None,
+    logger: LoggerOptional = None,
     timeout: Optional[float] = None,
 ) -> tuple[str, str, str, int]:
     """Run command from args. Raises exception if rsubprocess returns non zero code."""
 
     if logger is None:
-        logger = DEFAULT_LOGGER(name="run_command")
+        logger = logging.getLogger(__name__)
     cmdline = " ".join([*args])
     logger.debug(f"Run command: {cmdline}")
     try:
@@ -534,7 +320,7 @@ def run_command(
     return cmdline, sub.stdout, sub.stderr, sub.returncode
 
 
-def dump_to_json(object: Any, file: _FileName) -> None:
+def dump_to_json(object: Any, file: StringOrPath) -> None:
     """Dumps object to JSON file in current directory."""
 
     f = Path.joinpath(Path.cwd(), file)

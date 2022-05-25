@@ -13,13 +13,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import sys
 import logging
 import datetime
 import configparser
 from logging import handlers
 from dataclasses import dataclass
-from typing import Optional, Protocol, Union, Any
+from typing import Optional, Any
 
 
 # constants
@@ -46,121 +45,8 @@ class LoggerLevel:
     CRITICAL = logging.CRITICAL
 
 
-# Logger protocol and instances
-class LoggerProtocol(Protocol):
-    def __init__(self, name: str, level: Any) -> None:
-        raise NotImplementedError
-
-    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError
-
-    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError
-
-    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError
-
-    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError
-
-    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError
-
-    def setLevel(self, level: Union[int, str]) -> None:
-        raise NotImplementedError
-
-
-class FakeLogger(LoggerProtocol):
-    """Fake logger class."""
-
-    def __init__(self, name: str, level: Any = None) -> None:
-        pass
-
-    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def setLevel(self, level: Union[int, str]) -> None:
-        pass
-
-
-class ConsoleLogger(LoggerProtocol):
-    """Simple console logger class. Mostly compatible with logging.Logger."""
-
-    _ll = LoggerLevel()
-    _level = _ll.WARNING
-    _handler = sys.stdout
-    _levelToName = {
-        _ll.CRITICAL: "CRITICAL",
-        _ll.ERROR: "ERROR",
-        _ll.WARNING: "WARNING",
-        _ll.INFO: "INFO",
-        _ll.DEBUG: "DEBUG",
-        _ll.NOTSET: "NOTSET",
-    }
-    _nameToLevel = {
-        "CRITICAL": _ll.CRITICAL,
-        "ERROR": _ll.ERROR,
-        "WARN": _ll.WARNING,
-        "WARNING": _ll.WARNING,
-        "INFO": _ll.INFO,
-        "DEBUG": _ll.DEBUG,
-        "NOTSET": _ll.NOTSET,
-    }
-
-    def __init__(self, name: str, level: Union[int, str] = "DEBUG") -> None:
-        self.name = name
-        self.setLevel(level)
-
-    def _log(self, severity: int, message: str) -> None:
-        if severity >= self._level:
-            timestamp = datetime.datetime.now().isoformat(
-                sep=" ", timespec="milliseconds"
-            )
-            print(
-                f"{timestamp} : {self._levelToName[severity]:8} : {message}",
-                file=self._handler,
-            )
-
-    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        self._log(self._ll.DEBUG, msg)
-
-    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        self._log(self._ll.INFO, msg)
-
-    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        self._log(self._ll.WARNING, msg)
-
-    def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        self._log(self._ll.ERROR, msg)
-
-    def critical(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        self._log(self._ll.CRITICAL, msg)
-
-    def setLevel(self, level: Union[int, str]) -> None:
-        if isinstance(level, int):
-            if level not in self._levelToName:
-                raise ValueError(f"Incorrect logging level value: {level}")
-            self._level = level
-        if isinstance(level, str):
-            if level not in self._nameToLevel:
-                raise ValueError(f"Incorrect logging level value: {level}")
-            self._level = self._nameToLevel.get(level, self._ll.NOTSET)
-
-
 # custom classes
-_LoggerOptional = Optional[LoggerProtocol]
+LoggerOptional = Optional[logging.Logger]
 
 
 def get_logger(
