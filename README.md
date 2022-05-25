@@ -128,17 +128,17 @@ Usage example:
 
     [user@host]$ python3 image_loader.py alt-p10-opennebula-x86_64.qcow2 --branch p10 --edition cloud --version 10.0.0 --release release --platform "" --variant install --flavor opennebula --arch x86_64 --date 2022-02-10 --url "http://ftp.altlinux.org/%PATH_TO_IMAGE%" --type qcow -c config.ini --debug
 
-### acl
+### acl_loader
 The utility uploads ALT Linux maintaners ACLs to database.
 Check the usage message with command:
 
-    [user@host]$ python3 acl.py -h
+    [user@host]$ python3 acl_loader.py -h
 
-### beehive
+### beehive_loader
 The utility uploads Beehive packages build results to database.
 Check the usage message with command:
 
-    [user@host]$ python3 beehive.py -h
+    [user@host]$ python3 beehive_loader.py -h
 
 ### bugzilla
 The utility uploads Bugzilla issues to database.
@@ -146,17 +146,17 @@ Check the usage message with command:
 
     [user@host]$ python3 bugzilla.py -h
 
-### repocop
+### repocop_loader
 The utility uploads Repocop packages inspection to database.
 Check the usage message with command:
 
-    [user@host]$ python3 repocop.py -h
+    [user@host]$ python3 repocop_loader.py -h
 
-### watch
+### watch_loader
 The utility uploads package's versions updates from Watch to database.
 Check the usage message with command:
 
-    [user@host]$ python3 watch.py -h
+    [user@host]$ python3 watch_loader.py -h
 
 ### spdx_loader
 The utility uploads licenses information from SPDX Git repository to database.
