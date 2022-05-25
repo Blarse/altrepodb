@@ -291,7 +291,7 @@ def run_command(
     logger: LoggerOptional = None,
     timeout: Optional[float] = None,
 ) -> tuple[str, str, str, int]:
-    """Run command from args. Raises exception if rsubprocess returns non zero code."""
+    """Run command from args. Raises exception if subprocess returns non zero code."""
 
     if logger is None:
         logger = logging.getLogger(__name__)
