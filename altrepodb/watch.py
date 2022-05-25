@@ -13,28 +13,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import sys
-import argparse
 import requests
-import configparser
-from typing import Any
+from logging import Logger
 from dateutil import tz
 from datetime import datetime
 from dataclasses import dataclass
 from requests.exceptions import RequestException
 from email.utils import parsedate_to_datetime
 
-from altrepodb import (
-    get_config_logger,
-    LoggerLevel,
-    LoggerProtocol,
-    DatabaseClient,
-    DatabaseConfig,
-    DatabaseError,
-)
-
-NAME = "watch"
-URL_WATCH = "https://watch.altlinux.org/pub/watch/watch-total.txt"
+from .database import DatabaseClient, DatabaseConfig, DatabaseError
 
 
 class WatchError(Exception):
@@ -55,7 +42,7 @@ INSERT INTO PackagesWatch (*) VALUES
 @dataclass
 class WatchConfig:
     url: str
-    logger: LoggerProtocol
+    logger: Logger
     dbconfig: DatabaseConfig
     timeout: int = 10
 
@@ -74,7 +61,7 @@ class Watch:
     def _get_watch(self) -> tuple[requests.Response, datetime]:
         try:
             res = requests.get(self.url, timeout=self.timeout)
-        except RequestException as exc:
+        except RequestException:
             raise WatchError(f"Failed get information from {self.url}")
 
         return res, parsedate_to_datetime(res.headers["Last-Modified"])  # type: ignore
@@ -128,75 +115,3 @@ class Watch:
             raise e
         finally:
             self.conn.disconnect()
-
-
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
-    parser.add_argument("-d", "--dbname", type=str, help="Database name")
-    parser.add_argument("-s", "--host", type=str, help="Database host")
-    parser.add_argument("-p", "--port", type=str, help="Database password")
-    parser.add_argument("-u", "--user", type=str, help="Database login")
-    parser.add_argument("-P", "--password", type=str, help="Database password")
-    parser.add_argument(
-        "-D", "--debug", action="store_true", help="Set logging level to debug"
-    )
-    args = parser.parse_args()
-
-    if args.config is not None:
-        cfg = configparser.ConfigParser()
-        with open(args.config) as f:
-            cfg.read_file(f)
-        if cfg.has_section("DATABASE"):
-            section_db = cfg["DATABASE"]
-            args.dbname = args.dbname or section_db.get("dbname", "default")
-            args.host = args.host or section_db.get("host", "localhost")
-            args.port = args.port or section_db.get("port", None)
-            args.user = args.user or section_db.get("user", "default")
-            args.password = args.password or section_db.get("password", "")
-    else:
-        args.dbname = args.dbname or "default"
-        args.host = args.host or "localhost"
-        args.port = args.port or None
-        args.user = args.user or "default"
-        args.password = args.password or ""
-
-    return args
-
-
-def main():
-    assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
-    args = get_args()
-    logger = get_config_logger(
-        NAME,
-        tag="load",
-        config=args.config,
-    )
-    if args.debug:
-        logger.setLevel(LoggerLevel.DEBUG)
-    logger.debug(f"Run with args: {args}")
-    try:
-        rp = Watch(
-            WatchConfig(
-                url=URL_WATCH,
-                logger=logger,
-                dbconfig=DatabaseConfig(
-                    host=args.host,
-                    port=args.port,
-                    name=args.dbname,
-                    user=args.user,
-                    password=args.password,
-                ),
-                timeout=30,
-            )
-        )
-        rp.run()
-    except Exception as error:
-        logger.error(
-            f"Error occurred during Watch information loading: {error}", exc_info=True
-        )
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
