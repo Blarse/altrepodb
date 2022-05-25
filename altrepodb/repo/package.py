@@ -115,12 +115,8 @@ class PackageHandler:
     def _extract_spec_file(self, fname: StringOrPath) -> tuple[Any, bytes]:
         """Extracts spec file from SRPM using subprocess to force memory release."""
 
-        # def _extract_spec_sp(fname: str, q: mp.Queue):
-        #     q.put(extractSpecFromRPM(fname, raw=True))
-
         ctx = mp.get_context('spawn')
         q = ctx.Queue()
-        # p = ctx.Process(target=_extract_spec_sp, args=(fname, q))
         p = ctx.Process(target=self._extract_spec_sp, args=(fname, q))
         p.start()
         spec_file, spec_contents = q.get()
