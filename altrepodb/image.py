@@ -24,7 +24,7 @@ import tempfile
 import libarchive
 from collections import namedtuple
 from dataclasses import asdict, dataclass
-from typing import Union, Optional
+from typing import Optional
 from pathlib import Path
 from uuid import uuid4
 
@@ -35,6 +35,7 @@ from .base import (
     PackageSet,
     ImageProcessorConfig,
     stringify_image_meta,
+    StringOrPath,
 )
 from .rpmdb import RPMDBPackages, RPMDBOpenError
 from .logger import LoggerOptional
@@ -60,9 +61,6 @@ from .utils import (
 )
 from .database import DatabaseClient
 
-
-#  custom types
-_StringOrPath = Union[str, Path]
 
 # module constants
 RUN_COMMAND_TIMEOUT = 30
@@ -318,7 +316,7 @@ class FilesystemImage:
 class ImageHandler:
     """Image handler base class."""
 
-    def __init__(self, name: str, path: _StringOrPath):
+    def __init__(self, name: str, path: StringOrPath):
         self._parsed = False
         self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.name = name
@@ -391,7 +389,7 @@ class ImageHandler:
 
 class TAR(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
+        self, name: str, path: StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -442,7 +440,7 @@ class TAR(ImageHandler):
 
 class QCOW(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
+        self, name: str, path: StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -493,7 +491,7 @@ class QCOW(ImageHandler):
 
 class IMG(ImageHandler):
     def __init__(
-        self, name: str, path: _StringOrPath, logger: LoggerOptional = None
+        self, name: str, path: StringOrPath, logger: LoggerOptional = None
     ) -> None:
         super().__init__(name, path)
 
@@ -798,14 +796,11 @@ class ImageProcessor:
 
         # return not_found
         if not_found:
-            msg = (
-                f"{len(not_found)} packages not found in database\n"
-                + "\n".join(
-                    [
-                        f"[{p.hash}] {p.name}-{p.version}-{p.release} {p.arch}"
-                        for p in not_found
-                    ]
-                )
+            msg = f"{len(not_found)} packages not found in database\n" + "\n".join(
+                [
+                    f"[{p.hash}] {p.name}-{p.version}-{p.release} {p.arch}"
+                    for p in not_found
+                ]
             )
             self.logger.debug(
                 f"Packages not found in database:\n{[p for p in not_found]}"
@@ -910,12 +905,12 @@ class ImageProcessor:
                 "img_json",
             ],
             defaults=[
-                "",    # img_summary_ru
-                "",    # img_summary_en
-                "",    # img_description_ru
-                "",    # img_description_ru
-                "",    # img_mailing_list
-                "",    # img_name_bugzilla
+                "",  # img_summary_ru
+                "",  # img_summary_en
+                "",  # img_description_ru
+                "",  # img_description_ru
+                "",  # img_mailing_list
+                "",  # img_name_bugzilla
                 "{}",  # img_hson
             ],
         )
@@ -969,7 +964,9 @@ class ImageProcessor:
         # 1. check if image is already loaded to DB
         if not self.config.force:
             if self._check_image_tag_date_in_db(self.tag, self.meta.date):
-                self.logger.info(f"Filesystem image '{self.tag}' already exists in database")
+                self.logger.info(
+                    f"Filesystem image '{self.tag}' already exists in database"
+                )
                 if not self.config.dryrun:
                     return
         # 2. mount and parse filesystem image
@@ -977,13 +974,13 @@ class ImageProcessor:
         self.logger.info(f"Image tag : {self.tag}")
         self.logger.info(f"Image 'os-release' :\n{self.image.image.meta.osrelease}")
         # 3. check filesystem packages in branch
-        # missing: list[Package] = []
-        pass
         # 3.1 check branch mismatching
         self.logger.info(f"Checking filesystem image '{self.image.image.name}' branch")
         self._find_base_repo(self.image.image.packages)
         # 3.2 check all RPM packages in database
-        self.logger.info(f"Checking filesystem image '{self.image.image.name}' packages")
+        self.logger.info(
+            f"Checking filesystem image '{self.image.image.name}' packages"
+        )
         self._check_packages_in_db(self.image.image.packages)
         # 4. build and store filesystem image pkgset
         self._store_pkgsets(self._make_image_pkgsets())
