@@ -19,6 +19,7 @@ class ServiceState(IntEnum):
     RUNNING = auto()
     FAILED = auto()
     STOPPED = auto()
+    STOPPING = auto()
     DEAD = auto()
 
 

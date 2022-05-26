@@ -137,7 +137,9 @@ class ServiceBase(threading.Thread, ABC):
                 elif resp.msg == ServiceAction.START:
                     self.service_start()
                 elif resp.msg == ServiceAction.STOP:
-                    await self.service_stop()
+                    # await self.service_stop()
+                    self.loop.create_task(self.service_stop())
+                    self.state = ServiceState.STOPPING
                 elif resp.msg == ServiceAction.GET_STATE:
                     self.service_get_state()
                 elif resp.msg == ServiceAction.KILL:
@@ -211,8 +213,6 @@ class ServiceBase(threading.Thread, ABC):
             self.amqp.stop()
 
     async def service_stop(self):
-        self.state = ServiceState.STOPPED
-
         if self.amqp:
             self.amqp.stop()
 
@@ -221,8 +221,12 @@ class ServiceBase(threading.Thread, ABC):
         # self.kill_workers()
         # send stip event to all workers and join
         self.workers_stop_event.set()
-        for worker in self.workers:
-            worker.join()
+        while any([w.is_alive() for w in self.workers]):
+            await asyncio.sleep(1)
+        # for worker in self.workers:
+        #     worker.join()
+
+        self.state = ServiceState.STOPPED
 
     async def worker_results_handler(self):
         while True:
