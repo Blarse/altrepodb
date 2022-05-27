@@ -1,15 +1,15 @@
-import sys
 import json
 import time
 import logging
 import systemd.daemon
 from typing import Optional
+from pathlib import Path
 from dataclasses import dataclass
 
 from .base import ServiceState
 from .manager import ServiceManager
 
-NAME = "uploaderd"
+NAME = "altrepodb.uploaderd"
 DEFAULT_CONFIG_FILE = "/etc/uploaderd/config.json"
 DEFAULT_SERVICE_CONF_DIR = "/etc/uploaderd/services.d/"
 DEFAULT_BASE_TIMEOUT = 10
@@ -46,6 +46,16 @@ class UploaderDaemon:
             self.logger.setLevel(logging.INFO)
 
         self.managers: list[ServiceManager] = []
+        self._check_config()
+
+    def _check_config(self):
+        if not Path(self.config_file).is_file():
+            self.logger.critical(f"'{self.config_file}' not found")
+            raise UploaderDaemonError
+
+        if not Path(self.services_config_dir).is_dir():
+            self.logger.critical(f"'{self.services_config_dir}' is not a valid directory")
+            raise UploaderDaemonError
 
     def _populate_services(self) -> None:
         self.logger.debug(f"Reading config file: '{self.config_file}'")
@@ -59,18 +69,26 @@ class UploaderDaemon:
             self.logger.error(f"Failed to open {self.config_file}: {error}")
             raise UploaderDaemonError
 
-        if "services" in config:
-            for service_entry in config["services"]:
-                self.logger.debug(f"Loading {service_entry['name']} service")
-                self.managers.append(
-                    ServiceManager(
-                        service_entry["name"],
-                        self.services_config_dir + service_entry["config"],
-                    )
-                )
-        else:
-            self.logger.critical("No services configuration found")
+        if "services" not in config:
+            self.logger.error("No services configuration found")
             raise UploaderDaemonError
+
+        for service_entry in config["services"]:
+            service_config_file = Path(self.services_config_dir).joinpath(
+                service_entry["config"]
+            )
+
+            if not service_config_file.is_file():
+                self.logger.error(f"'{service_config_file.name}' not found")
+                raise UploaderDaemonError
+
+            self.logger.debug(f"Preparing {service_entry['name']} service")
+            self.managers.append(
+                ServiceManager(
+                    service_entry["name"],
+                    str(service_config_file),
+                )
+            )
 
     def _services_loop(self) -> None:
         for sm in self.managers[:]:
@@ -114,6 +132,16 @@ class UploaderDaemon:
 
                 break
 
+    def shutdown(self, signum, frame):
+        self.logger.info("Received SIGTERM signal")
+        systemd.daemon.notify("STOPPING=1")
+        for sm in self.managers:
+            self.logger.info(f"Stopping service {sm.name}")
+            sm.stop()
+            self.logger.info(f"Service {sm.name} stopped")
+        systemd.daemon.notify("STATUS=All services stopped")
+        raise SystemExit(0)
+
     def run(self) -> None:
         try:
             self.logger.info("Starting services")
@@ -136,8 +164,8 @@ class UploaderDaemon:
                     self.logger.debug(f"go to sleep for {time_left} seconds")
                     time.sleep(time_left)
         except Exception as error:
-            self.logger.error(f"Exception occured while run uplodaerd: {error}")
-            sys.exit(1)
+            self.logger.critical(f"Exception occured while run uplodaerd: {error}")
+            raise UploaderDaemonError from error
         finally:
             for sm in self.managers:
                 sm.stop()
