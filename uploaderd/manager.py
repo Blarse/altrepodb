@@ -1,3 +1,4 @@
+import time
 import queue
 
 from .service import ServiceAction, ServiceState, Message
@@ -35,6 +36,12 @@ class ServiceManager:
 
     def stop(self):
         self.service_stop()
+        while (
+            self.service_state != ServiceState.STOPPED
+            or self.service_state != ServiceState.FAILED
+        ):
+            self.service_get_state()
+            time.sleep(1)
         self.service_kill()
         self.service_state = ServiceState.DEAD
 
