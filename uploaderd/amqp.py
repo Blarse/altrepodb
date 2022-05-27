@@ -125,9 +125,9 @@ class AMQPClient:
         self._consumer_tag = ""
         self.events["connection"].clear()
         if self._connection.is_closing or self._connection.is_closed:
-            self.logger.info("Connection is closing or already closed")
+            self.logger.debug("Connection is closing or already closed")
         else:
-            self.logger.info("Closing connection")
+            self.logger.debug("Closing connection")
             self._connection.close()
 
     # def reconnect(self):
