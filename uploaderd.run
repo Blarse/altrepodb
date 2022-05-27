@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+import sys
+import signal
+import argparse
+import systemd.daemon
+
+from altrepodb.logger import get_logger, LoggerLevel
+from uploaderd.uploaderd import UploaderDaemon, UploaderDaemonConfig, DEFAULT_CONFIG_FILE, DEFAULT_SERVICE_CONF_DIR
+
+NAME = "uploaderd"
+
+logger = get_logger(NAME, log_to_syslog=True, log_to_file=True)
+
+
+def get_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-c', '--config', type=str, default=DEFAULT_CONFIG_FILE, help='Path to configuration file'
+    )
+    parser.add_argument(
+        '-s', '--service-dir', type=str, default=DEFAULT_SERVICE_CONF_DIR,
+        help='Path to directory that contains service configuration files'
+    )
+    parser.add_argument(
+        "-D", "--debug", action="store_true", help="Set logging level to debug"
+    )
+
+    return parser.parse_args()
+
+
+def main():
+    args = get_args()
+    if args.debug:
+        logger = get_logger(NAME, logging_level=LoggerLevel.DEBUG)
+    else:
+        logger = get_logger(NAME, logging_level=LoggerLevel.INFO)
+
+    logger.info("Starting uploaderd service")
+    uploader_daemon = UploaderDaemon(
+        UploaderDaemonConfig(
+            config_file=args.config,
+            services_config_dir=args.service_dir,
+            logger=logger
+        )
+    )
+    signal.signal(signal.SIGTERM, uploader_daemon.shutdown)
+    try:
+        uploader_daemon.run()
+    except Exception as error:
+        logger.critical(f"Error: {error}")
+        systemd.daemon.notify(f"STATUS={error}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
