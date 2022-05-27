@@ -113,6 +113,8 @@ def task_loader_worker(
         if taskid is None:
             logger.error("Failed to get Task ID from message")
             return
+        # XXX: 'taskid' stored as int in AMQP message
+        taskid = str(taskid)
 
         taskstate = body.get("state", "unknown").lower()
         if taskstate in consistent_states:
