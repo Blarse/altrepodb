@@ -21,9 +21,6 @@ from .exceptions import (
     # ServiceUnexpectedMessage,
     ServiceLoadConfigError,
     # ServiceFailMessage,
-    # ServiceIpcSendError,
-    # ServiceIpcRecvError,
-    # ServiceIpcTimeout,
 )
 
 
@@ -38,6 +35,7 @@ ACTION_ALLOWED_STATES = {
         ServiceState.INITIALIZED,
         ServiceState.RUNNING,
         ServiceState.FAILED,
+        ServiceState.STOPPING,
         ServiceState.STOPPED,
     ],
     ServiceAction.KILL: [ServiceState.FAILED, ServiceState.STOPPED],
@@ -129,7 +127,7 @@ class ServiceBase(threading.Thread, ABC):
                 self.logger.debug(f"New message: {resp}")
 
                 if self.state not in ACTION_ALLOWED_STATES[resp.msg]:
-                    self.service_fail("illegal state transition")
+                    self.logger.warning("illegal state transition")
                     continue
 
                 if resp.msg == ServiceAction.INIT:
@@ -139,11 +137,12 @@ class ServiceBase(threading.Thread, ABC):
                 elif resp.msg == ServiceAction.STOP:
                     # await self.service_stop()
                     self.loop.create_task(self.service_stop())
+
                     self.state = ServiceState.STOPPING
+                    self.logger.debug("stopping")
                 elif resp.msg == ServiceAction.GET_STATE:
                     self.service_get_state()
                 elif resp.msg == ServiceAction.KILL:
-                    await self.service_stop()
                     self.loop.stop()
                     return
 
@@ -167,6 +166,7 @@ class ServiceBase(threading.Thread, ABC):
                 worker = self._ctx.Process(
                     target=self.worker,
                     args=(
+                        self.workers_stop_event,
                         self.workers_todo_queue,
                         self.workers_done_queue,
                         self.dbconf,
@@ -221,7 +221,9 @@ class ServiceBase(threading.Thread, ABC):
         # self.kill_workers()
         # send stip event to all workers and join
         self.workers_stop_event.set()
+
         while any([w.is_alive() for w in self.workers]):
+            self.logger.debug("Joining wokres, go to sleep...")
             await asyncio.sleep(1)
         # for worker in self.workers:
         #     worker.join()
@@ -229,7 +231,7 @@ class ServiceBase(threading.Thread, ABC):
         self.state = ServiceState.STOPPED
 
     async def worker_results_handler(self):
-        while True:
+        while not self.workers_stop_event.is_set():
             try:
                 self.on_done(self.workers_done_queue.get_nowait())
             except queue.Empty:

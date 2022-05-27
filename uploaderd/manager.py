@@ -3,9 +3,10 @@ from typing import Type
 
 from .service import ServiceBase, ServiceAction, ServiceState, Message
 
-from services.test_service import TestService
-from services.task_service import TaskLoaderService
+from .services.test_service import TestService
+from .services.task_service import TaskLoaderService
 
+from .logger import get_logger
 
 SERVICES: dict[str, Type[ServiceBase]] = {
     "test_service" : TestService,
@@ -40,6 +41,7 @@ class ServiceManager:
             self.config_path,
             self.qin,
             self.qout,
+            get_logger(self.name),
             self.debug
         )
 
@@ -64,7 +66,8 @@ class ServiceManager:
 
     def service_stop(self):
         self.qin.put_nowait(Message(ServiceAction.STOP))
-        self.service_expected_state = ServiceState.STOPPED
+        #FIXME: expect both STOPPING and STOPPED
+        self.service_expected_state = ServiceState.STOPPING
 
     def service_kill(self):
         self.qin.put_nowait(Message(ServiceAction.KILL))
@@ -73,6 +76,7 @@ class ServiceManager:
     def service_get_state(self):
         self.service_prev_state = self.service_state
         self.service_state = ServiceState.UNKNOWN
+        self.service_reason = ""
         try:
             self.qin.put_nowait(Message(ServiceAction.GET_STATE))
             resp = self.qout.get(True, 10)

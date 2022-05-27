@@ -103,7 +103,8 @@ def task_loader_worker(
             body = json.loads(task.body_json)
         except json.JSONDecodeError:
             logger.error("Failed to get message payload JSON")
-            return
+            done_queue.put(task)
+            continue
 
         taskid = body.get("taskid", None)
         if taskid is None:
