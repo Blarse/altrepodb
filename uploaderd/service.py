@@ -11,7 +11,7 @@ from multiprocessing.context import SpawnProcess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pika import spec as pika_spec
-from typing import Protocol
+from typing import Protocol, TypeVar, Generic
 
 from altrepodb.database import DatabaseConfig
 from .amqp import AMQPClient, AMQPConfig
@@ -50,17 +50,32 @@ class Work:
     body_json: bytes
 
 
+T = TypeVar("T")
+
+
+class TypedQueue(Generic[T]):
+    def get(self) -> T:
+        ...
+
+    def put(self, m: T) -> None:
+        ...
+
+
+mpEvent = type(mp.Event)
+WorkQueue = TypedQueue[Work]
+
+
 class Worker(Protocol):
     """Service worker function protocol."""
 
     def __call__(
         self,
-        stop_event: mp._EventType,
-        todo_queue: mp.Queue[Work],
-        done_queue: mp.Queue[Work],
+        stop_event: mpEvent,
+        todo_queue: WorkQueue,
+        done_queue: WorkQueue,
         dbconf: DatabaseConfig,
     ) -> None:
-        ...
+        pass
 
 
 class ServiceBase(threading.Thread, ABC):
@@ -70,8 +85,6 @@ class ServiceBase(threading.Thread, ABC):
         config: str,
         qin: Queue,
         qout: Queue,
-        logger: logging.Logger,
-        debug: bool = False,
         *args,
         **kwargs,
     ):
@@ -82,7 +95,6 @@ class ServiceBase(threading.Thread, ABC):
         self.qin = qin
         self.qout = qout
 
-        self.debug = debug
         self.state = ServiceState.RESET
         self.reason = ""
 
@@ -100,9 +112,7 @@ class ServiceBase(threading.Thread, ABC):
 
         self.worker: Worker
 
-        self.logger = logger
-        # if self.debug:
-        #     self.logger.setLevel("DEBUG")
+        self.logger = logging.getLogger(NAME)
 
     def run(self):
         self.logger.info(f"{self.name} started")
@@ -206,7 +216,6 @@ class ServiceBase(threading.Thread, ABC):
         self.state = ServiceState.FAILED
         self.reason = reason
 
-        # 1. stop workers
         self.kill_workers()
 
         if self.amqp:
@@ -218,15 +227,11 @@ class ServiceBase(threading.Thread, ABC):
 
         await asyncio.wait_for(self.amqp.events["stop"].wait(), None)
 
-        # self.kill_workers()
-        # send stip event to all workers and join
+        # send 'stop' event to all workers and wait until all of them are terminated
         self.workers_stop_event.set()
 
         while any([w.is_alive() for w in self.workers]):
-            self.logger.debug("Joining wokres, go to sleep...")
             await asyncio.sleep(1)
-        # for worker in self.workers:
-        #     worker.join()
 
         self.state = ServiceState.STOPPED
 
@@ -245,8 +250,11 @@ class ServiceBase(threading.Thread, ABC):
 
     def kill_workers(self):
         self.logger.debug("Killing workers")
+        # FIXME: potential issue with workers pipes and subprocesses that may become malfunctional
         for worker in self.workers:
-            worker.kill()
+            # TODO: check if some processes ignores SIGTERM
+            worker.terminate()
+            # worker.kill()
 
     def self_test(self):
         if self.state == ServiceState.RUNNING:
@@ -324,7 +332,7 @@ class ServiceBase(threading.Thread, ABC):
         return config
 
     @abstractmethod
-    def on_done(self, done: mp.Queue[Work]):
+    def on_done(self, done: WorkQueue):
         return
 
     def __repr__(self):
