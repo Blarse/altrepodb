@@ -11,7 +11,7 @@ from multiprocessing.context import SpawnProcess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pika import spec as pika_spec
-from typing import Protocol, TypeVar, Generic
+from typing import Protocol, TypeVar, Generic, Any
 
 from altrepodb.database import DatabaseConfig
 from .amqp import AMQPClient, AMQPConfig
@@ -24,7 +24,7 @@ from .exceptions import (
 )
 
 
-NAME = "uploaderd.service"
+NAME = "altrepodb.uploaderd.service"
 
 ACTION_ALLOWED_STATES = {
     ServiceAction.INIT: [ServiceState.RESET],
@@ -74,6 +74,7 @@ class Worker(Protocol):
         todo_queue: WorkQueue,
         done_queue: WorkQueue,
         dbconf: DatabaseConfig,
+        config: dict[str, Any],
     ) -> None:
         pass
 
@@ -111,6 +112,7 @@ class ServiceBase(threading.Thread, ABC):
         self.amqpconf: AMQPConfig
 
         self.worker: Worker
+        self.config: dict[str, Any] = {}
 
         self.logger = logging.getLogger(NAME)
 
@@ -180,6 +182,7 @@ class ServiceBase(threading.Thread, ABC):
                         self.workers_todo_queue,
                         self.workers_done_queue,
                         self.dbconf,
+                        self.config,
                     ),
                 )
                 worker.start()
@@ -329,7 +332,7 @@ class ServiceBase(threading.Thread, ABC):
 
         self.logger.debug(f"Service config:\n{self.dbconf}\n{self.amqpconf}")
 
-        return config
+        self.config = config
 
     @abstractmethod
     def on_done(self, done: WorkQueue):
