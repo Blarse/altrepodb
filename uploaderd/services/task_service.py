@@ -1,17 +1,18 @@
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
-from ..logger import get_logger
 from ..service import ServiceBase, Work, mpEvent, WorkQueue
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
-
+NAME = "altrepodb.task_loader"
 MAX_REDELIVER = 4
+DEFAULT_TASKS_DIR = "/tasks"
 
 consistent_states = ["done", "eperm", "failed", "new", "tested"]
 
@@ -25,15 +26,19 @@ inconsistent_states = [
     "swept",
 ]
 
+logger = logging.getLogger(NAME)
+
 
 class TaskLoaderService(ServiceBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.worker = task_loader_worker
+        self.logger = logger
 
     def load_config(self):
-        config = super().load_config()
-        return config
+        super().load_config()
+        if "tasks_dir" not in self.config:
+            self.config["tasks_dir"] = DEFAULT_TASKS_DIR
 
     def on_message(self, method, properties, body_json):
         if not method.routing_key == "task.state":
@@ -86,9 +91,8 @@ def task_loader_worker(
     todo_queue: WorkQueue,
     done_queue: WorkQueue,
     dbconf: DatabaseConfig,
+    config: dict[str, Any],
 ):
-    logger = get_logger("task_loader_worker")
-
     while not stop_event.is_set():
         try:
             task = todo_queue.get()
@@ -112,10 +116,10 @@ def task_loader_worker(
 
         taskstate = body.get("state", "unknown").lower()
         if taskstate in consistent_states:
-            if _load_task(logger, dbconf, taskid):
+            if _load_task(dbconf, taskid, config["tasks_dir"]):
                 task.status = "done"
         elif taskstate == "deleted":
-            if _load_deleted_task(logger, dbconf, taskid):
+            if _load_deleted_task(dbconf, taskid):
                 task.status = "done"
         else:
             logger.warning(f"Inconsistent task state: {taskstate}")
@@ -123,11 +127,11 @@ def task_loader_worker(
         done_queue.put(task)
 
 
-def _load_task(logger: logging.Logger, dbconf: DatabaseConfig, taskid: str) -> bool:
+def _load_task(dbconf: DatabaseConfig, taskid: str, tasks_path: str) -> bool:
 
     tpconf = TaskProcessorConfig(
         id=int(taskid),
-        path=f"/tasks/{taskid}/",
+        path=Path(tasks_path).joinpath(taskid),
         dbconfig=dbconf,
         logger=logger,
         debug=False,
@@ -149,9 +153,7 @@ def _load_task(logger: logging.Logger, dbconf: DatabaseConfig, taskid: str) -> b
         return False
 
 
-def _load_deleted_task(
-    logger: logging.Logger, dbconf: DatabaseConfig, taskid: str
-) -> bool:
+def _load_deleted_task(dbconf: DatabaseConfig, taskid: str) -> bool:
     insert_task_states = """
 INSERT INTO TaskStates_buffer (*) VALUES
 """
