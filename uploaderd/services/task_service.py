@@ -1,13 +1,12 @@
 import json
 import logging
 from datetime import datetime
-from multiprocessing import Queue, _EventType
 from typing import Any
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
 from ..logger import get_logger
-from ..service import ServiceBase, Work
+from ..service import ServiceBase, Work, mpEvent, WorkQueue
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
@@ -83,9 +82,9 @@ class TaskLoaderService(ServiceBase):
 
 
 def task_loader_worker(
-    stop_event: _EventType,
-    todo_queue: Queue[Work],
-    done_queue: Queue[Work],
+    stop_event: mpEvent,
+    todo_queue: WorkQueue,
+    done_queue: WorkQueue,
     dbconf: DatabaseConfig,
 ):
     logger = get_logger("task_loader_worker")
