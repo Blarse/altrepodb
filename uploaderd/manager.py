@@ -1,25 +1,13 @@
 import queue
-from typing import Type
 
-from .service import ServiceBase, ServiceAction, ServiceState, Message
-
-from .services.test_service import TestService
-from .services.task_service import TaskLoaderService
-
-from .logger import get_logger
-
-SERVICES: dict[str, Type[ServiceBase]] = {
-    "test_service" : TestService,
-    "task_loader" : TaskLoaderService,
-    # "bug_loader" : BugLoader
-}
+from .service import ServiceAction, ServiceState, Message
+from .services.services import SERVICES
 
 
 class ServiceManager:
-    def __init__(self, name, config_path, debug=False):
+    def __init__(self, name: str, config_path: str):
         self.name = name
         self.config_path = config_path
-        self.debug = debug
 
         self.service_state = ServiceState.RESET
         self.service_expected_state = ServiceState.RESET
@@ -41,8 +29,6 @@ class ServiceManager:
             self.config_path,
             self.qin,
             self.qout,
-            get_logger(self.name),
-            self.debug
         )
 
         self.service.start()
@@ -66,7 +52,7 @@ class ServiceManager:
 
     def service_stop(self):
         self.qin.put_nowait(Message(ServiceAction.STOP))
-        #FIXME: expect both STOPPING and STOPPED
+        # FIXME: expect both STOPPING and STOPPED
         self.service_expected_state = ServiceState.STOPPING
 
     def service_kill(self):
