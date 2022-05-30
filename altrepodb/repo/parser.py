@@ -16,7 +16,6 @@
 import logging
 import multiprocessing as mp
 from uuid import uuid4
-from typing import Union
 from pathlib import Path
 from collections import namedtuple
 
@@ -24,11 +23,10 @@ from altrepodb.altrpm import rpm as rpmt, readHeaderListFromXZFile
 from altrepodb.misc import lut
 from altrepodb.utils import unxz, md5_from_file, calculate_sha256_blake2b
 
-from .base import PkgHash, Repository, RepoLeaf, SrcRepoLeaf, RootRepoLeaf
+from .base import PkgHash, Repository, RepoLeaf, SrcRepoLeaf, RootRepoLeaf, StringOrPath
 from .utils import convert
 from .exceptions import RepoParsingError
 
-_StringOrPath = Union[str, Path]
 
 PkglistResult = namedtuple("PkglistResult", ["is_src", "fname", "hashes"])
 
@@ -53,7 +51,7 @@ def get_hashes_from_pkglist(fname: str) -> PkglistResult:
 class RepoParser:
     """Read and parse repository structure."""
 
-    def __init__(self, repo_name: str, repo_path: _StringOrPath) -> None:
+    def __init__(self, repo_name: str, repo_path: StringOrPath) -> None:
         self.name = repo_name
         self.path = Path(repo_path)
         self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
@@ -78,18 +76,13 @@ class RepoParser:
                 puuid="00000000-0000-0000-0000-000000000000",
                 kwargs=dict(),
             ),
-            src=SrcRepoLeaf(
-                name="srpm",
-                path=list(),
-                uuid=str(uuid4()),
-                puuid=""
-            ),
+            src=SrcRepoLeaf(name="srpm", path=list(), uuid=str(uuid4()), puuid=""),
             archs=list(),
             comps=list(),
             src_hashes=dict(),
             bin_hashes=dict(),
             bin_pkgs=dict(),
-            use_blake2b=False
+            use_blake2b=False,
         )
         repo.src.puuid = repo.root.uuid
         repo.root.kwargs["class"] = "repository"
@@ -111,7 +104,11 @@ class RepoParser:
                         break
             return comps
 
-        for arch_dir in [_ for _ in self.path.iterdir() if (_.is_dir() and _.name in lut.ARCHS)]:
+        for arch_dir in [
+            arch
+            for arch in self.path.iterdir()
+            if (arch.is_dir() and arch.name in lut.ARCHS)
+        ]:
             self.repo.archs.append(
                 RepoLeaf(
                     name=arch_dir.name,
@@ -168,7 +165,9 @@ class RepoParser:
         self.logger.info("Reading package's hashes from headers lists")
         with mp.Pool(processes=mp.cpu_count()) as p:
             for pkglist in p.map(get_hashes_from_pkglist, self.pkglists):
-                self.logger.info(f"Got {len(pkglist.hashes)} package hashes from {pkglist.fname}")
+                self.logger.info(
+                    f"Got {len(pkglist.hashes)} package hashes from {pkglist.fname}"
+                )
                 if pkglist.is_src:
                     for k, v in pkglist.hashes.items():
                         if k not in self.repo.src_hashes:
@@ -246,8 +245,12 @@ class RepoParser:
         pkg_file = Path()
         # for source files
         for k, v in self.repo.src_hashes.items():
-            if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
-                self.logger.info(f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file")
+            if v.sha256 in (b"", None) or (
+                v.blake2b in (b"", None) and self.repo.use_blake2b
+            ):
+                self.logger.info(
+                    f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file"
+                )
             else:
                 continue
 
@@ -261,12 +264,18 @@ class RepoParser:
 
             (
                 self.repo.src_hashes[k].sha256,
-                self.repo.src_hashes[k].blake2b
-            ) = calculate_sha256_blake2b(pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b)
+                self.repo.src_hashes[k].blake2b,
+            ) = calculate_sha256_blake2b(
+                pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b
+            )
         # for binary files
         for k, v in self.repo.bin_hashes.items():
-            if (v.sha256 in (b"", None) or (v.blake2b in (b"", None) and self.repo.use_blake2b)):
-                self.logger.info(f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file")
+            if v.sha256 in (b"", None) or (
+                v.blake2b in (b"", None) and self.repo.use_blake2b
+            ):
+                self.logger.info(
+                    f"{k}'s SHA256 or BLAKE2b hash not found. Calculating it from file"
+                )
             else:
                 continue
 
@@ -276,8 +285,10 @@ class RepoParser:
                 if pkg_file.is_file():
                     (
                         self.repo.bin_hashes[k].sha256,
-                        self.repo.bin_hashes[k].blake2b
-                    ) = calculate_sha256_blake2b(pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b)
+                        self.repo.bin_hashes[k].blake2b,
+                    ) = calculate_sha256_blake2b(
+                        pkg_file, v.sha256, v.blake2b, self.repo.use_blake2b
+                    )
                     found = True
                     break
             if not found:
@@ -297,5 +308,7 @@ class RepoParser:
             f"Found {len(self.repo.comps)} components "
             f"for {len(self.repo.archs)} architectures"
         )
-        self.logger.debug(f"Found {len(self.repo.src_hashes)} hashes for 'src.rpm' files")
+        self.logger.debug(
+            f"Found {len(self.repo.src_hashes)} hashes for 'src.rpm' files"
+        )
         self.logger.debug(f"Found {len(self.repo.bin_hashes)} hashes for 'rpm' files")
