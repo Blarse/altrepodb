@@ -17,7 +17,7 @@ import sys
 import argparse
 import configparser
 
-from altrepodb.spdx import SPDX, SPDXConfig, SPDX_URL, SPDX_GIT_TIMEOUT
+from altrepodb.spdx import SPDX, SPDXConfig, SPDX_URL
 from altrepodb.logger import get_config_logger, LoggerLevel
 from altrepodb.database import DatabaseConfig
 
@@ -83,7 +83,6 @@ def main():
                     user=args.user,
                     password=args.password,
                 ),
-                timeout=SPDX_GIT_TIMEOUT,
                 git_root=args.git_root,
             )
         )

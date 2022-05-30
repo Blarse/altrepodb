@@ -21,12 +21,14 @@ from collections import namedtuple
 
 from .utils import run_command, RunCommandError
 from .database import DatabaseClient, DatabaseConfig, DatabaseError
-
-SPDX_URL = "https://github.com/spdx/license-list-data"
-SPDX_GIT_ROOT = "SPDX"
-SPDX_LICENSES = "json/details"
-SPDX_EXCEPTIONS = "json/exceptions"
-SPDX_GIT_TIMEOUT = 60 * 5
+from .settings import (
+    SPDX_URL,
+    SPDX_GIT_ROOT,
+    SPDX_LICENSES,
+    SPDX_EXCEPTIONS,
+    SPDX_GIT_CLONE_TIMEOUT,
+    SPDX_GIT_PULL_TIMEOUT,
+)
 
 
 class SPDXError(Exception):
@@ -56,7 +58,6 @@ class SPDXConfig:
     url: str
     logger: Logger
     dbconfig: DatabaseConfig
-    timeout: int = 30
     git_root: str = ""
 
 
@@ -91,9 +92,8 @@ class SPDX:
             logger=config.logger,
         )
         self.logger = config.logger
-        self.timeout = config.timeout
         if not config.git_root:
-            self.spdx_root = Path.cwd().joinpath(SPDX_GIT_ROOT)
+            self.spdx_root = Path.home().joinpath(SPDX_GIT_ROOT)
         else:
             self.spdx_root = Path(config.git_root)
         self._licenses: list[License] = []
@@ -124,7 +124,7 @@ class SPDX:
                     ],
                     raise_on_error=True,
                     logger=self.logger,
-                    timeout=self.timeout,
+                    timeout=SPDX_GIT_PULL_TIMEOUT,
                 )
             else:
                 self.logger.debug("Clone SPDX git master")
@@ -132,7 +132,7 @@ class SPDX:
                     *["git", "clone", "--depth=1", SPDX_URL, str(self.spdx_root)],
                     raise_on_error=True,
                     logger=self.logger,
-                    timeout=self.timeout,
+                    timeout=SPDX_GIT_CLONE_TIMEOUT,
                 )
         except RunCommandError as e:
             raise SPDXError("Failed to update SPDX git repository") from e
