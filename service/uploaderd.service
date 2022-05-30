@@ -1,0 +1,13 @@
+[Unit]
+Description=ALTRepo Uploader Service
+
+[Service]
+User=_altrepo
+Group=_altrepo
+Type=notify
+ExecStart=/usr/bin/uploaderd
+Restart=on-failure
+WorkingDirectory=/var/lib/altrepodb
+
+[Install]
+WantedBy=multi-user.target

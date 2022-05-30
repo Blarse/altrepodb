@@ -1,0 +1,12 @@
+{
+    "services" : [
+        {
+            "name" : "task_loader",
+            "config" : "task_loader.json"
+        },
+        {
+            "name" : "bug_loader",
+            "config" : "bug_loader.json"
+        }
+    ]
+}

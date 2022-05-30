@@ -1,0 +1,25 @@
+{
+    "workers_count" : 1,
+    "tasks_dir": "/tasks",
+
+    "database" : {
+        "dbname" : "repodb",
+        "host" : "default",
+        "port" : 9000,
+        "user" : "default",
+        "password" : ""
+    },
+
+    "amqp" : {
+        "host" : "",
+        "port" : 5672,
+        "vhost" : "/",
+        "queue" : "",
+        "exchange" : "",
+        "username" : "",
+        "password" : "",
+        "cacert" : "",
+        "key" : "",
+        "cert" : ""
+    }
+}
