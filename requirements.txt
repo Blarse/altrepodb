@@ -1,0 +1,6 @@
+rpm
+mmh3
+requests
+libarchive-c
+beautifulsoup4
+clickhouse-driver
