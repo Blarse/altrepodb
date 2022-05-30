@@ -5,7 +5,12 @@ import argparse
 import systemd.daemon
 
 from altrepodb.logger import get_logger, LoggerLevel
-from uploaderd.uploaderd import UploaderDaemon, UploaderDaemonConfig, DEFAULT_CONFIG_FILE, DEFAULT_SERVICE_CONF_DIR
+from altrepodb.uploaderd.uploaderd import (
+    UploaderDaemon,
+    UploaderDaemonConfig,
+    DEFAULT_CONFIG_FILE,
+    DEFAULT_SERVICE_CONF_DIR,
+)
 
 NAME = "uploaderd"
 
@@ -16,11 +21,18 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-c', '--config', type=str, default=DEFAULT_CONFIG_FILE, help='Path to configuration file'
+        "-c",
+        "--config",
+        type=str,
+        default=DEFAULT_CONFIG_FILE,
+        help="Path to configuration file",
     )
     parser.add_argument(
-        '-s', '--service-dir', type=str, default=DEFAULT_SERVICE_CONF_DIR,
-        help='Path to directory that contains service configuration files'
+        "-s",
+        "--service-dir",
+        type=str,
+        default=DEFAULT_SERVICE_CONF_DIR,
+        help="Path to directory that contains service configuration files",
     )
     parser.add_argument(
         "-D", "--debug", action="store_true", help="Set logging level to debug"
@@ -39,9 +51,7 @@ def main():
     logger.info("Starting uploaderd service")
     uploader_daemon = UploaderDaemon(
         UploaderDaemonConfig(
-            config_file=args.config,
-            services_config_dir=args.service_dir,
-            logger=logger
+            config_file=args.config, services_config_dir=args.service_dir, logger=logger
         )
     )
     signal.signal(signal.SIGTERM, uploader_daemon.shutdown)
