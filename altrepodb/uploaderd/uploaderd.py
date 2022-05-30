@@ -24,10 +24,13 @@ from dataclasses import dataclass
 from .base import ServiceState
 from .manager import ServiceManager
 
+from altrepodb.settings import (
+    DEFAULT_UPLOADERD_CONFIG_FILE,
+    DEFAULT_SERVICE_CONF_DIR,
+    DEFAULT_BASE_TIMEOUT,
+)
+
 NAME = "altrepodb.uploaderd"
-DEFAULT_CONFIG_FILE = "/etc/uploaderd/config.json"
-DEFAULT_SERVICE_CONF_DIR = "/etc/uploaderd/services.d/"
-DEFAULT_BASE_TIMEOUT = 10
 
 
 class UploaderDaemonError(Exception):
@@ -36,7 +39,7 @@ class UploaderDaemonError(Exception):
 
 @dataclass
 class UploaderDaemonConfig:
-    config_file: str = DEFAULT_CONFIG_FILE
+    config_file: str = DEFAULT_UPLOADERD_CONFIG_FILE
     services_config_dir: str = DEFAULT_SERVICE_CONF_DIR
     service_timeout: int = DEFAULT_BASE_TIMEOUT
     logger: Optional[logging.Logger] = None
@@ -69,7 +72,9 @@ class UploaderDaemon:
             raise UploaderDaemonError
 
         if not Path(self.services_config_dir).is_dir():
-            self.logger.critical(f"'{self.services_config_dir}' is not a valid directory")
+            self.logger.critical(
+                f"'{self.services_config_dir}' is not a valid directory"
+            )
             raise UploaderDaemonError
 
     def _populate_services(self) -> None:
