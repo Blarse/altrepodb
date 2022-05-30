@@ -1,16 +1,16 @@
 # This file is part of the altrpm distribution (http://git.altlinux.org/people/dshein/public/altrpm.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
@@ -425,7 +425,9 @@ class RPMSigTag:
     # X = RPMTAG_SIG_BASE + 16  # reserved
     RPMSIGTAG_SHA256 = RPMTAG_SIG_BASE + 17  # RPMTAG_SHA256HEADER
     RPMSIGTAG_FILESIGNATURES = RPMTAG_SIG_BASE + 18  # RPMSIGTAG_FILESIGNATURES
-    RPMSIGTAG_FILESIGNATURELENGTH = RPMTAG_SIG_BASE + 19  # RPMSIGTAG_FILESIGNATURELENGTH
+    RPMSIGTAG_FILESIGNATURELENGTH = (
+        RPMTAG_SIG_BASE + 19
+    )  # RPMSIGTAG_FILESIGNATURELENGTH
     RPMSIGTAG_VERITYSIGNATURES = RPMTAG_SIG_BASE + 20  # RPMTAG_VERITYSIGNATURES
     RPMSIGTAG_VERITYSIGNATUREALGO = RPMTAG_SIG_BASE + 21  # RPMTAG_VERITYSIGNATUREALGO
 

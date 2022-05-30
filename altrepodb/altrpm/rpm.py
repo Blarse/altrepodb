@@ -1,16 +1,16 @@
 # This file is part of the altrpm distribution (http://git.altlinux.org/people/dshein/public/altrpm.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
-# 
-# This program is free software: you can redistribute it and/or modify  
-# it under the terms of the GNU General Public License as published by  
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, version 3.
 #
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
+# You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import io
@@ -24,7 +24,7 @@ from struct import error as StructError
 import libarchive
 import subprocess
 from collections import namedtuple
-from typing import Union, BinaryIO, Any
+from typing import Union, BinaryIO, Any, Literal
 
 from .rpmtag import rpmh, rpms, rpmt, rpmtt, get_tag_content
 
@@ -93,7 +93,7 @@ compressors_magic: dict = {
 }
 
 
-def bytes2integer(data: bytes, order: str = "big") -> int:
+def bytes2integer(data: bytes, order: Literal["little", "big"] = "big") -> int:
     return int.from_bytes(data, order)
 
 
@@ -261,9 +261,9 @@ class RPMHeaderParser:
             # read lead
             rpm_lead = lead_struct.unpack(self.reader.read(lead_struct.size))
             if rpm_lead[0] != RPM_MAGIC:
-                raise ValueError(f"File is not a RPM package")
+                raise ValueError("File is not a RPM package")
 
-            # set package type flag from 'type' field in lead section 
+            # set package type flag from 'type' field in lead section
             if rpm_lead[3] != 0:
                 is_binary_pkg = False
 
@@ -308,11 +308,10 @@ class RPMHeaderParser:
         for _ in range(rpm_header.nindex):
             rpm_tag = RPMTagS(*tag_struct.unpack(self.reader.read(tag_struct.size)))
             self.extract_tag_content(rpm_tag, is_sig_tag=False)
-        
+
         # set RPMTAG_SOURCEPACKAGE in librpm way
         if not is_binary_pkg and self.hdr[rpmh.RPMTAG_SOURCERPM] is None:
             self.hdr[rpmh.RPMTAG_SOURCEPACKAGE] = 1
-
 
 
 def parse_headers_list(filename):
