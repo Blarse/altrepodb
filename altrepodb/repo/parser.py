@@ -20,8 +20,8 @@ from pathlib import Path
 from collections import namedtuple
 
 from altrepodb.altrpm import rpm as rpmt, readHeaderListFromXZFile
-from altrepodb.misc import lut
 from altrepodb.utils import unxz, md5_from_file, calculate_sha256_blake2b
+from altrepodb.settings import ARCHS
 
 from .base import PkgHash, Repository, RepoLeaf, SrcRepoLeaf, RootRepoLeaf, StringOrPath
 from .utils import convert
@@ -62,7 +62,7 @@ class RepoParser:
         """Check if repository structure is valid and init self.repo instance."""
 
         if not Path.joinpath(self.path, "files/list").is_dir() or not [
-            x for x in self.path.iterdir() if (x.is_dir() and x.name in lut.ARCHS)
+            x for x in self.path.iterdir() if (x.is_dir() and x.name in ARCHS)
         ]:
             raise RepoParsingError(
                 f"The path '{str(self.path)}' is not regular repository structure root"
@@ -107,7 +107,7 @@ class RepoParser:
         for arch_dir in [
             arch
             for arch in self.path.iterdir()
-            if (arch.is_dir() and arch.name in lut.ARCHS)
+            if (arch.is_dir() and arch.name in ARCHS)
         ]:
             self.repo.archs.append(
                 RepoLeaf(
@@ -201,7 +201,7 @@ class RepoParser:
                 self.repo.root.kwargs[k] = v
 
         # load all SHA256 hashes
-        for arch in lut.ARCHS:
+        for arch in ARCHS:
             f = p.joinpath(arch + ".hash.xz")
             if not f.is_file():
                 continue
