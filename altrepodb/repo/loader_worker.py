@@ -21,6 +21,7 @@ from pathlib import Path
 from altrepodb.base import LockedIterator
 from altrepodb.utils import blake2b_from_file, check_package_in_cache
 from altrepodb.database import DatabaseClient
+from altrepodb.settings import MAX_WORKERS_FOR_SRPM
 
 from .base import Repository
 from .utils import Display
@@ -28,8 +29,6 @@ from .mapper import get_partial_pkg_map
 from .package import PackageHandler, PkgHash
 from .processor import RepoProcessorConfig
 from .exceptions import PackageLoadError
-
-MAX_WORKERS_FOR_SRPM = 4
 
 
 class Worker(threading.Thread):
