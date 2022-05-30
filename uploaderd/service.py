@@ -1,16 +1,15 @@
+import json
+import pika
+import queue
+import asyncio
 import logging
 import threading
 import multiprocessing as mp
-import queue
-import asyncio
-import json
-import pika
 
-from queue import Queue
-from multiprocessing.context import SpawnProcess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pika import spec as pika_spec
+from multiprocessing.context import SpawnProcess
 from typing import Protocol, TypeVar, Generic, Any
 
 from altrepodb.database import DatabaseConfig
@@ -26,7 +25,7 @@ from .exceptions import (
 
 NAME = "altrepodb.uploaderd.service"
 
-ACTION_ALLOWED_STATES = {
+ACTION_ALLOWED_STATES: dict[int, list[int]] = {
     ServiceAction.INIT: [ServiceState.RESET],
     ServiceAction.START: [ServiceState.INITIALIZED],
     ServiceAction.STOP: [ServiceState.INITIALIZED, ServiceState.RUNNING],
@@ -57,12 +56,19 @@ class TypedQueue(Generic[T]):
     def get(self) -> T:
         ...
 
+    def get_nowait(self) -> T:
+        ...
+
     def put(self, m: T) -> None:
+        ...
+
+    def put_nowait(self, m: T) -> None:
         ...
 
 
 mpEvent = type(mp.Event)
 WorkQueue = TypedQueue[Work]
+MessageQueue = TypedQueue[Message]
 
 
 class Worker(Protocol):
@@ -84,8 +90,8 @@ class ServiceBase(threading.Thread, ABC):
         self,
         name: str,
         config: str,
-        qin: Queue,
-        qout: Queue,
+        qin: MessageQueue,
+        qout: MessageQueue,
         *args,
         **kwargs,
     ):
@@ -335,7 +341,7 @@ class ServiceBase(threading.Thread, ABC):
         self.config = config
 
     @abstractmethod
-    def on_done(self, done: WorkQueue):
+    def on_done(self, done: Work):
         return
 
     def __repr__(self):

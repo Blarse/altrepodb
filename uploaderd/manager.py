@@ -28,8 +28,8 @@ class ServiceManager:
         self.service = SERVICES[self.name](
             self.name,
             self.config_path,
-            self.qin,
-            self.qout,
+            self.qin,  # type: ignore
+            self.qout,  # type: ignore
         )
 
         self.service.start()
