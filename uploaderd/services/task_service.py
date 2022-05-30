@@ -109,14 +109,14 @@ def task_loader_worker(
             done_queue.put(task)
             continue
 
-        taskid = body.get("taskid", None)
+        # XXX: 'taskid' field stored as integer in AMQP message
+        taskid: int = body.get("taskid", None)
         if taskid is None:
             logger.error("Failed to get Task ID from message")
             return
-        # XXX: 'taskid' stored as int in AMQP message
-        taskid = str(taskid)
 
         taskstate = body.get("state", "unknown").lower()
+        logger.debug(f"Got task {taskid} in state '{taskstate}'")
         if taskstate in consistent_states:
             if _load_task(dbconf, taskid, config["tasks_dir"]):
                 task.status = "done"
@@ -129,11 +129,11 @@ def task_loader_worker(
         done_queue.put(task)
 
 
-def _load_task(dbconf: DatabaseConfig, taskid: str, tasks_path: str) -> bool:
+def _load_task(dbconf: DatabaseConfig, taskid: int, tasks_path: str) -> bool:
 
     tpconf = TaskProcessorConfig(
-        id=int(taskid),
-        path=Path(tasks_path).joinpath(taskid),
+        id=taskid,
+        path=Path(tasks_path).joinpath(str(taskid)),
         dbconfig=dbconf,
         logger=logger,
         debug=False,
@@ -155,7 +155,7 @@ def _load_task(dbconf: DatabaseConfig, taskid: str, tasks_path: str) -> bool:
         return False
 
 
-def _load_deleted_task(dbconf: DatabaseConfig, taskid: str) -> bool:
+def _load_deleted_task(dbconf: DatabaseConfig, taskid: int) -> bool:
     insert_task_states = """
 INSERT INTO TaskStates_buffer (*) VALUES
 """
@@ -164,7 +164,7 @@ OPTIMIZE TABLE TaskStates_buffer
 """
     task_state = {
         "task_changed": cvt_datetime_local_to_utc(datetime.now()),
-        "task_id": int(taskid),
+        "task_id": taskid,
         "task_state": "DELETED",
         "task_runby": "",
         "task_depends": [],
