@@ -63,17 +63,7 @@ from .utils import (
     checksums_from_file,
 )
 from .database import DatabaseClient
-
-
-# module constants
-RUN_COMMAND_TIMEOUT = 10
-REQUIRED_EXECUTABLES = (
-    "umount",
-    "isoinfo",
-    "fuseiso",
-    "squashfuse",
-    "gost12sum",
-)
+from .settings import ISO_RUN_COMMAND_TIMEOUT, ISO_REQUIRED_EXECUTABLES
 
 
 @dataclass
@@ -111,7 +101,7 @@ class ImageMounter:
                 *args,
                 raise_on_error=True,
                 logger=self._log,
-                timeout=RUN_COMMAND_TIMEOUT,
+                timeout=ISO_RUN_COMMAND_TIMEOUT,
             )
         except RunCommandError as e:
             raise ImageRunCommandError("Subprocess returned an error") from e
@@ -236,7 +226,7 @@ class ISO:
 
     def _check_system_executables(self):
         not_found_ = []
-        for executable in REQUIRED_EXECUTABLES:
+        for executable in ISO_REQUIRED_EXECUTABLES:
             if shutil.which(executable) is None:
                 self.logger.error(f"Executable '{executable}' not found")
                 not_found_.append(executable)
@@ -433,9 +423,11 @@ class ISO:
                 "Calculate MD5, SHA1, SHA256 and GOST12 checksums from ISO file"
             )
 
-            ctx = mp.get_context('spawn')
+            ctx = mp.get_context("spawn")
             q = ctx.Queue()
-            p = ctx.Process(target=self._checksums_from_file_mp, args=(self._iso.path, q))
+            p = ctx.Process(
+                target=self._checksums_from_file_mp, args=(self._iso.path, q)
+            )
             p.start()
             # process ISO contents
             self._open_iso()

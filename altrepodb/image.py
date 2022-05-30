@@ -60,19 +60,13 @@ from .utils import (
     checksums_from_file,
 )
 from .database import DatabaseClient
-
-
-# module constants
-RUN_COMMAND_TIMEOUT = 30
-TAR_RPMDB_PREFIX = "./var/lib/rpm/"
-IMG_RPMDB_PREFIX = "var/lib/rpm"
-QCOW_RPMDB_PREFIX = "var/lib/rpm"
-LOCALTMP_PREFIX = "tmp_img"
-REQUIRED_EXECUTABLES = (
-    "unxz",
-    "umount",
-    "gost12sum",
-    "guestmount",
+from .settings import (
+    IMG_RUN_COMMAND_TIMEOUT,
+    IMG_TAR_RPMDB_PREFIX,
+    IMG_IMG_RPMDB_PREFIX,
+    IMG_QCOW_RPMDB_PREFIX,
+    IMG_LOCALTMP_PREFIX,
+    IMG_REQUIRED_EXECUTABLES,
 )
 
 
@@ -132,7 +126,7 @@ class ImageMounter:
             *args,
             env=env,
             check=True,
-            timeout=RUN_COMMAND_TIMEOUT,
+            timeout=IMG_RUN_COMMAND_TIMEOUT,
         )
 
     def _unmount(self) -> None:
@@ -159,9 +153,9 @@ class ImageMounter:
                             c.decode("utf-8")
                         )
                     # extract RPMDB files to temporary directory
-                    if entry.name.startswith(TAR_RPMDB_PREFIX):
+                    if entry.name.startswith(IMG_TAR_RPMDB_PREFIX):
                         if entry.isfile:
-                            e_name = entry.name.replace(TAR_RPMDB_PREFIX, "")
+                            e_name = entry.name.replace(IMG_TAR_RPMDB_PREFIX, "")
                             c = b""
                             with Path(self.path).joinpath(e_name).open("wb") as f:
                                 for b in entry.get_blocks():
@@ -205,7 +199,7 @@ class ImageMounter:
                 *("unxz", "-lv", image_path),
                 env=None,
                 check=True,
-                timeout=RUN_COMMAND_TIMEOUT,
+                timeout=IMG_RUN_COMMAND_TIMEOUT,
             )
             u_size = 0
             for line in sout.splitlines():
@@ -227,7 +221,7 @@ class ImageMounter:
             # 2. uncompress image
             # 2.1 setup temporary file name
             self._localtmpfile = homedir.joinpath(
-                "_".join((LOCALTMP_PREFIX, str(uuid4())))
+                "_".join((IMG_LOCALTMP_PREFIX, str(uuid4())))
             )
             # 2.2 uncompress 'img.xz' to temporary file
             st = time.time()
@@ -330,7 +324,7 @@ class ImageHandler:
 
     def _check_system_executables(self):
         not_found_ = []
-        for executable in REQUIRED_EXECUTABLES:
+        for executable in IMG_REQUIRED_EXECUTABLES:
             if shutil.which(executable) is None:
                 self.logger.error(f"Executable '{executable}' not found")
                 not_found_.append(executable)
@@ -477,7 +471,7 @@ class QCOW(ImageHandler):
         # read packages from RPMDB
         self.logger.debug("Reading filesystem image RPM packages")
         try:
-            rpmdb = RPMDBPackages(p.joinpath(QCOW_RPMDB_PREFIX))
+            rpmdb = RPMDBPackages(p.joinpath(IMG_QCOW_RPMDB_PREFIX))
             self._image.packages = rpmdb.packages_list
             self.logger.info(
                 f"Collected {rpmdb.count} RPM packages from '{self.name}' filesystem image"
@@ -528,7 +522,7 @@ class IMG(ImageHandler):
         # read packages from RPMDB
         self.logger.debug("Reading filesystem image RPM packages")
         try:
-            rpmdb = RPMDBPackages(p.joinpath(IMG_RPMDB_PREFIX))
+            rpmdb = RPMDBPackages(p.joinpath(IMG_IMG_RPMDB_PREFIX))
             self._image.packages = rpmdb.packages_list
             self.logger.info(
                 f"Collected {rpmdb.count} RPM packages from '{self.name}' filesystem image"
