@@ -18,12 +18,18 @@ import datetime
 import configparser
 from logging import handlers
 from dataclasses import dataclass
-from typing import Optional, Any
+from pathlib import Path
+from typing import Optional, Any, Literal
+
+from .settings import (
+    PROJECT_NAME,
+    DEFAULT_LOG_FILE,
+    DEFAULT_LOG_LEVEL,
+    MAX_LOG_FILE_SIZE,
+    MAX_LOG_FILE_PARTS,
+)
 
 
-# constants
-PROJECT_NAME = "altrepodb"
-DEFAULT_LOG_LEVEL = logging.INFO
 LOGGER_CONFIG_OPTIONS = [
     ("log_to_file", bool),
     ("log_to_syslog", bool),
@@ -49,28 +55,20 @@ class LoggerLevel:
 LoggerOptional = Optional[logging.Logger]
 
 
-def get_logger(
+def _get_logger(
     name: str,
-    tag: Optional[str] = None,
-    date: Optional[datetime.date] = None,
-    log_to_file: bool = False,
-    log_to_stderr: bool = True,
-    log_to_syslog: bool = False,
-    logging_level: int = DEFAULT_LOG_LEVEL,
-    syslog_ident: str = PROJECT_NAME
+    log_to_file: bool,
+    log_to_stderr: bool,
+    log_to_syslog: bool,
+    logging_level: int,
+    syslog_ident: str = PROJECT_NAME,
+    log_file_name: str = DEFAULT_LOG_FILE,
 ) -> logging.Logger:
     """Get logger instance with specific name as child of root logger.
     Creates root logger if it doesn't exists."""
 
     root_logger = logging.getLogger(PROJECT_NAME)
     root_logger.setLevel(logging_level)
-
-    if date is None:
-        date = datetime.date.today()
-    if tag is not None:
-        LOG_FILE = "{0}-{1}-{2}.log".format(name, tag, date.strftime("%Y-%m-%d"))
-    else:
-        LOG_FILE = "{0}-{1}.log".format(name, date.strftime("%Y-%m-%d"))
 
     if not len(root_logger.handlers):
         if log_to_stderr:
@@ -98,7 +96,9 @@ def get_logger(
             )
 
             file_handler = handlers.RotatingFileHandler(
-                filename=LOG_FILE, maxBytes=2 ** 24, backupCount=10
+                filename=log_file_name,
+                maxBytes=MAX_LOG_FILE_SIZE,
+                backupCount=MAX_LOG_FILE_PARTS,
             )
             file_handler.setFormatter(fmt)
             root_logger.addHandler(file_handler)
@@ -108,7 +108,94 @@ def get_logger(
     logger_name = ".".join((PROJECT_NAME, name))
     logger = logging.getLogger(logger_name)
 
-    return logger  # type: ignore
+    return logger
+
+
+def get_logger_uploaderd(
+    name: str,
+    log_to_file: bool = False,
+    log_to_syslog: bool = True,
+    logging_level: int = DEFAULT_LOG_LEVEL,
+    syslog_ident: str = PROJECT_NAME,
+    log_file_location: Literal["home", "var"] = "var",
+) -> logging.Logger:
+    log_file = ""
+
+    if log_to_file:
+        if log_file_location == "home":
+            log_path = Path.home().joinpath(PROJECT_NAME)
+        else:
+            log_path = Path("/var/log").joinpath(PROJECT_NAME)
+
+        if not log_path.is_dir():
+            try:
+                log_path.mkdir(mode=0o755, parents=False, exist_ok=True)
+            except OSError as error:
+                raise RuntimeError(
+                    f"Failed to create log file directory {log_path}"
+                ) from error
+
+        log_file = str(log_path / f"{PROJECT_NAME}.log")
+
+    return _get_logger(
+        name=name,
+        log_to_file=log_to_file,
+        log_to_stderr=False,
+        log_to_syslog=log_to_syslog,
+        log_file_name=log_file,
+        syslog_ident=syslog_ident,
+        logging_level=logging_level,
+    )
+
+
+def get_logger(
+    name: str,
+    tag: Optional[str] = None,
+    date: Optional[datetime.date] = None,
+    log_to_file: bool = False,
+    log_to_stderr: bool = True,
+    log_to_syslog: bool = False,
+    logging_level: int = DEFAULT_LOG_LEVEL,
+    syslog_ident: str = PROJECT_NAME,
+    log_file_location: Literal["home", "var"] = "home",
+) -> logging.Logger:
+    """Get logger instance with specific name as child of root logger.
+    Creates root logger if it doesn't exists."""
+
+    log_file = ""
+
+    if log_to_file:
+        if date is None:
+            date = datetime.date.today()
+        if tag is not None:
+            log_name = "{0}-{1}-{2}.log".format(name, tag, date.strftime("%Y-%m-%d"))
+        else:
+            log_name = "{0}-{1}.log".format(name, date.strftime("%Y-%m-%d"))
+
+        if log_file_location == "home":
+            log_path = Path.home().joinpath(PROJECT_NAME)
+        else:
+            log_path = Path("/var/log").joinpath(PROJECT_NAME)
+
+        if not log_path.is_dir():
+            try:
+                log_path.mkdir(mode=0o755, parents=False, exist_ok=True)
+            except OSError as error:
+                raise RuntimeError(
+                    f"Failed to create log file directory {log_path}"
+                ) from error
+
+        log_file = str(log_path / log_name)
+
+    return _get_logger(
+        name=name,
+        log_to_file=log_to_file,
+        log_to_stderr=log_to_stderr,
+        log_to_syslog=log_to_syslog,
+        log_file_name=log_file,
+        syslog_ident=syslog_ident,
+        logging_level=logging_level,
+    )
 
 
 def parse_logger_config(fname: str, options: list[tuple[str, type]]) -> dict[str, Any]:
@@ -156,7 +243,7 @@ def get_config_logger(
     name: str,
     tag: Optional[str] = None,
     date: Optional[datetime.date] = None,
-    config: Optional[str] = None
+    config: Optional[str] = None,
 ) -> logging.Logger:
     """Get logger instance with options parsed from configuration file.
     If `config` is None the default values are used.
