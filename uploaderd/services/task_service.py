@@ -78,7 +78,7 @@ class TaskLoaderService(ServiceBase):
         else:
             self.amqp.ack_message(method.delivery_tag)
 
-    def on_done(self, work):
+    def on_done(self, work: Work):
         if work.status == "done":
             self.amqp.ack_message(work.method.delivery_tag)
             self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
@@ -95,18 +95,18 @@ def task_loader_worker(
 ):
     while not stop_event.is_set():
         try:
-            task = todo_queue.get()
+            work = todo_queue.get()
         except KeyboardInterrupt:
             return
 
         body: dict[str, Any] = {}
-        task.status = "failed"
+        work.status = "failed"
 
         try:
-            body = json.loads(task.body_json)
+            body = json.loads(work.body_json)
         except json.JSONDecodeError:
             logger.error("Failed to get message payload JSON")
-            done_queue.put(task)
+            done_queue.put(work)
             continue
 
         # XXX: 'taskid' field stored as integer in AMQP message
@@ -119,14 +119,14 @@ def task_loader_worker(
         logger.debug(f"Got task {taskid} in state '{taskstate}'")
         if taskstate in consistent_states:
             if _load_task(dbconf, taskid, config["tasks_dir"]):
-                task.status = "done"
+                work.status = "done"
         elif taskstate == "deleted":
             if _load_deleted_task(dbconf, taskid):
-                task.status = "done"
+                work.status = "done"
         else:
             logger.warning(f"Inconsistent task state: {taskstate}")
 
-        done_queue.put(task)
+        done_queue.put(work)
 
 
 def _load_task(dbconf: DatabaseConfig, taskid: int, tasks_path: str) -> bool:
