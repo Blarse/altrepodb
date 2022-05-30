@@ -22,7 +22,7 @@ import multiprocessing as mp
 from dataclasses import asdict
 from typing import Any, Union
 
-from altrpm import extractSpecFromRPM
+from altrepodb.altrpm import extractSpecFromRPM
 from altrepodb.database import DatabaseClient
 
 from .base import PkgHash, StringOrPath

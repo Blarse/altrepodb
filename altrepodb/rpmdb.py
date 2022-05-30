@@ -16,7 +16,7 @@
 import rpm
 from pathlib import Path
 
-from altrpm import rpm as rpmt
+from .altrpm import rpm as rpmt
 from .base import Package, StringOrPath
 from .utils import SupressStdoutStderr
 from .repo.utils import convert

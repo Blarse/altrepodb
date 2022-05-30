@@ -18,7 +18,7 @@ import mmh3
 from typing import Any, Union
 from collections import namedtuple
 
-from altrpm import rpm as rpmt
+from altrepodb.altrpm import rpm as rpmt
 
 from .utils import (
     mmhash,

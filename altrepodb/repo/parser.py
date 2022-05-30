@@ -20,7 +20,7 @@ from typing import Union
 from pathlib import Path
 from collections import namedtuple
 
-from altrpm import rpm as rpmt, readHeaderListFromXZFile
+from altrepodb.altrpm import rpm as rpmt, readHeaderListFromXZFile
 from altrepodb.misc import lut
 from altrepodb.utils import unxz, md5_from_file, calculate_sha256_blake2b
 

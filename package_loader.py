@@ -24,7 +24,7 @@ from pathlib import Path
 from logging import Logger
 from dataclasses import dataclass
 
-from altrpm import rpm, extractSpecAndHeadersFromRPM
+from altrepodb.altrpm import rpm, extractSpecAndHeadersFromRPM
 from altrepodb.base import StringOrPath
 from altrepodb.repo.utils import convert
 from altrepodb.repo.mapper import snowflake_id_pkg

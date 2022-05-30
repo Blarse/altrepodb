@@ -19,8 +19,7 @@ import traceback
 from pathlib import Path
 from typing import Iterator
 
-from altrpm import rpm as rpmt
-
+from altrepodb.altrpm import rpm as rpmt
 from altrepodb.base import LockedIterator, RaisingTread, PkgHash
 from altrepodb.exceptions import RaisingThreadError
 from altrepodb.utils import (

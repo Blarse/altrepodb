@@ -16,8 +16,7 @@
 import logging
 from collections import defaultdict
 
-from altrpm import rpm as rpmt, readHeaderListFromXZFile
-
+from altrepodb.altrpm import rpm as rpmt, readHeaderListFromXZFile
 from altrepodb.base import PkgHash, PkgInfo
 from altrepodb.utils import md5_from_file
 from altrepodb.utils import val_from_json_str
