@@ -24,7 +24,7 @@ from altrepodb.logger import get_logger_uploaderd, LoggerLevel
 from altrepodb.uploaderd.uploaderd import (
     UploaderDaemon,
     UploaderDaemonConfig,
-    DEFAULT_CONFIG_FILE,
+    DEFAULT_UPLOADERD_CONFIG_FILE,
     DEFAULT_SERVICE_CONF_DIR,
 )
 
@@ -40,7 +40,7 @@ def get_args():
         "-c",
         "--config",
         type=str,
-        default=DEFAULT_CONFIG_FILE,
+        default=DEFAULT_UPLOADERD_CONFIG_FILE,
         help="Path to configuration file",
     )
     parser.add_argument(

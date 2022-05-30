@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 # This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
 # Copyright (c) 2021-2022 BaseALT Ltd
 #
@@ -14,35 +16,20 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import sys
-import json
 import argparse
 import configparser
-from pathlib import Path
 
+from altrepodb.spdx import SPDX, SPDXConfig, SPDX_URL
 from altrepodb.logger import get_config_logger, LoggerLevel
 from altrepodb.database import DatabaseConfig
-from altrepodb.beehive import Beehive, BeehiveConfig, Endpoint, EndpointType
 
 
-NAME = "beehive"
-BEEHIVE_BASE_URL = "https://git.altlinux.org/beehive"
-BEEHIVE_BRANCHES = (
-    "Sisyphus",
-    "p10",
-    "p9",
-)
-BEEHIVE_ARCHS = ("i586", "x86_64")
-BEEHIVE_ENDPOINTS = (
-    Endpoint("latest_dir_mtime", EndpointType.DIR, "logs", "", "latest"),
-    Endpoint("time_file_listing", EndpointType.FILE1, "logs", "latest/time.list", None),
-    Endpoint("error_dir_listing", EndpointType.DIR, "logs", "latest/error", None),
-    Endpoint("success_dir_listing", EndpointType.DIR, "logs", "latest/success", None),
-    Endpoint("ftbfs_since_file_listing", EndpointType.FILE2, "stats", "ftbfs-since", None),
-)
+NAME = "spdx"
 
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-g", "--git-root", type=str, help="Local Git root directory")
     parser.add_argument("-c", "--config", type=str, help="Path to configuration file")
     parser.add_argument("-d", "--dbname", type=str, help="Database name")
     parser.add_argument("-s", "--host", type=str, help="Database host")
@@ -75,14 +62,6 @@ def get_args():
     return args
 
 
-def dump_to_json(content, prefix: str) -> None:
-    p = Path.joinpath(Path.cwd(), "JSON")
-    p.mkdir(exist_ok=True)
-    Path.joinpath(p, f"dump-{prefix}.json").write_text(
-        json.dumps(content, indent=2, sort_keys=True, default=str)
-    )
-
-
 def main():
     assert sys.version_info >= (3, 7), "Pyhton version 3.7 or newer is required!"
     args = get_args()
@@ -95,15 +74,10 @@ def main():
         logger.setLevel(LoggerLevel.DEBUG)
     logger.debug(f"Run with args: {args}")
     try:
-        logger.info("Start loading data from Beehive")
-        logger.info("=" * 60)
-        bh = Beehive(
-            config=BeehiveConfig(
-                base_url=BEEHIVE_BASE_URL,
-                branches=BEEHIVE_BRANCHES,
-                archs=BEEHIVE_ARCHS,
-                endpoints=BEEHIVE_ENDPOINTS,
-                timeout=30,
+        spdx = SPDX(
+            SPDXConfig(
+                url=SPDX_URL,
+                logger=logger,
                 dbconfig=DatabaseConfig(
                     host=args.host,
                     port=args.port,
@@ -111,18 +85,17 @@ def main():
                     user=args.user,
                     password=args.password,
                 ),
-                logger=logger,
+                git_root=args.git_root,
             )
         )
-        bh.run()
+        spdx.run()
+
     except Exception as error:
         logger.error(
-            f"Error occurred during Beehive information loading: {error}", exc_info=True
+            f"Error occurred while processing licenses from SPDX: {error}",
+            exc_info=True,
         )
         sys.exit(1)
-    finally:
-        logger.info("=" * 60)
-        logger.info("Stop loading data from Beehive")
 
 
 if __name__ == "__main__":
