@@ -1,4 +1,4 @@
-rpm
+- rpm
 mmh3
 requests
 libarchive-c
