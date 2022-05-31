@@ -21,7 +21,7 @@ from typing import Any
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
-from ..service import ServiceBase, Work, mpEvent, WorkQueue
+from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
@@ -111,6 +111,9 @@ def task_loader_worker(
     while not stop_event.is_set():
         try:
             work = todo_queue.get()
+            # exit if 'terminate' work received
+            if work.status == worker_sentinel.status:
+                return
         except KeyboardInterrupt:
             return
 

@@ -64,6 +64,9 @@ class Work:
     body_json: bytes
 
 
+worker_sentinel = Work("terminate", None, None, None)  # type: ignore
+
+
 T = TypeVar("T")
 
 
@@ -160,7 +163,7 @@ class ServiceBase(threading.Thread, ABC):
                 self.logger.debug(f"New message: {resp}")
 
                 if self.state not in ACTION_ALLOWED_STATES[resp.msg]:
-                    self.logger.warning("illegal state transition")
+                    self.logger.warning("Illegal state transition")
                     continue
 
                 if resp.msg == ServiceAction.INIT:
@@ -172,7 +175,7 @@ class ServiceBase(threading.Thread, ABC):
                     self.loop.create_task(self.service_stop())
 
                     self.state = ServiceState.STOPPING
-                    self.logger.debug("stopping")
+                    self.logger.debug("Stopping service")
                 elif resp.msg == ServiceAction.GET_STATE:
                     self.service_get_state()
                 elif resp.msg == ServiceAction.KILL:
@@ -253,8 +256,14 @@ class ServiceBase(threading.Thread, ABC):
 
         # send 'stop' event to all workers and wait until all of them are terminated
         self.workers_stop_event.set()
+        # put 'exit' work messages for all workers
+        for _ in self.workers:
+            self.workers_todo_queue.put_nowait(worker_sentinel)
 
-        while any([w.is_alive() for w in self.workers]):
+        while True:
+            self.logger.debug("Waiting for worker process is down")
+            if not any([w.is_alive() for w in self.workers]):
+                break
             await asyncio.sleep(1)
 
         self.state = ServiceState.STOPPED
