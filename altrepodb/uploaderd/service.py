@@ -285,7 +285,6 @@ class ServiceBase(threading.Thread, ABC):
         self.logger.debug("Killing workers")
         # FIXME: potential issue with workers pipes and subprocesses that may become malfunctional
         for worker in self.workers:
-            # TODO: check if some processes ignores SIGTERM
             worker.terminate()
             # worker.kill()
 
@@ -360,7 +359,12 @@ class ServiceBase(threading.Thread, ABC):
 
         self.workers_count = config.get("workers_count", self.workers_count)
 
-        self.logger.debug(f"Service config:\n{self.dbconf}\n{self.amqpconf}")
+        self.logger.debug(
+            "Service config:\n"
+            f"DB: {self.dbconf.name}@{self.dbconf.host}\n"
+            f"AMQP: {self.amqpconf.host}:{self.amqpconf.port}, "
+            f"vhost: {self.amqpconf.vhost}, exchange: {self.amqpconf.exchange}"
+        )
 
         self.config = config
 

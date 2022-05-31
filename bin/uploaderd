@@ -77,7 +77,7 @@ def main():
         uploader_daemon.run()
     except KeyboardInterrupt:
         logger.error("Interrupted")
-        uploader_daemon.shutdown()
+        uploader_daemon.shutdown(0, None)
     except Exception as error:
         logger.critical(f"Error: {error}")
         systemd.daemon.notify(f"STATUS={error}")

@@ -108,6 +108,7 @@ class UploaderDaemon:
         for sm in self.managers[:]:
             while True:
                 sm.service_get_state()
+                self.logger.debug(f"service {sm.name} state: {sm.service_state.name}")
 
                 if sm.service_state != sm.service_expected_state:
                     if sm.service_expected_state == ServiceState.INITIALIZED:
@@ -128,10 +129,8 @@ class UploaderDaemon:
                     sm.service_start()
                     continue
                 elif sm.service_state == ServiceState.RUNNING:
-                    self.logger.debug(
-                        f"service {sm.name} is in {sm.service_state.name} state"
-                    )
-                    pass  # good
+                    # all good
+                    pass
                 elif (
                     sm.service_state == ServiceState.STOPPED
                     or sm.service_state == ServiceState.FAILED
