@@ -75,6 +75,9 @@ def main():
     signal.signal(signal.SIGTERM, uploader_daemon.shutdown)
     try:
         uploader_daemon.run()
+    except KeyboardInterrupt:
+        logger.error("Interrupted")
+        uploader_daemon.shutdown()
     except Exception as error:
         logger.critical(f"Error: {error}")
         systemd.daemon.notify(f"STATUS={error}")
