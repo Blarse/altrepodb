@@ -67,7 +67,9 @@ def main():
     logger.info("Starting uploaderd service")
     uploader_daemon = UploaderDaemon(
         UploaderDaemonConfig(
-            config_file=args.config, services_config_dir=args.service_dir, logger=logger
+            config_file=args.config,
+            services_config_dir=args.service_dir,
+            logger=logger,
         )
     )
     signal.signal(signal.SIGTERM, uploader_daemon.shutdown)

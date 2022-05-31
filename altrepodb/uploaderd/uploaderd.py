@@ -43,7 +43,7 @@ class UploaderDaemonConfig:
     services_config_dir: str = DEFAULT_SERVICE_CONF_DIR
     service_timeout: int = DEFAULT_BASE_TIMEOUT
     logger: Optional[logging.Logger] = None
-    debug: bool = False
+    # debug: bool = False
 
 
 class UploaderDaemon:
@@ -51,17 +51,11 @@ class UploaderDaemon:
         self.config_file = config.config_file
         self.services_config_dir = config.services_config_dir
         self.timeout = config.service_timeout
-        self.debug = config.debug
 
         if config.logger:
             self.logger = config.logger
         else:
             self.logger = logging.getLogger(NAME)
-
-        if config.debug:
-            self.logger.setLevel(logging.DEBUG)
-        else:
-            self.logger.setLevel(logging.INFO)
 
         self.managers: list[ServiceManager] = []
         self._check_config()
