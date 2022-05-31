@@ -129,7 +129,7 @@ class UploaderDaemon:
                     continue
                 elif sm.service_state == ServiceState.RUNNING:
                     self.logger.debug(
-                        f"service {sm.name} is in {sm.service_state} state"
+                        f"service {sm.name} is in {sm.service_state.name} state"
                     )
                     pass  # good
                 elif (
@@ -139,7 +139,7 @@ class UploaderDaemon:
                     or sm.service_state == ServiceState.DEAD
                 ):
                     self.logger.error(
-                        f"service {sm.name} is in {sm.service_state} "
+                        f"service {sm.name} is in {sm.service_state.name} "
                         f"state, reason: {sm.service_reason}"
                     )
                     sm.restart()
@@ -175,7 +175,7 @@ class UploaderDaemon:
                 # sleep if took less than BASE_TIMEOUT seconds
                 time_left = self.timeout - (time.perf_counter() - time_init)
                 if time_left > 0:
-                    self.logger.debug(f"go to sleep for {time_left} seconds")
+                    self.logger.debug(f"go to sleep for {time_left:.3f} seconds")
                     time.sleep(time_left)
         except Exception as error:
             self.logger.critical(f"Exception occured while run uplodaerd: {error}")
