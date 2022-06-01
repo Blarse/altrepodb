@@ -146,7 +146,7 @@ class UploaderDaemon:
                 break
 
     def shutdown(self, signum, frame):
-        self.logger.info("Received SIGTERM signal")
+        self.logger.info("Shutting down uploaderd service...")
         systemd.daemon.notify("STOPPING=1")
         for sm in self.managers:
             self.logger.info(f"Stopping service {sm.name}")
