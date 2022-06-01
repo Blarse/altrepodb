@@ -38,7 +38,7 @@ class RPMDBPackages:
         self.dbpath = str(dbpath)
         self.packages_list: list[Package] = []
         self.packages_count: int = 0
-        self.ts = self._read_rpm_db()
+        self._read_rpm_db()
 
     def _read_rpm_db(self) -> None:
         # add macro to be used by RPM
