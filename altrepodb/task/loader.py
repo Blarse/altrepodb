@@ -44,7 +44,6 @@ class TaskLoadHandler:
         self.task = task
         self.conn = conn
         self.logger = logger
-        self.approvals = []
 
     def _save_task(self):
         # 1 - proceed with TaskStates
