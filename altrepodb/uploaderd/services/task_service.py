@@ -26,7 +26,7 @@ from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "altrepodb.task_loader"
-MAX_REDELIVER = 4
+MAX_REDELIVER = 3
 DEFAULT_TASKS_DIR = "/tasks"
 
 consistent_states = ["done", "eperm", "failed", "new", "tested"]
@@ -98,7 +98,8 @@ class TaskLoaderService(ServiceBase):
             self.amqp.ack_message(work.method.delivery_tag)
             self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
         else:
-            self.amqp.reject_message(work.method.delivery_tag, requeue=False)
+            # requeue message if task load failed
+            self.amqp.reject_message(work.method.delivery_tag, requeue=True)
 
 
 def task_loader_worker(
