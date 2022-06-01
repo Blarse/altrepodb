@@ -51,7 +51,7 @@ class Watch:
     def __init__(self, config: WatchConfig) -> None:
         self.sql = SQL()
         self.url = config.url
-        self.conn = self.conn = DatabaseClient(
+        self.conn = DatabaseClient(
             config=config.dbconfig,
             logger=config.logger,
         )
@@ -79,14 +79,14 @@ class Watch:
     def _save_to_db(self, data: list[str], watch_modified: datetime) -> None:
         result = []
         for line in data:
-            line = line.split("\t")
-            if line != [""]:
+            line_split = line.split("\t")
+            if line_split != [""]:
                 el_dict = {
-                    "acl": line[0],
-                    "pkg_name": line[1],
-                    "old_version": line[2],
-                    "new_version": line[3],
-                    "url": line[4],
+                    "acl": line_split[0],
+                    "pkg_name": line_split[1],
+                    "old_version": line_split[2],
+                    "new_version": line_split[3],
+                    "url": line_split[4],
                     "date_update": watch_modified,
                 }
                 result.append(el_dict)
