@@ -87,7 +87,7 @@ class SPDX:
     def __init__(self, config: SPDXConfig) -> None:
         self.sql = SQL()
         self.url = config.url
-        self.conn = self.conn = DatabaseClient(
+        self.conn = DatabaseClient(
             config=config.dbconfig,
             logger=config.logger,
         )
