@@ -68,7 +68,7 @@ class TaskIterationLoaderWorker(RaisingTread):
         self.ph = PackageHandler(conn=conn)
         super().__init__(*args, **kwargs)
 
-    def _calculate_hash_from_array_by_CH(self, hashes: list) -> int:
+    def _calculate_hash_from_array_by_CH(self, hashes: list[int]) -> int:
         sql = "SELECT murmurHash3_64(%(hashes)s)"
         r = self.conn.execute(sql, {"hashes": hashes})
         return int(r[0][0])
