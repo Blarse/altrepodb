@@ -33,7 +33,7 @@ class RepoLoadHandler:
     def __init__(self, config: RepoProcessorConfig) -> None:
         self.config = config
         self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
-        self.cache = set()
+        self.cache: set[int] = set()
         self.repo: Repository
         self.conn = DatabaseClient(config=self.config.dbconfig)
         self.rlh = RepoLoadHelper(conn=self.conn)
