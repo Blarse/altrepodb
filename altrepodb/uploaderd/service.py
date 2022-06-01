@@ -84,7 +84,7 @@ class TypedQueue(Generic[T]):
         ...
 
 
-mpEvent = type(mp.Event)
+mpEvent = type(mp.Event)  # FIXME: found as an invalid type by mypy
 WorkQueue = TypedQueue[Work]
 MessageQueue = TypedQueue[Message]
 
