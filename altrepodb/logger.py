@@ -210,7 +210,7 @@ def parse_logger_config(fname: str, options: list[tuple[str, type]]) -> dict[str
     Returns:
         dict[str, Any]: result dictionary as `option_name`:`option_value`
     """
-    res = {}
+    res: dict[str, Any] = {}
     cfg = configparser.ConfigParser()
     try:
         with open(fname) as f:
