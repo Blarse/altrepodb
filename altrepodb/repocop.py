@@ -54,7 +54,7 @@ class Repocop:
     def __init__(self, config: RepocopConfig) -> None:
         self.sql = SQL()
         self.url = config.url
-        self.conn = self.conn = DatabaseClient(
+        self.conn = DatabaseClient(
             config=config.dbconfig,
             logger=config.logger,
         )
