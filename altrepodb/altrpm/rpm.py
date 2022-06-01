@@ -224,7 +224,6 @@ class RPMHeaderParser:
         self.hdr = RPMHeadersDict()
         self.hdr_base = 0
         self.hdr_contents_base = 0
-        self.sig_hdr_dict = {}
         self.sig_hdr_base = 0
         self.sig_hdr_contents_base = 0
         self.compressed_payload_offset = 0
