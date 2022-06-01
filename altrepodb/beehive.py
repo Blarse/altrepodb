@@ -280,13 +280,14 @@ class Beehive:
         def process_file_listing_item(x):
             return FileInfo(x.name, datetime.datetime(*x.modified[0:6]), x.size)
 
+        packages: list[tuple[Package, float]] = []
         try:
             destination = target.destination
             if target.type == EndpointType.FILE1:
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
-                packages: list[tuple[Package, float]] = []
+                packages = []
                 for line in response.text.splitlines():
                     line_context = line.split("\t")[:2]
                     packages.append(
@@ -297,7 +298,7 @@ class Beehive:
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
-                packages: list[tuple[Package, float]] = []
+                packages = []
                 for line in response.text.splitlines():
                     line_context = line.split("\t")[:2]
                     packages.append(
