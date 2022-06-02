@@ -193,7 +193,9 @@ def get_package_map(hdr: rpm_header) -> dict[str, Any]:
     return map_package
 
 
-def get_partial_pkg_map(hdr: rpm_header, key_list: Union[list[str], tuple[str, ...]]) -> dict[str, Any]:
+def get_partial_pkg_map(
+    hdr: rpm_header, key_list: Union[list[str], tuple[str, ...]]
+) -> dict[str, Any]:
     map_package = get_package_map(hdr)
     res = {}
     for key in key_list:

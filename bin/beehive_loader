@@ -39,7 +39,9 @@ BEEHIVE_ENDPOINTS = (
     Endpoint("time_file_listing", EndpointType.FILE1, "logs", "latest/time.list", None),
     Endpoint("error_dir_listing", EndpointType.DIR, "logs", "latest/error", None),
     Endpoint("success_dir_listing", EndpointType.DIR, "logs", "latest/success", None),
-    Endpoint("ftbfs_since_file_listing", EndpointType.FILE2, "stats", "ftbfs-since", None),
+    Endpoint(
+        "ftbfs_since_file_listing", EndpointType.FILE2, "stats", "ftbfs-since", None
+    ),
 )
 
 
