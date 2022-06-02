@@ -44,7 +44,9 @@ class RepoLoadHandler:
             self.display = Display(logger=self.logger)
 
     def check_repo_in_db(self):
-        if self.rlh.check_repo_date_name_in_db(self.config.name, self.config.date.date()):
+        if self.rlh.check_repo_date_name_in_db(
+            self.config.name, self.config.date.date()
+        ):
             if not self.config.force:
                 self.logger.error(
                     f"Repository with name '{self.config.name}' and "
@@ -74,7 +76,9 @@ class RepoLoadHandler:
         src_dir = Path(self.config.path).joinpath("files/SRPMS")
         if not src_dir.is_dir():
             raise RepoProcessingError("'/files/SRPMS' directory not found")
-        self.logger.info(f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}")
+        self.logger.info(
+            f"Start checking SRC packages in {'/'.join(src_dir.parts[-2:])}"
+        )
         for pkg in self.repo.src_hashes:
             pkg_count += 1
             if self.repo.src_hashes[pkg].sha1 is None:
@@ -103,7 +107,7 @@ class RepoLoadHandler:
             packages_list=packages_list,
             config=self.config,
             display=self.display,
-            logger=self.logger
+            logger=self.logger,
         )
         # build pkgset for PackageSet record
         pkgset.update(pkgset_cached)
@@ -129,7 +133,9 @@ class RepoLoadHandler:
     def _load_architectures(self):
         for arch in self.repo.archs:
             tmp_d = {"depth": "1", "type": "arch", "size": "0"}
-            tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = update_dictionary_with(
+                tmp_d, self.repo.root.kwargs["class"], "class"
+            )
             tmp_d = update_dictionary_with(tmp_d, arch.path, "path")
             tmp_d = update_dictionary_with(tmp_d, self.repo.root.name, "repo")
             self.psh.insert_pkgset_name(
@@ -184,7 +190,7 @@ class RepoLoadHandler:
                 packages_list=packages_list,
                 config=self.config,
                 display=self.display,
-                logger=self.logger
+                logger=self.logger,
             )
             # build pkgset for PackageSet record
             pkgset.update(pkgset_cached)
@@ -192,7 +198,9 @@ class RepoLoadHandler:
             self.psh.insert_pkgset(comp.uuid, pkgset)
             # store PackageSetName record
             tmp_d = {"depth": "2", "type": "comp", "size": str(len(pkgset))}
-            tmp_d = update_dictionary_with(tmp_d, self.repo.root.kwargs["class"], "class")
+            tmp_d = update_dictionary_with(
+                tmp_d, self.repo.root.kwargs["class"], "class"
+            )
             tmp_d = update_dictionary_with(tmp_d, comp.path, "path")
             tmp_d = update_dictionary_with(tmp_d, self.repo.root.name, "repo")
             self.psh.insert_pkgset_name(

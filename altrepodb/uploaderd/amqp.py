@@ -45,7 +45,6 @@ class AMQPConfig:
         conn = None
 
         if self.cacert:
-            import ssl
             context = ssl.create_default_context(cafile=self.cacert)
             if self.key and self.cert:
                 context.load_cert_chain(self.cert, self.key)
@@ -57,7 +56,7 @@ class AMQPConfig:
             virtual_host=self.vhost,
             credentials=credentials,
             ssl_options=ssl_options,
-            heartbeat=0
+            heartbeat=0,
         )
 
         try:

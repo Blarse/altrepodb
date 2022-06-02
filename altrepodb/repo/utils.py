@@ -28,7 +28,10 @@ class Display:
     """Show information about progress."""
 
     def __init__(
-        self, logger: Optional[logging.Logger] = None, timer_init_delta: float = 0, step: int = 1000
+        self,
+        logger: Optional[logging.Logger] = None,
+        timer_init_delta: float = 0,
+        step: int = 1000,
     ):
         self.lock = Lock()
         self.counter = 0

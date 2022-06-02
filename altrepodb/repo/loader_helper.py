@@ -29,7 +29,9 @@ class RepoLoadHelper:
         self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     @staticmethod
-    def init_cache(src_hashes: dict[str, PkgHash], bin_hashes: dict[str, PkgHash]) -> set[int]:
+    def init_cache(
+        src_hashes: dict[str, PkgHash], bin_hashes: dict[str, PkgHash]
+    ) -> set[int]:
         cache = set()
         for v in src_hashes.values():
             if v.sf not in (0, None):
@@ -43,7 +45,7 @@ class RepoLoadHelper:
     def init_hash_temp_table(self, hashes: dict[str, PkgHash]) -> None:
         payload = []
         self.conn.execute(
-"""
+            """
 CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
 (
     name    String,
@@ -66,7 +68,7 @@ CREATE TEMPORARY TABLE IF NOT EXISTS _tmpPkgHash
 
     def update_hases_from_db(self, repo_cache: dict[str, PkgHash]) -> None:
         result = self.conn.execute(
-"""
+            """
 SELECT t1.name, t1.md5, t2.mmh, t2.sha1
 FROM _tmpPkgHash AS t1
 LEFT JOIN
@@ -74,7 +76,7 @@ LEFT JOIN
     SELECT pkgh_md5 AS md5, pkgh_mmh AS mmh, pkgh_sha1 AS sha1
     FROM PackageHash_buffer
 ) AS t2
-ON t1.md5 = t2.md5""",   # noqa: E122
+ON t1.md5 = t2.md5""",  # noqa: E122
             settings={"strings_as_bytes": True},
         )
         cnt1 = cnt2 = 0
