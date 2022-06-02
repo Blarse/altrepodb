@@ -62,6 +62,7 @@ class Work:
     method: pika_spec.Basic.Deliver
     properties: pika_spec.BasicProperties
     body_json: bytes
+    reason: str = ""
 
 
 worker_sentinel = Work("terminate", None, None, None)  # type: ignore
@@ -303,6 +304,9 @@ class ServiceBase(threading.Thread, ABC):
             self.on_message(method, properties, body_json)
         except Exception as error:
             self.logger.error(f"Exception in on_message: {error}")
+
+    def report(self, reason: str, payload: Any = None):
+        self.qout.put(Message(msg=ServiceState.REPORT, reason=reason, payload=payload))
 
     def load_dbconf(self, section_db):
         self.dbconf = DatabaseConfig()

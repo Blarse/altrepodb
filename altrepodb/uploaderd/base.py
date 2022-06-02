@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +36,7 @@ class ServiceState(IntEnum):
     STOPPED = auto()
     STOPPING = auto()
     DEAD = auto()
+    REPORT = auto()
 
 
 @dataclass
@@ -43,6 +44,37 @@ class Message:
     msg: int = 0
     reason: str = ""
     payload: Any = None
+
+
+class NotifierMessageSeverity(Enum):
+    INFO = auto()
+    WARNING = auto()
+    CRITICAL = auto()
+
+
+class NotifierMessageType(Enum):
+    MESSAGE = auto()
+    SERVICE_WORKER_ERROR = auto()
+
+
+@dataclass
+class NotifierMessage:
+    subject: str
+    severity: NotifierMessageSeverity
+    type: NotifierMessageType
+    message: str
+    timestamp: float
+    payload: Any = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "subject": self.subject,
+            "severity": self.severity.name,
+            "type": self.type.name,
+            "message": self.message,
+            "timestamp": self.timestamp,
+            "payload": self.payload,
+        }
 
 
 @dataclass

@@ -18,12 +18,14 @@ import queue
 
 from .service import ServiceAction, ServiceState, Message
 from .services.services import SERVICES
+from .notifier import NotifierManager
 
 
 class ServiceManager:
-    def __init__(self, name: str, config_path: str):
+    def __init__(self, name: str, config_path: str, notifier: NotifierManager):
         self.name = name
         self.config_path = config_path
+        self.notifier = notifier
 
         self.service_state = ServiceState.RESET
         self.service_expected_state = ServiceState.RESET
@@ -84,6 +86,9 @@ class ServiceManager:
         self.service_expected_state = ServiceState.UNKNOWN
 
     def service_get_state(self):
+
+        self._process_qout()
+
         self.service_prev_state = self.service_state
         self.service_state = ServiceState.UNKNOWN
         self.service_reason = ""
@@ -95,3 +100,23 @@ class ServiceManager:
         except (queue.Full, queue.Empty):
             self.service_state = ServiceState.FAILED
             self.service_reason = "timeout"
+
+    def _process_qout(self):
+        while True:
+            try:
+                resp = self.qout.get_nowait()
+            except queue.Empty:
+                # all messages are consumed
+                break
+
+            try:
+                self.notifier.send_message(
+                    subject=self.name,
+                    severity=resp.payload["severity"],
+                    type=resp.payload["type"],
+                    message=resp.payload["reason"],
+                    payload=resp.payload["work_body"],
+                )
+            except KeyError:
+                # FIXME: ignoring inconsistent messages
+                continue
