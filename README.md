@@ -164,6 +164,10 @@ Check the usage message with command:
 
     [user@host]$ python3 spdx_loader.py -h
 
+# Code style
+
+Now project uses `black` for code formatting and `flake8` as a linter with configuration defined in `setup.cfg` file.
+
 # Afternote
 
 ALTRepo Uploader is under continuous development.
