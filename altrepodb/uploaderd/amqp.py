@@ -22,6 +22,7 @@ from logging import Logger
 from dataclasses import dataclass
 from pika.channel import Channel
 from pika.adapters.asyncio_connection import AsyncioConnection
+from pika.adapters import BlockingConnection
 from typing import Any, Optional
 
 
@@ -283,3 +284,57 @@ class AMQPClient:
                     self.publish, routing_key, body, properties, mandatory
                 )
             )
+
+
+class SimplePublisher:
+    """Simple AMQP Publisher that ensures and maintains a connection"""
+
+    def __init__(self, config: AMQPConfig):
+        self.config = config
+        self.connection: BlockingConnection = None
+        self.channel: Channel = None
+
+        credentials = pika.PlainCredentials(self.config.username, self.config.password)
+        ssl_options = None
+
+        if self.config.cacert:
+            context = ssl.create_default_context(cafile=self.config.cacert)
+            if self.config.key and self.config.cert:
+                context.load_cert_chain(self.config.cert, self.config.key)
+            ssl_options = pika.SSLOptions(context)
+
+        self.parameters = pika.ConnectionParameters(
+            host=self.config.host,
+            port=self.config.port,
+            virtual_host=self.config.vhost,
+            credentials=credentials,
+            ssl_options=ssl_options,
+            heartbeat=0
+        )
+
+    def ensure_connection(self):
+        if not self.connection or not self.connection.is_open:
+            self.connection = BlockingConnection(self.parameters)
+
+    def ensure_channel(self):
+        self.ensure_connection()
+        if not self.channel or not self.channel.is_open:
+            self.channel = self.connection.channel()
+            self.channel.confirm_delivery()
+
+    def publish(
+            self,
+            routing_key: str,
+            body: bytes,
+            properties: pika.spec.BasicProperties = None,
+            mandatory: bool = False
+    ):
+        self.ensure_channel()
+        self.channel.basic_publish(self.config.exchange, routing_key, body, properties, mandatory)
+
+    def stop(self):
+        if self.channel and self.channel.is_open:
+            self.channel.close()
+
+        if self.connection and self.connection.is_open:
+            self.connection.close()
