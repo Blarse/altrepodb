@@ -309,7 +309,7 @@ class SimplePublisher:
             virtual_host=self.config.vhost,
             credentials=credentials,
             ssl_options=ssl_options,
-            heartbeat=0
+            heartbeat=0,
         )
 
     def ensure_connection(self):
@@ -323,14 +323,16 @@ class SimplePublisher:
             self.channel.confirm_delivery()
 
     def publish(
-            self,
-            routing_key: str,
-            body: bytes,
-            properties: pika.spec.BasicProperties = None,
-            mandatory: bool = False
+        self,
+        routing_key: str,
+        body: bytes,
+        properties: pika.spec.BasicProperties = None,
+        mandatory: bool = False,
     ):
         self.ensure_channel()
-        self.channel.basic_publish(self.config.exchange, routing_key, body, properties, mandatory)
+        self.channel.basic_publish(
+            self.config.exchange, routing_key, body, properties, mandatory
+        )
 
     def stop(self):
         if self.channel and self.channel.is_open:
