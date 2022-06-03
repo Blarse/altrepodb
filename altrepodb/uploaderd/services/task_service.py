@@ -22,6 +22,7 @@ from typing import Any
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..base import NotifierMessageType, NotifierMessageSeverity
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
@@ -98,8 +99,18 @@ class TaskLoaderService(ServiceBase):
             self.amqp.ack_message(work.method.delivery_tag)
             self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
         else:
+            # elif work.status == "failed":
             # requeue message if task load failed
             self.amqp.reject_message(work.method.delivery_tag, requeue=True)
+            self.report(
+                reason="notify",
+                payload={
+                    "reason": work.reason,
+                    "type": NotifierMessageType.SERVICE_WORKER_ERROR,
+                    "severity": NotifierMessageSeverity.CRITICAL,
+                    "work_body": work.body_json,
+                },
+            )
 
 
 def task_loader_worker(
@@ -125,30 +136,40 @@ def task_loader_worker(
             body = json.loads(work.body_json)
         except json.JSONDecodeError:
             logger.error("Failed to get message payload JSON")
+            work.reason = "Failed to get message payload JSON"
             done_queue.put(work)
             continue
 
-        # XXX: 'taskid' field stored as integer in AMQP message
         taskid: int = body.get("taskid", None)
         if taskid is None:
             logger.error("Failed to get Task ID from message")
-            return
+            work.reason = "Failed to get Task ID from message"
+            done_queue.put(work)
+            continue
 
         taskstate = body.get("state", "unknown").lower()
         logger.debug(f"Got task {taskid} in state '{taskstate}'")
         if taskstate in consistent_states:
-            if _load_task(dbconf, taskid, config["tasks_dir"]):
+            state, error_message = _load_task(dbconf, taskid, config["tasks_dir"])
+            if state:
                 work.status = "done"
+            else:
+                work.reason = error_message
         elif taskstate == "deleted":
-            if _load_deleted_task(dbconf, taskid):
+            state, error_message = _load_deleted_task(dbconf, taskid)
+            if state:
                 work.status = "done"
+            else:
+                work.reason = error_message
         else:
             logger.warning(f"Inconsistent task state: {taskstate}")
 
         done_queue.put(work)
 
 
-def _load_task(dbconf: DatabaseConfig, taskid: int, tasks_path: str) -> bool:
+def _load_task(
+    dbconf: DatabaseConfig, taskid: int, tasks_path: str
+) -> tuple[bool, str]:
 
     tpconf = TaskProcessorConfig(
         id=taskid,
@@ -158,23 +179,27 @@ def _load_task(dbconf: DatabaseConfig, taskid: int, tasks_path: str) -> bool:
         debug=False,
     )
 
+    error_message = ""
+    state = False
+
     try:
         tp = TaskProcessor(tpconf)
         tp.run()
         logger.info(f"Task {tpconf.id} uploaded successfully")
-        return True
+        state = True
     except TaskLoaderProcessingError as error:
-        logger.error(f"Failed to upload task {tpconf.id}: {error}")
-        return False
+        error_message = f"Failed to upload task {tpconf.id}: {error}"
     except TaskLoaderError as error:
-        logger.error(f"Failed to upload task {tpconf.id}: {error}")
-        return False
+        error_message = f"Failed to upload task {tpconf.id}: {error}"
     except Exception as error:
-        logger.error(f"Failed to upload task {tpconf.id}: {error}")
-        return False
+        error_message = f"Failed to upload task {tpconf.id}: {error}"
+
+    if error_message:
+        logger.error(error_message)
+    return state, error_message
 
 
-def _load_deleted_task(dbconf: DatabaseConfig, taskid: int) -> bool:
+def _load_deleted_task(dbconf: DatabaseConfig, taskid: int) -> tuple[bool, str]:
     insert_task_states = """
 INSERT INTO TaskStates_buffer (*) VALUES
 """
@@ -197,14 +222,20 @@ OPTIMIZE TABLE TaskStates_buffer
         "task_eventlog_hash": [],
     }
 
+    state = False
+    error_message = ""
+
     conn = DatabaseClient(config=dbconf, logger=logger)
     try:
         conn.execute(insert_task_states, [task_state])
         conn.execute(flush_tables_buffer)
+        state = True
     except Exception as error:
         logger.error(f"{error} exception occured while saving deleted task state to DB")
-        return False
+        error_message = (
+            f"{error} exception occured while saving deleted task state to DB"
+        )
     finally:
         conn.disconnect()
 
-    return True
+    return state, error_message

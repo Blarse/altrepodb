@@ -8,5 +8,19 @@
             "name" : "bug_loader",
             "config" : "bug_loader.json"
         }
-    ]
+    ],
+
+    "notifier" : {
+        "amqp" : {
+            "host" : "",
+            "port" : 5672,
+            "vhost" : "/",
+            "exchange" : "",
+            "username" : "",
+            "password" : "",
+            "cacert" : "",
+            "key" : "",
+            "cert" : ""
+        }
+    }
 }

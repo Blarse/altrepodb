@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from .base import ServiceState
 from .manager import ServiceManager
+from .notifier import NotifierManager
 
 from altrepodb.settings import (
     DEFAULT_UPLOADERD_CONFIG_FILE,
@@ -60,6 +61,8 @@ class UploaderDaemon:
         self.managers: list[ServiceManager] = []
         self._check_config()
 
+        self.notifier: NotifierManager
+
     def _check_config(self):
         if not Path(self.config_file).is_file():
             self.logger.critical(f"'{self.config_file}' not found")
@@ -87,6 +90,12 @@ class UploaderDaemon:
             self.logger.error("No services configuration found")
             raise UploaderDaemonError
 
+        if "notifier" not in config:
+            self.logger.error("Notifier service configuration not found")
+            raise UploaderDaemonError
+
+        self.notifier = NotifierManager(config["notifier"])
+
         for service_entry in config["services"]:
             service_config_file = Path(self.services_config_dir).joinpath(
                 service_entry["config"]
@@ -99,8 +108,7 @@ class UploaderDaemon:
             self.logger.debug(f"Preparing {service_entry['name']} service")
             self.managers.append(
                 ServiceManager(
-                    service_entry["name"],
-                    str(service_config_file),
+                    service_entry["name"], str(service_config_file), self.notifier
                 )
             )
 
@@ -159,6 +167,8 @@ class UploaderDaemon:
         try:
             self.logger.info("Starting services")
             self._populate_services()
+
+            self.notifier.start()
 
             for sm in self.managers:
                 sm.start()
