@@ -1,0 +1,6 @@
+object 301960988b3bbbf83da7d20e569096da16a36834
+type commit
+tag v2.3.0
+tagger Danil Shein <dshein@altlinux.org> 1654508269 +0300
+
+build RPM package
