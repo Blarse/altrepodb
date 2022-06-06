@@ -2,11 +2,12 @@
 Description=ALTRepo Uploader Service
 
 [Service]
-User=_altrepo
-Group=_altrepo
+User=_altrepodb
+Group=_altrepodb
 Type=notify
 ExecStart=/usr/bin/uploaderd
 Restart=on-failure
+RestartSec=10
 WorkingDirectory=/var/lib/altrepodb
 
 [Install]

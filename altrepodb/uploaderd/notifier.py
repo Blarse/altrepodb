@@ -1,9 +1,9 @@
-import logging
-import threading
-import queue
-import time
 import json
 import pika
+import time
+import queue
+import logging
+import threading
 
 from typing import Any
 from queue import Queue
@@ -18,6 +18,10 @@ NOTIFIER_QUEUE_SIZE = 1000
 logger = logging.getLogger(NAME)
 
 
+class NotifierServiceError(Exception):
+    pass
+
+
 class NotifierManager:
     def __init__(self, config: dict[str, Any]):
         self.queue = Queue(maxsize=NOTIFIER_QUEUE_SIZE)
@@ -29,6 +33,10 @@ class NotifierManager:
         self.stop_event.clear()
         self.notifier = NotifierService(self.config, self.queue, self.stop_event)
         self.notifier.start()
+        time.sleep(0.5)  # XXX: should be enough set everything up in new thread
+        if not self.notifier.is_alive():
+            logger.critical("Failed to start notifier service")
+            raise NotifierServiceError
 
     def stop(self):
         self.stop_event.set()
