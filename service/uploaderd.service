@@ -7,6 +7,7 @@ Group=_altrepo
 Type=notify
 ExecStart=/usr/bin/uploaderd
 Restart=on-failure
+RestartSec=10
 WorkingDirectory=/var/lib/altrepodb
 
 [Install]
