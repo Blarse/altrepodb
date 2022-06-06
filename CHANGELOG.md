@@ -8,6 +8,25 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.0] - 2022-06-06
+
+Prepared ALTRepo Uploader for distribution as RPM package.
+
+Loading tools binaries available as shell commands if installed from RPM package.
+
+Added `uploaderd` service that operates with RabbitMQ message broker in order to upload data to DB.
+
+### Added
+- uploaderd service binary and Systemd uinit file
+- task_loader service
+### Changed
+- changed loading tools binary names and locations
+- changed logging facility:
+    - service stores logs in `/var/log/altrepodb/altrepodb.log` and system journal
+    - command line tools stores log files in `/home/%user%/altrepodb/` directory
+### Fixed
+- project code style sanitized using `black` and `flake8` tools
+
 ## [v2.2.4] - 2022-04-15
 
 Initial ALTRepo Uploader changelog record.
