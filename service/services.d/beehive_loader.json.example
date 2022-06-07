@@ -1,0 +1,30 @@
+{
+    "workers_count" : 1,
+    "routing_key": "beehive.load",
+    "base_url": "https://git.altlinux.org/beehive",
+    "archs": ["i586", "x86_64"],
+    "branches": ["Sisyphus", "p10", "p9"],
+    "timeout": 30,
+
+
+    "database" : {
+        "dbname" : "repodb",
+        "host" : "default",
+        "port" : 9000,
+        "user" : "default",
+        "password" : ""
+    },
+
+    "amqp" : {
+        "host" : "",
+        "port" : 5672,
+        "vhost" : "/",
+        "queue" : "",
+        "exchange" : "",
+        "username" : "",
+        "password" : "",
+        "cacert" : "",
+        "key" : "",
+        "cert" : ""
+    }
+}

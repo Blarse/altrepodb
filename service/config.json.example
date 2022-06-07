@@ -5,8 +5,8 @@
             "config" : "task_loader.json"
         },
         {
-            "name" : "bug_loader",
-            "config" : "bug_loader.json"
+            "name" : "beehive_loader",
+            "config" : "beehive_loader.json"
         }
     ],
 
