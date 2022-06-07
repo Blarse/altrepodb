@@ -59,7 +59,7 @@ class TaskLoaderService(ServiceBase):
     def on_message(self, method, properties, body_json):
         if not method.routing_key == "task.state":
             # TODO: ???
-            self.logger.critical("Unexpected routing key : {method.routing_key}")
+            self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
