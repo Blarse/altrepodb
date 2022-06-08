@@ -56,7 +56,7 @@ class RepoProcessor:
             raise e
         except Exception as e:
             self.logger.error(f"Failed to load repository to DB with: {e}")
-            raise RepoProcessingError("Error occured while processin repository") from e
+            raise RepoProcessingError("Error occured while processing repository") from e
         else:
             self.logger.info(
                 f"Repository loaded to DB in {(time.time() - ts):.3f} sec."
