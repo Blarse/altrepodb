@@ -7,6 +7,10 @@
         {
             "name" : "beehive_loader",
             "config" : "beehive_loader.json"
+        },
+        {
+            "name" : "repocop_loader",
+            "config" : "repocop_loader.json"
         }
     ],
 
