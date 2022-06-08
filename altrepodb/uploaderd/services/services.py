@@ -17,9 +17,13 @@ from ..service import ServiceBase
 
 from .task_service import TaskLoaderService
 from .bugzilla_service import BugzillaLoaderService
+from .beehive_service import BeehiveLoaderService
+from .repocop_service import RepocopLoaderService
 
 
 SERVICES: dict[str, type[ServiceBase]] = {
     "task_loader": TaskLoaderService,
     "bug_loader": BugzillaLoaderService,
+    "beehive_loader": BeehiveLoaderService,
+    "repocop_loader": RepocopLoaderService,
 }
