@@ -16,7 +16,7 @@
 from ..service import ServiceBase
 
 from .task_service import TaskLoaderService
-from acl_service import AclLoaderService
+from .acl_service import AclLoaderService
 from .bugzilla_service import BugzillaLoaderService
 from .beehive_service import BeehiveLoaderService
 from .repocop_service import RepocopLoaderService
