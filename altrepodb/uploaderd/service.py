@@ -20,6 +20,7 @@ import asyncio
 import logging
 import threading
 import multiprocessing as mp
+from multiprocessing.synchronize import Event as EventClass
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -52,7 +53,7 @@ ACTION_ALLOWED_STATES: dict[int, list[int]] = {
         ServiceState.STOPPING,
         ServiceState.STOPPED,
     ],
-    ServiceAction.KILL: [ServiceState.FAILED, ServiceState.STOPPED],
+    ServiceAction.KILL: [ServiceState.RESET, ServiceState.FAILED, ServiceState.STOPPED],
 }
 
 
@@ -85,7 +86,7 @@ class TypedQueue(Generic[T]):
         ...
 
 
-mpEvent = type(mp.Event)  # FIXME: found as an invalid type by mypy
+mpEvent = EventClass
 WorkQueue = TypedQueue[Work]
 MessageQueue = TypedQueue[Message]
 
