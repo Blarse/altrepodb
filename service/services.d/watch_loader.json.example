@@ -1,0 +1,28 @@
+{
+    "workers_count" : 1,
+    "routing_key": "watch.load",
+    "url": "https://watch.altlinux.org/pub/watch/watch-total.txt",
+    "timeout": 30,
+
+
+    "database" : {
+        "dbname" : "repodb",
+        "host" : "default",
+        "port" : 9000,
+        "user" : "default",
+        "password" : ""
+    },
+
+    "amqp" : {
+        "host" : "",
+        "port" : 5672,
+        "vhost" : "/",
+        "queue" : "",
+        "exchange" : "",
+        "username" : "",
+        "password" : "",
+        "cacert" : "",
+        "key" : "",
+        "cert" : ""
+    }
+}

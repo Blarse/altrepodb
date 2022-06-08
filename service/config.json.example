@@ -11,6 +11,10 @@
         {
             "name" : "repocop_loader",
             "config" : "repocop_loader.json"
+        },
+        {
+            "name" : "watch_loader",
+            "config" : "watch_loader.json"
         }
     ],
 
