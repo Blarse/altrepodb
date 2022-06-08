@@ -15,6 +15,10 @@
         {
             "name" : "watch_loader",
             "config" : "watch_loader.json"
+        },
+        {
+            "name" : "repo_loader",
+            "config" : "repo_loader.json"
         }
     ],
 

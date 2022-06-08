@@ -1,0 +1,27 @@
+{
+    "workers_count" : 1,
+    "routing_key": "repo.load",
+    "repo_dir": "/archive/repo",
+    "threads_count": 4,
+
+    "database" : {
+        "dbname" : "repodb",
+        "host" : "default",
+        "port" : 9000,
+        "user" : "default",
+        "password" : ""
+    },
+
+    "amqp" : {
+        "host" : "",
+        "port" : 5672,
+        "vhost" : "/",
+        "queue" : "",
+        "exchange" : "",
+        "username" : "",
+        "password" : "",
+        "cacert" : "",
+        "key" : "",
+        "cert" : ""
+    }
+}
