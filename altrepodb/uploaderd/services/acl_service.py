@@ -13,21 +13,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
+
 from ..service import ServiceBase
 
-from .task_service import TaskLoaderService
-from acl_service import AclLoaderService
-from .bugzilla_service import BugzillaLoaderService
-from .beehive_service import BeehiveLoaderService
-from .repocop_service import RepocopLoaderService
-from .watch_service import WatchLoaderService
+NAME = "altrepodb.acl_loader"
+
+logger = logging.getLogger(NAME)
 
 
-SERVICES: dict[str, type[ServiceBase]] = {
-    "task_loader": TaskLoaderService,
-    "acl_loader": AclLoaderService,
-    "bug_loader": BugzillaLoaderService,
-    "beehive_loader": BeehiveLoaderService,
-    "repocop_loader": RepocopLoaderService,
-    "watch_loader": WatchLoaderService,
-}
+class AclLoaderService(ServiceBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logger
+        raise NotImplementedError
+
+    def load_config(self):
+        super().load_config()
