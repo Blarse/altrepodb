@@ -285,9 +285,10 @@ class ServiceBase(threading.Thread, ABC):
     def kill_workers(self):
         self.logger.debug("Killing workers")
         # FIXME: potential issue with workers pipes and subprocesses that may become malfunctional
-        for worker in self.workers:
+        for worker in self.workers[:]:
             worker.terminate()
             # worker.kill()
+            self.workers.remove(worker)
 
     def self_test(self):
         if self.state == ServiceState.RUNNING:

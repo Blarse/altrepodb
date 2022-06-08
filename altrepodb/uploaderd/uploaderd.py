@@ -188,7 +188,8 @@ class UploaderDaemon:
                     time.sleep(time_left)
         except Exception as error:
             self.logger.critical(f"Exception occured while run uplodaerd: {error}")
-            raise UploaderDaemonError from error
+            raise UploaderDaemonError(f"Error: {error}")
         finally:
+            self.notifier.stop()
             for sm in self.managers:
                 sm.stop()
