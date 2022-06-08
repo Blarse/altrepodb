@@ -61,17 +61,11 @@ class ServiceManager:
         self.service.start()
 
     def stop(self):
-        if self.service_state in (
-            ServiceState.INITIALIZED,
-            ServiceState.RUNNING
-        ):
+        if self.service_state in (ServiceState.INITIALIZED, ServiceState.RUNNING):
             self.service_stop()
         while True:
             self.service_get_state()
-            if self.service_state not in (
-                ServiceState.RUNNING,
-                ServiceState.STOPPING
-            ):
+            if self.service_state not in (ServiceState.RUNNING, ServiceState.STOPPING):
                 break
             time.sleep(1)
         self.service_kill()
