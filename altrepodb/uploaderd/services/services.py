@@ -31,5 +31,5 @@ SERVICES: dict[str, type[ServiceBase]] = {
     "beehive_loader": BeehiveLoaderService,
     "repocop_loader": RepocopLoaderService,
     "watch_loader": WatchLoaderService,
-    "repo_service": RepoLoaderService,
+    "repo_loader": RepoLoaderService,
 }
