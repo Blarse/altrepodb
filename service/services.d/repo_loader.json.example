@@ -1,8 +1,28 @@
 {
     "workers_count" : 1,
     "routing_key": "repo.load",
-    "repo_dir": "/archive/repo",
     "threads_count": 4,
+    "publish_on_done": false,
+    "requeue_on_reject": false,
+    "max_redeliver_count": 0,
+    "validate_date": true,
+
+    "repo_dirs": {
+        "sisyphus": "/archive/repo/sisyphus/date/latest",
+        "p8": "/archive/repo/p8/date/latest",
+        "p9": "/archive/repo/p9/date/latest",
+        "p10": "/archive/repo/p10/date/latest",
+        "c8": "/archive/repo/c8/date/latest",
+        "c8.1": "/archive/repo/c8.1/date/latest",
+        "c9f1": "/archive/repo/c9f1/date/latest",
+        "c9f2": "/archive/repo/c9f2/date/latest",
+        "sisyphus_e2k": "/repo/e2k/sisyphus_e2k",
+        "p10_e2k": "/repo/e2k/p10_e2k",
+        "p9_e2k": "/repo/e2k/p9_e2k",
+        "sisyphus_mipsel": "/repo/ports/mipsel/Sisyphus",
+        "p9_mipsel": "/repo/ports/mipsel/p9",
+        "sisyphus_riscv64": "/repo/ports/riscv64/Sisyphus"
+    },
 
     "database" : {
         "dbname" : "repodb",

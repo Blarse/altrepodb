@@ -20,14 +20,19 @@ from pathlib import Path
 from datetime import datetime
 
 from altrepodb.repo.processor import RepoProcessor, RepoProcessorConfig
-from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..service import (
+    ServiceBase,
+    ServiceError,
+    Work,
+    mpEvent,
+    WorkQueue,
+    worker_sentinel,
+)
 from ..base import NotifierMessageType, NotifierMessageSeverity
 from altrepodb.database import DatabaseConfig
 
 NAME = "altrepodb.repo_loader"
 ROUTING_KEY = "repo.load"
-MAX_REDELIVER = 3
-REPO_DIR = "/archive/repo"
 REPO_THREADS_COUNT = 4
 
 logger = logging.getLogger(NAME)
@@ -43,22 +48,33 @@ class RepoLoaderService(ServiceBase):
         self.worker = repo_loader_worker
         self.logger = logger
 
+        self.repo_dirs: dict[str, str] = {}
+        self.validate_date: bool = False
+
     def load_config(self):
         super().load_config()
-        if "routing_key" not in self.config:
-            self.config["routing_key"] = ROUTING_KEY
 
-        if "repo_dir" not in self.config:
-            self.config["repo_dir"] = REPO_DIR
+        self.routing_key = self.config.get("routing_key", ROUTING_KEY)
+        self.publish_on_done = self.config.get("publish_on_done", False)
+        self.requeue_on_reject = self.config.get("requeue_on_reject", False)
+        self.max_redeliver_count = self.config.get("max_redeliver_count", 0)
+        self.validate_date = self.config.get("validate_date", False)
+
+        try:
+            self.repo_dirs = self.config["repo_dirs"]
+        except KeyError:
+            raise ServiceError(
+                "No repository directories table found in configuration file"
+            )
 
     def on_message(self, method, properties, body_json):
-        if method.routing_key != self.config["routing_key"]:
+        if method.routing_key != self.routing_key:
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
         headers = properties.headers
-        if headers and headers.get("x-delivery-count", 0) >= MAX_REDELIVER:
+        if headers and headers.get("x-delivery-count", 0) > self.max_redeliver_count:
             self.logger.info("Reject redelivered message")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
@@ -70,28 +86,63 @@ class RepoLoaderService(ServiceBase):
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
+        body_is_valid = True
+
         for item in ("branch", "date"):
             if item not in body:
+                body_is_valid = False
                 logger.error(f"item '{item}' not found in message payload")
+
+        if body_is_valid and (body["branch"] not in self.repo_dirs):
+            body_is_valid = False
+            logger.error(
+                f"No repository directory is configured for branch {body['branch']}"
+            )
+
+        repo_date = None
+        if body_is_valid:
+            try:
+                repo_date = datetime.strptime(body["date"], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                body_is_valid = False
+                self.logger.error("Repository date is not valid")
+
+        if (
+            body_is_valid
+            and self.validate_date
+            and repo_date != datetime.today().date()
+        ):
+            body_is_valid = False
+            self.logger.error("Repository date is inconsistent")
 
         logger.debug(f"Received message with payload: {body}")
 
-        self.workers_todo_queue.put(
-            Work(
-                status="new",
-                method=method,
-                properties=properties,
-                body_json=body_json,
+        if body_is_valid:
+            body["repo_path"] = self.repo_dirs[body["branch"]]
+            self.workers_todo_queue.put(
+                Work(
+                    status="new",
+                    method=method,
+                    properties=properties,
+                    body_json=json.dumps(body).encode("utf-8"),
+                )
             )
-        )
+        else:
+            self.logger.info("Reject inconsistent message")
+            self.amqp.reject_message(method.delivery_tag, requeue=False)
 
     def on_done(self, work: Work):
         if work.status == "done":
             self.amqp.ack_message(work.method.delivery_tag)
-            self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
+            if self.publish_on_done:
+                self.amqp.publish(
+                    work.method.routing_key, work.body_json, work.properties
+                )
         else:
             # requeue message if load failed
-            self.amqp.reject_message(work.method.delivery_tag, requeue=True)
+            self.amqp.reject_message(
+                work.method.delivery_tag, requeue=self.requeue_on_reject
+            )
             self.report(
                 reason="notify",
                 payload={
@@ -127,24 +178,22 @@ def repo_loader_worker(
         try:
             body = json.loads(work.body_json)
 
-            branch = body["branch"]
-            date_ = body["date"].split("-")
+            repo_branch = body["branch"]
             repo_date = datetime.strptime(body["date"], "%Y-%m-%d")
 
             # check if repository path is provided in message payload
-            if "repo_path" in body:
-                repo_path = Path(body["repo_path"])
-            else:
-                repo_path = Path(config["repo_dir"]).joinpath(
-                    branch, "date", f"{date_[0]}/{date_[1]}/{date_[2]}"
-                )
+            if "repo_path" not in body:
+                error_message = "Repository path is missing"
+                raise RepoServiceError
+
+            repo_path = Path(body["repo_path"])
 
             if not repo_path.is_dir():
                 error_message = f"Invalid repository path: {str(repo_path)}"
                 raise RepoServiceError
 
             rpconfig = RepoProcessorConfig(
-                name=branch,
+                name=repo_branch,
                 path=repo_path,
                 date=repo_date,
                 workers=config.get("threads_count", REPO_THREADS_COUNT),
@@ -153,7 +202,7 @@ def repo_loader_worker(
                 tag="uploaderd",
             )
             rp = RepoProcessor(rpconfig)
-            logger.info(f"Start loading repository {branch} on {body['date']}")
+            logger.info(f"Start loading repository {repo_branch} on {body['date']}")
             rp.run()
             logger.info("Repository data uploaded successfully")
             state = True
