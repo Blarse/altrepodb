@@ -5,6 +5,7 @@
     "timeout": 30,
     "publish_on_done": false,
     "requeue_on_reject": false,
+    "max_redeliver_count": 0,
 
     "database" : {
         "dbname" : "repodb",

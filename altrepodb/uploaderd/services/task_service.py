@@ -28,7 +28,7 @@ from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "altrepodb.task_loader"
 ROUTING_KEY = "task.state"
-MAX_REDELIVER = 3
+MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
 
 consistent_states = ["done", "eperm", "failed", "new", "tested"]
@@ -52,16 +52,13 @@ class TaskLoaderService(ServiceBase):
         self.worker = task_loader_worker
         self.logger = logger
 
-        self.routing_key: str = ""
-        self.publish_on_done: bool = False
-        self.requeue_on_reject: bool = False
-
     def load_config(self):
         super().load_config()
 
         self.routing_key = self.config.get("routing_key", ROUTING_KEY)
         self.publish_on_done = self.config.get("publish_on_done", False)
         self.requeue_on_reject = self.config.get("requeue_on_reject", False)
+        self.max_redeliver_count = self.config.get("max_redeliver_count", MAX_REDELIVER)
 
         if "tasks_dir" not in self.config:
             self.config["tasks_dir"] = DEFAULT_TASKS_DIR
@@ -74,7 +71,7 @@ class TaskLoaderService(ServiceBase):
             return
 
         headers = properties.headers
-        if headers and headers.get("x-delivery-count", 0) >= MAX_REDELIVER:
+        if headers and headers.get("x-delivery-count", 0) > self.max_redeliver_count:
             self.logger.info("Reject redelivered message")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return

@@ -30,7 +30,6 @@ from altrepodb.database import DatabaseConfig
 
 NAME = "altrepodb.beehive_loader"
 ROUTING_KEY = "beehive.load"
-MAX_REDELIVER = 2
 BEEHIVE_BASE_URL = "https://git.altlinux.org/beehive"
 BEEHIVE_BRANCHES = (
     "Sisyphus",
@@ -58,16 +57,13 @@ class BeehiveLoaderService(ServiceBase):
         self.worker = beehive_loader_worker
         self.logger = logger
 
-        self.routing_key: str = ""
-        self.publish_on_done: bool = False
-        self.requeue_on_reject: bool = False
-
     def load_config(self):
         super().load_config()
 
         self.routing_key = self.config.get("routing_key", ROUTING_KEY)
         self.publish_on_done = self.config.get("publish_on_done", False)
         self.requeue_on_reject = self.config.get("requeue_on_reject", False)
+        self.max_redeliver_count = self.config.get("max_redeliver_count", 0)
 
     def on_message(self, method, properties, body_json):
         if method.routing_key != self.routing_key:
@@ -76,7 +72,7 @@ class BeehiveLoaderService(ServiceBase):
             return
 
         headers = properties.headers
-        if headers and headers.get("x-delivery-count", 0) >= MAX_REDELIVER:
+        if headers and headers.get("x-delivery-count", 0) > self.max_redeliver_count:
             self.logger.info("Reject redelivered message")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return

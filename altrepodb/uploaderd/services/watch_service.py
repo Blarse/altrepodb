@@ -24,7 +24,6 @@ from altrepodb.database import DatabaseConfig
 
 NAME = "altrepodb.watch_loader"
 ROUTING_KEY = "watch.load"
-MAX_REDELIVER = 2
 WATCH_URL = "https://watch.altlinux.org/pub/watch/watch-total.txt"
 WATCH_REQUEST_TIMEOUT = 30
 
@@ -37,16 +36,13 @@ class WatchLoaderService(ServiceBase):
         self.worker = watch_loader_worker
         self.logger = logger
 
-        self.routing_key: str = ""
-        self.publish_on_done: bool = False
-        self.requeue_on_reject: bool = False
-
     def load_config(self):
         super().load_config()
 
         self.routing_key = self.config.get("routing_key", ROUTING_KEY)
         self.publish_on_done = self.config.get("publish_on_done", False)
         self.requeue_on_reject = self.config.get("requeue_on_reject", False)
+        self.max_redeliver_count = self.config.get("max_redeliver_count", 0)
 
     def on_message(self, method, properties, body_json):
         if method.routing_key != self.routing_key:
@@ -55,7 +51,7 @@ class WatchLoaderService(ServiceBase):
             return
 
         headers = properties.headers
-        if headers and headers.get("x-delivery-count", 0) >= MAX_REDELIVER:
+        if headers and headers.get("x-delivery-count", 0) > self.max_redeliver_count:
             self.logger.info("Reject redelivered message")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
