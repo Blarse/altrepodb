@@ -3,7 +3,8 @@
     "routing_key": "watch.load",
     "url": "https://watch.altlinux.org/pub/watch/watch-total.txt",
     "timeout": 30,
-
+    "publish_on_done": false,
+    "requeue_on_reject": false,
 
     "database" : {
         "dbname" : "repodb",
