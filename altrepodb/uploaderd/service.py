@@ -136,11 +136,15 @@ class ServiceBase(threading.Thread, ABC):
         self.amqp: AMQPClient
         self.dbconf: DatabaseConfig
         self.amqpconf: AMQPConfig
-
         self.worker: Worker
-        self.config: dict[str, Any] = {}
 
+        self.config: dict[str, Any] = {}
         self.logger = logging.getLogger(NAME)
+
+        self.routing_key: str
+        self.publish_on_done: bool
+        self.requeue_on_reject: bool
+        self.max_redeliver_count: int
 
     def run(self):
         self.logger.info(f"{self.name} started")
