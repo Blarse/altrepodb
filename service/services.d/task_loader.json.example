@@ -1,6 +1,9 @@
 {
     "workers_count" : 1,
     "tasks_dir": "/tasks",
+    "publish_on_done": true,
+    "requeue_on_reject": true,
+    "routing_key": "task.state",
 
     "database" : {
         "dbname" : "repodb",
