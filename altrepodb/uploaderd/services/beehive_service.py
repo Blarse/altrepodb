@@ -58,13 +58,19 @@ class BeehiveLoaderService(ServiceBase):
         self.worker = beehive_loader_worker
         self.logger = logger
 
+        self.routing_key: str = ""
+        self.publish_on_done: bool = False
+        self.requeue_on_reject: bool = False
+
     def load_config(self):
         super().load_config()
-        if "routing_key" not in self.config:
-            self.config["routing_key"] = ROUTING_KEY
+
+        self.routing_key = self.config.get("routing_key", ROUTING_KEY)
+        self.publish_on_done = self.config.get("publish_on_done", False)
+        self.requeue_on_reject = self.config.get("requeue_on_reject", False)
 
     def on_message(self, method, properties, body_json):
-        if method.routing_key != self.config["routing_key"]:
+        if method.routing_key != self.routing_key:
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
@@ -96,10 +102,15 @@ class BeehiveLoaderService(ServiceBase):
     def on_done(self, work: Work):
         if work.status == "done":
             self.amqp.ack_message(work.method.delivery_tag)
-            self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
+            if self.publish_on_done:
+                self.amqp.publish(
+                    work.method.routing_key, work.body_json, work.properties
+                )
         else:
             # requeue message if beehive load failed
-            self.amqp.reject_message(work.method.delivery_tag, requeue=True)
+            self.amqp.reject_message(
+                work.method.delivery_tag, requeue=self.requeue_on_reject
+            )
             self.report(
                 reason="notify",
                 payload={

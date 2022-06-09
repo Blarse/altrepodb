@@ -5,7 +5,8 @@
     "archs": ["i586", "x86_64"],
     "branches": ["Sisyphus", "p10", "p9"],
     "timeout": 30,
-
+    "publish_on_done": false,
+    "requeue_on_reject": false,
 
     "database" : {
         "dbname" : "repodb",
