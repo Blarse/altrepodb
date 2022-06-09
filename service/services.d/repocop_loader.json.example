@@ -3,7 +3,8 @@
     "routing_key": "repocop.load",
     "url": "http://repocop.altlinux.org/pub/repocop/prometheus3/packages.altlinux-sisyphus.json.bz2",
     "timeout": 30,
-
+    "publish_on_done": false,
+    "requeue_on_reject": false,
 
     "database" : {
         "dbname" : "repodb",
