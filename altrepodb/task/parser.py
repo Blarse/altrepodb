@@ -14,6 +14,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import logging
+import datetime
 from collections import defaultdict
 
 from altrepodb.altrpm import rpm as rpmt, readHeaderListFromXZFile
@@ -35,6 +36,8 @@ from .base import (
 from .reader import TaskFromFileSystem
 from .file_parser import TaskFilesParser, TaskPlanAddRmPkgInfo
 from .exceptions import TaskLoaderParserError
+
+MTIME_NEVER = datetime.datetime.utcfromtimestamp(0)
 
 
 class TaskParser:
@@ -325,12 +328,11 @@ class TaskParser:
                 type=sid.split(":")[0] if sid else "",
             )
 
-            if self.tf.check_file("/".join((subtask_dir, "userid"))):
-                sub.subtask_changed = self.tf.get_file_mtime(
-                    "/".join((subtask_dir, "userid"))
-                )
-            else:
-                sub.subtask_changed = self.tf.get_file_mtime(subtask_dir)
+            # use the latest mtime from '%subtask_dir%' and '%subtask_dir%/userid'
+            userid_mtime = self.tf.get_file_mtime("/".join((subtask_dir, "userid")))
+            if userid_mtime is None:
+                userid_mtime = MTIME_NEVER
+            sub.subtask_changed = max(userid_mtime, self.tf.get_file_mtime(subtask_dir))  # type: ignore
 
             if "dir" not in files and "srpm" not in files and "package" not in files:
                 # deleted subtask
