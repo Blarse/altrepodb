@@ -1,10 +1,11 @@
 {
     "workers_count" : 1,
-    "tasks_dir": "/tasks",
-    "publish_on_done": true,
-    "requeue_on_reject": true,
-    "max_redeliver_count": 2,
-    "routing_key": "task.state",
+    "routing_key": "repocop.load",
+    "url": "http://repocop.altlinux.org/pub/repocop/prometheus3/packages.altlinux-sisyphus.json.bz2",
+    "timeout": 30,
+    "publish_on_done": false,
+    "requeue_on_reject": false,
+    "max_redeliver_count": 0,
 
     "database" : {
         "dbname" : "repodb",

@@ -21,11 +21,17 @@ from .services.services import SERVICES
 from .notifier import NotifierManager
 
 
+class ServiceManagerError(Exception):
+    pass
+
+
 class ServiceManager:
     def __init__(self, name: str, config_path: str, notifier: NotifierManager):
         self.name = name
         self.config_path = config_path
         self.notifier = notifier
+
+        self.service = None
 
         self.service_state = ServiceState.RESET
         self.service_expected_state = ServiceState.RESET
@@ -42,23 +48,24 @@ class ServiceManager:
         self.service_prev_state = ServiceState.UNKNOWN
         self.service_reason = ""
 
-        self.service = SERVICES[self.name](
-            self.name,
-            self.config_path,
-            self.qin,  # type: ignore
-            self.qout,  # type: ignore
-        )
+        try:
+            self.service = SERVICES[self.name](
+                self.name,
+                self.config_path,
+                self.qin,  # type: ignore
+                self.qout,  # type: ignore
+            )
+        except KeyError:
+            raise ServiceManagerError(f"Service {self.name} not found")
 
         self.service.start()
 
     def stop(self):
-        self.service_stop()
+        if self.service_state in (ServiceState.INITIALIZED, ServiceState.RUNNING):
+            self.service_stop()
         while True:
             self.service_get_state()
-            if (
-                self.service_state == ServiceState.STOPPED
-                or self.service_state == ServiceState.FAILED
-            ):
+            if self.service_state not in (ServiceState.RUNNING, ServiceState.STOPPING):
                 break
             time.sleep(1)
         self.service_kill()

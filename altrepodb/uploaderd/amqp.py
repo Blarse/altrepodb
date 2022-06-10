@@ -20,10 +20,12 @@ import threading
 import functools
 from logging import Logger
 from dataclasses import dataclass
+from pika import spec as pika_spec
 from pika.channel import Channel
+from pika.adapters.blocking_connection import BlockingChannel
 from pika.adapters.asyncio_connection import AsyncioConnection
 from pika.adapters import BlockingConnection
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -291,8 +293,8 @@ class SimplePublisher:
 
     def __init__(self, config: AMQPConfig):
         self.config = config
-        self.connection: BlockingConnection = None
-        self.channel: Channel = None
+        self.connection: BlockingConnection = None  # type: ignore
+        self.channel: BlockingChannel = None  # type: ignore
 
         credentials = pika.PlainCredentials(self.config.username, self.config.password)
         ssl_options = None
@@ -325,8 +327,8 @@ class SimplePublisher:
     def publish(
         self,
         routing_key: str,
-        body: bytes,
-        properties: pika.spec.BasicProperties = None,
+        body: Union[bytes, str],
+        properties: Optional[pika_spec.BasicProperties] = None,
         mandatory: bool = False,
     ):
         self.ensure_channel()

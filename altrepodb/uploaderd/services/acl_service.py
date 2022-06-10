@@ -13,4 +13,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = "2.3.1"
+import logging
+
+from ..service import ServiceBase
+
+NAME = "altrepodb.acl_loader"
+
+logger = logging.getLogger(NAME)
+
+
+class AclLoaderService(ServiceBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logger
+        raise NotImplementedError
+
+    def load_config(self):
+        super().load_config()

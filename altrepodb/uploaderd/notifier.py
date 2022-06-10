@@ -4,6 +4,8 @@ import time
 import queue
 import logging
 import threading
+from pika import spec as pika_spec
+from pika.exceptions import NackError, UnroutableError
 
 from typing import Any
 from queue import Queue
@@ -97,14 +99,14 @@ class NotifierService(threading.Thread):
         self.amqpconf = AMQPConfig(**self.config.get("amqp", {}))
 
     def run(self):
-        amqp_properties = pika.spec.BasicProperties(
+        amqp_properties = pika_spec.BasicProperties(
             content_type="application/json",
             delivery_mode=pika.DeliveryMode.Persistent.value,
         )
 
         while not self.stop_event.is_set():
             try:
-                message = self.queue.get_nowait()
+                message: NotifierMessage = self.queue.get_nowait()
                 logger.warning(f"New msg: {message}")
             except queue.Empty:
                 time.sleep(1)
@@ -118,7 +120,7 @@ class NotifierService(threading.Thread):
                     body=json.dumps(message.to_dict(), default=str),
                     properties=amqp_properties,
                 )
-            except (pika.exceptions.NackError, pika.exceptions.UnroutableError) as exc:
+            except (NackError, UnroutableError) as exc:
                 logger.error(f"Failed to publish message : {exc}")
 
         self.amqp.stop()

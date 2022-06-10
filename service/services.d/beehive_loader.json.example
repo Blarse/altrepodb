@@ -1,10 +1,13 @@
 {
     "workers_count" : 1,
-    "tasks_dir": "/tasks",
-    "publish_on_done": true,
-    "requeue_on_reject": true,
-    "max_redeliver_count": 2,
-    "routing_key": "task.state",
+    "routing_key": "beehive.load",
+    "base_url": "https://git.altlinux.org/beehive",
+    "archs": ["i586", "x86_64"],
+    "branches": ["Sisyphus", "p10", "p9"],
+    "timeout": 30,
+    "publish_on_done": false,
+    "requeue_on_reject": false,
+    "max_redeliver_count": 0,
 
     "database" : {
         "dbname" : "repodb",

@@ -20,6 +20,7 @@ import asyncio
 import logging
 import threading
 import multiprocessing as mp
+from multiprocessing.synchronize import Event as EventClass
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -52,7 +53,7 @@ ACTION_ALLOWED_STATES: dict[int, list[int]] = {
         ServiceState.STOPPING,
         ServiceState.STOPPED,
     ],
-    ServiceAction.KILL: [ServiceState.FAILED, ServiceState.STOPPED],
+    ServiceAction.KILL: [ServiceState.RESET, ServiceState.FAILED, ServiceState.STOPPED],
 }
 
 
@@ -85,7 +86,7 @@ class TypedQueue(Generic[T]):
         ...
 
 
-mpEvent = type(mp.Event)  # FIXME: found as an invalid type by mypy
+mpEvent = EventClass
 WorkQueue = TypedQueue[Work]
 MessageQueue = TypedQueue[Message]
 
@@ -135,11 +136,15 @@ class ServiceBase(threading.Thread, ABC):
         self.amqp: AMQPClient
         self.dbconf: DatabaseConfig
         self.amqpconf: AMQPConfig
-
         self.worker: Worker
-        self.config: dict[str, Any] = {}
 
+        self.config: dict[str, Any] = {}
         self.logger = logging.getLogger(NAME)
+
+        self.routing_key: str
+        self.publish_on_done: bool
+        self.requeue_on_reject: bool
+        self.max_redeliver_count: int
 
     def run(self):
         self.logger.info(f"{self.name} started")
@@ -285,9 +290,10 @@ class ServiceBase(threading.Thread, ABC):
     def kill_workers(self):
         self.logger.debug("Killing workers")
         # FIXME: potential issue with workers pipes and subprocesses that may become malfunctional
-        for worker in self.workers:
+        for worker in self.workers[:]:
             worker.terminate()
             # worker.kill()
+            self.workers.remove(worker)
 
     def self_test(self):
         if self.state == ServiceState.RUNNING:

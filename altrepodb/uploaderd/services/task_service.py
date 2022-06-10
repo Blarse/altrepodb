@@ -27,7 +27,8 @@ from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
 NAME = "altrepodb.task_loader"
-MAX_REDELIVER = 3
+ROUTING_KEY = "task.state"
+MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
 
 consistent_states = ["done", "eperm", "failed", "new", "tested"]
@@ -53,18 +54,24 @@ class TaskLoaderService(ServiceBase):
 
     def load_config(self):
         super().load_config()
+
+        self.routing_key = self.config.get("routing_key", ROUTING_KEY)
+        self.publish_on_done = self.config.get("publish_on_done", False)
+        self.requeue_on_reject = self.config.get("requeue_on_reject", False)
+        self.max_redeliver_count = self.config.get("max_redeliver_count", MAX_REDELIVER)
+
         if "tasks_dir" not in self.config:
             self.config["tasks_dir"] = DEFAULT_TASKS_DIR
 
     def on_message(self, method, properties, body_json):
-        if not method.routing_key == "task.state":
+        if method.routing_key != self.routing_key:
             # TODO: ???
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
         headers = properties.headers
-        if headers and headers.get("x-delivery-count", 0) >= MAX_REDELIVER:
+        if headers and headers.get("x-delivery-count", 0) > self.max_redeliver_count:
             self.logger.info("Reject redelivered message")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
@@ -97,11 +104,16 @@ class TaskLoaderService(ServiceBase):
     def on_done(self, work: Work):
         if work.status == "done":
             self.amqp.ack_message(work.method.delivery_tag)
-            self.amqp.publish(work.method.routing_key, work.body_json, work.properties)
+            if self.publish_on_done:
+                self.amqp.publish(
+                    work.method.routing_key, work.body_json, work.properties
+                )
         else:
             # elif work.status == "failed":
             # requeue message if task load failed
-            self.amqp.reject_message(work.method.delivery_tag, requeue=True)
+            self.amqp.reject_message(
+                work.method.delivery_tag, requeue=self.requeue_on_reject
+            )
             self.report(
                 reason="notify",
                 payload={
