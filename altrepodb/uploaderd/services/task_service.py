@@ -65,7 +65,6 @@ class TaskLoaderService(ServiceBase):
 
     def on_message(self, method, properties, body_json):
         if method.routing_key != self.routing_key:
-            # TODO: ???
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
@@ -106,11 +105,9 @@ class TaskLoaderService(ServiceBase):
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
-                    work.method.routing_key, work.body_json, work.properties
+                    work.method.routing_key, work.body_json, work.properties  # type: ignore
                 )
         else:
-            # elif work.status == "failed":
-            # requeue message if task load failed
             self.amqp.reject_message(
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )

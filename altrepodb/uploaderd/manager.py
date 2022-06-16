@@ -14,11 +14,18 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import time
+import logging
 import queue
+from multiprocessing import Queue
 
 from .service import ServiceAction, ServiceState, Message
 from .services.services import SERVICES
-from .notifier import NotifierManager
+from .notifier import NotifierManager, NotifierMessageSeverity, NotifierMessageType
+from altrepodb.settings import MANAGER_SERVICE_COMMAND_TIMEOUT
+
+NAME = "altrepodb.uploaderd.manager"
+
+logger = logging.getLogger(NAME)
 
 
 class ServiceManagerError(Exception):
@@ -26,32 +33,21 @@ class ServiceManagerError(Exception):
 
 
 class ServiceManager:
-    def __init__(self, name: str, config_path: str, notifier: NotifierManager):
+    def __init__(self, name: str, config_path: str, notifier: NotifierManager) -> None:
         self.name = name
-        self.config_path = config_path
+        self.config = config_path
         self.notifier = notifier
-
         self.service = None
-
         self.service_state = ServiceState.RESET
-        self.service_expected_state = ServiceState.RESET
-        self.service_prev_state = ServiceState.UNKNOWN
+        self.qin = Queue()
+        self.qout = Queue()
 
-        self.service_reason = ""
-
-        self.qin = queue.Queue()
-        self.qout = queue.Queue()
-
-    def start(self):
+    def initialize(self):
         self.service_state = ServiceState.RESET
-        self.service_expected_state = ServiceState.RESET
-        self.service_prev_state = ServiceState.UNKNOWN
-        self.service_reason = ""
-
         try:
             self.service = SERVICES[self.name](
                 self.name,
-                self.config_path,
+                self.config,
                 self.qin,  # type: ignore
                 self.qout,  # type: ignore
             )
@@ -59,17 +55,37 @@ class ServiceManager:
             raise ServiceManagerError(f"Service {self.name} not found")
 
         self.service.start()
+        logger.debug(f"Service {self.name} process started")
+
+    def start(self):
+        if self.service is None:
+            self.initialize()
+
+        self.service_init()
+        time.sleep(1)
+        self.get_service_state()
+        if self.service_state != ServiceState.INITIALIZED:
+            raise ServiceManagerError(
+                f"Failed to initialize service {self.name} with {self.service_reason}"
+            )
+        self.service_start()
+        self.get_service_state()
+        if self.service_state != ServiceState.RUNNING:
+            raise ServiceManagerError(
+                f"Failed to start service {self.name} with {self.service_reason}"
+            )
+
+        logger.info(f"Service {self.name} started")
 
     def stop(self):
         if self.service_state in (ServiceState.INITIALIZED, ServiceState.RUNNING):
             self.service_stop()
         while True:
-            self.service_get_state()
+            self.get_service_state()
             if self.service_state not in (ServiceState.RUNNING, ServiceState.STOPPING):
                 break
             time.sleep(1)
         self.service_kill()
-        self.service_state = ServiceState.DEAD
 
     def restart(self):
         self.stop()
@@ -77,53 +93,82 @@ class ServiceManager:
 
     def service_init(self):
         self.qin.put_nowait(Message(ServiceAction.INIT))
-        self.service_expected_state = ServiceState.INITIALIZED
 
     def service_start(self):
         self.qin.put_nowait(Message(ServiceAction.START))
-        self.service_expected_state = ServiceState.RUNNING
 
     def service_stop(self):
         self.qin.put_nowait(Message(ServiceAction.STOP))
-        # FIXME: expect both STOPPING and STOPPED
-        self.service_expected_state = ServiceState.STOPPING
 
     def service_kill(self):
-        self.qin.put_nowait(Message(ServiceAction.KILL))
-        self.service_expected_state = ServiceState.UNKNOWN
+        if self.service is not None:
+            self.qin.put_nowait(Message(ServiceAction.KILL))
+            while True:
+                self.get_service_state()
+                if self.service_state in (
+                    ServiceState.RESET,
+                    ServiceState.FAILED,
+                    ServiceState.DEAD,
+                ):
+                    break
+                time.sleep(1)
+            try:
+                # self.service.terminate()
+                self.service.kill()
+                logger.info(f"Service {self.name} terminated")
+            except AttributeError:
+                pass
+        self.service = None
+        self.service_state = ServiceState.DEAD
 
-    def service_get_state(self):
+    def get_service_state(self):
+        if self.service_state in (ServiceState.DEAD, ServiceState.FAILED):
+            return
 
         self._process_qout()
 
-        self.service_prev_state = self.service_state
         self.service_state = ServiceState.UNKNOWN
         self.service_reason = ""
+
         try:
             self.qin.put_nowait(Message(ServiceAction.GET_STATE))
-            resp = self.qout.get(True, 10)
-            self.service_state = resp.msg
-            self.service_reason = resp.reason
+            resp: Message = self.qout.get(True, MANAGER_SERVICE_COMMAND_TIMEOUT)
+            if resp.msg == ServiceAction.GET_STATE:
+                self.service_state = resp.payload
+                self.service_reason = resp.reason
         except (queue.Full, queue.Empty):
             self.service_state = ServiceState.FAILED
             self.service_reason = "timeout"
+        logger.debug(
+            f"Service {self.name} state: {self.service_state}, reason: {self.service_reason}"
+        )
 
     def _process_qout(self):
         while True:
             try:
-                resp = self.qout.get_nowait()
+                resp: Message = self.qout.get_nowait()
             except queue.Empty:
                 # all messages are consumed
                 break
 
             try:
-                self.notifier.send_message(
-                    subject=self.name,
-                    severity=resp.payload["severity"],
-                    type=resp.payload["type"],
-                    message=resp.payload["reason"],
-                    payload=resp.payload["work_body"],
-                )
-            except KeyError:
+                if resp.reason == "notify":
+                    self.notifier.send_message(
+                        subject=self.name,
+                        severity=resp.payload["severity"],
+                        type=resp.payload["type"],
+                        message=resp.payload["reason"],
+                        payload=resp.payload["work_body"],
+                    )
+                else:
+                    logger.warning(f"Service {self.name} reported: {resp.reason}")
+                    self.notifier.send_message(
+                        subject=self.name,
+                        severity=NotifierMessageSeverity.WARNING,
+                        type=NotifierMessageType.SERVICE_ERROR,
+                        message=resp.reason,
+                        payload=b"{}",
+                    )
+            except (KeyError, TypeError):
                 # FIXME: ignoring inconsistent messages
                 continue

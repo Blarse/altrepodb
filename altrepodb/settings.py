@@ -43,7 +43,10 @@ ARCHS = (
 # altrepodb.uploaderd.uploaderd
 DEFAULT_UPLOADERD_CONFIG_FILE = "/etc/uploaderd/config.json"
 DEFAULT_SERVICE_CONF_DIR = "/etc/uploaderd/services.d/"
-DEFAULT_BASE_TIMEOUT = 10
+DEFAULT_BASE_TIMEOUT = 5
+
+# altrepodb.uploaderd.manager
+MANAGER_SERVICE_COMMAND_TIMEOUT = 5
 
 #  altrepodb.beehive
 BEEHIVE_BASE_URL = "https://git.altlinux.org/beehive"

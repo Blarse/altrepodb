@@ -22,7 +22,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from .base import ServiceState
-from .manager import ServiceManager
+from .manager import ServiceManager, ServiceManagerError
 from .notifier import NotifierManager
 
 from altrepodb.settings import (
@@ -44,7 +44,6 @@ class UploaderDaemonConfig:
     services_config_dir: str = DEFAULT_SERVICE_CONF_DIR
     service_timeout: int = DEFAULT_BASE_TIMEOUT
     logger: Optional[logging.Logger] = None
-    # debug: bool = False
 
 
 class UploaderDaemon:
@@ -112,54 +111,35 @@ class UploaderDaemon:
                 )
             )
 
+    def _initialize_services(self):
+        for sm in self.managers:
+            try:
+                sm.initialize()
+            except ServiceManagerError as e:
+                self.logger.error(f"Failed to initialize service '{sm.name}' with {e}")
+                raise UploaderDaemonError from e
+
     def _services_loop(self) -> None:
-        for sm in self.managers[:]:
-            while True:
-                sm.service_get_state()
-                self.logger.debug(f"service {sm.name} state: {sm.service_state.name}")
+        for sm in self.managers:
+            sm.get_service_state()
+            self.logger.debug(f"service {sm.name} state: {sm.service_state.name}")
 
-                if sm.service_state != sm.service_expected_state:
-                    if sm.service_expected_state == ServiceState.INITIALIZED:
-                        self.logger.error(f"Failed to initialize service {sm.name}")
-                        sm.stop()
-                        self.managers.remove(sm)
-                    elif (
-                        sm.service_expected_state == ServiceState.RUNNING
-                        and sm.service_prev_state == ServiceState.INITIALIZED
-                    ):
-                        self.logger.error(f"Failed to start service {sm.name}")
-                    sm.service_state = ServiceState.FAILED
-
-                if sm.service_state == ServiceState.RESET:
-                    sm.service_init()
-                    continue
-                elif sm.service_state == ServiceState.INITIALIZED:
-                    sm.service_start()
-                    continue
-                elif sm.service_state == ServiceState.RUNNING:
-                    # all good
-                    pass
-                elif (
-                    sm.service_state == ServiceState.STOPPED
-                    or sm.service_state == ServiceState.FAILED
-                    or sm.service_state == ServiceState.UNKNOWN
-                    or sm.service_state == ServiceState.DEAD
-                ):
-                    self.logger.error(
-                        f"service {sm.name} is in {sm.service_state.name} "
-                        f"state, reason: {sm.service_reason}"
-                    )
-                    sm.restart()
-
-                break
+            if sm.service_state != ServiceState.RUNNING:
+                self.logger.error(
+                    f"service {sm.name} is in {sm.service_state.name} "
+                    f"state, reason: {sm.service_reason}"
+                )
+                sm.restart()
 
     def shutdown(self, signum, frame):
+        # FIXME: SIGTERM now handled through service's process handler
         self.logger.info("Shutting down uploaderd service...")
         systemd.daemon.notify("STOPPING=1")
-        for sm in self.managers:
+        for sm in self.managers[:]:
             self.logger.info(f"Stopping service {sm.name}")
             sm.stop()
             self.logger.info(f"Service {sm.name} stopped")
+            self.managers.remove(sm)
         systemd.daemon.notify("STATUS=All services stopped")
         raise SystemExit(0)
 
@@ -167,6 +147,7 @@ class UploaderDaemon:
         try:
             self.logger.info("Starting services")
             self._populate_services()
+            self._initialize_services()
 
             self.notifier.start()
 
@@ -186,10 +167,15 @@ class UploaderDaemon:
                 if time_left > 0:
                     self.logger.debug(f"go to sleep for {time_left:.3f} seconds")
                     time.sleep(time_left)
-        except Exception as error:
+        except (ServiceManagerError, Exception) as error:
             self.logger.critical(f"Exception occured while run uplodaerd: {error}")
             raise UploaderDaemonError(f"Error: {error}")
         finally:
+            systemd.daemon.notify("STOPPING=1")
             self.notifier.stop()
-            for sm in self.managers:
+            for sm in self.managers[:]:
+                self.logger.info(f"Stopping service {sm.name}")
                 sm.stop()
+                self.logger.info(f"Service {sm.name} stopped")
+                self.managers.remove(sm)
+            systemd.daemon.notify("STATUS=All services stopped")
