@@ -86,7 +86,7 @@ mkdir -p %buildroot%_logdir/%name
 %_bindir/watch_loader
 
 %changelog
-* Fri Jun 10 2022 Danil Shein <dshein@altlinux.org> 2.3.1-alt1
+* Tue Jun 21 2022 Danil Shein <dshein@altlinux.org> 2.3.1-alt1
  - new version
 
 * Fri Jun 03 2022 Danil Shein <dshein@altlinux.org> 2.3.0-alt1
