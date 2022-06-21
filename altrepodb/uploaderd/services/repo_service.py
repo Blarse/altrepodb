@@ -136,7 +136,7 @@ class RepoLoaderService(ServiceBase):
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
-                    work.method.routing_key, work.body_json, work.properties
+                    work.method.routing_key, work.body_json, work.properties  # type: ignore
                 )
         else:
             # requeue message if load failed

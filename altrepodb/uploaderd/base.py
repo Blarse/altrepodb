@@ -25,6 +25,7 @@ class ServiceAction(IntEnum):
     STOP = auto()
     GET_STATE = auto()
     KILL = auto()
+    REPORT = auto()
 
 
 class ServiceState(IntEnum):
@@ -36,7 +37,6 @@ class ServiceState(IntEnum):
     STOPPED = auto()
     STOPPING = auto()
     DEAD = auto()
-    REPORT = auto()
 
 
 @dataclass
@@ -54,6 +54,7 @@ class NotifierMessageSeverity(Enum):
 
 class NotifierMessageType(Enum):
     MESSAGE = auto()
+    SERVICE_ERROR = auto()
     SERVICE_WORKER_ERROR = auto()
 
 

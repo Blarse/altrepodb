@@ -98,7 +98,6 @@ def log_load_worker_pool(
     logs_list: list[TaskLog],
     num_of_workers=0,
 ):
-    # TODO: add progress bar
     st = time.time()
     taskfp = TaskFilesParser(logger)
     workers: list[RaisingTread] = []
@@ -108,7 +107,7 @@ def log_load_worker_pool(
     if not num_of_workers:
         num_of_workers = conf.workers
 
-    for i in range(num_of_workers):
+    for _ in range(num_of_workers):
         conn = DatabaseClient(conf.dbconfig, logger)
         connections.append(conn)
         worker = LogLoaderWorker(

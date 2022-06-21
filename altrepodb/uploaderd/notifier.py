@@ -10,7 +10,7 @@ from pika.exceptions import NackError, UnroutableError
 from typing import Any
 from queue import Queue
 
-from .amqp import AMQPConfig, SimplePublisher
+from .amqp import AMQPConfig, BlockingAMQPClient
 from .base import NotifierMessageSeverity, NotifierMessageType, NotifierMessage
 
 NAME = "altrepodb.notifier"
@@ -33,7 +33,9 @@ class NotifierManager:
 
     def start(self):
         self.stop_event.clear()
-        self.notifier = NotifierService(self.config, self.queue, self.stop_event)
+        self.notifier = NotifierService(
+            self.config, self.queue, self.stop_event, daemon=True
+        )
         self.notifier.start()
         time.sleep(0.5)  # XXX: should be enough set everything up in new thread
         if not self.notifier.is_alive():
@@ -66,6 +68,7 @@ class NotifierManager:
         )
 
         if not self.notifier.is_alive():
+            logger.warning("Notifier service is dead. Restarting")
             self.restart()
 
         try:
@@ -89,7 +92,7 @@ class NotifierService(threading.Thread):
 
         self.amqpconf: AMQPConfig
         self.load_config()
-        self.amqp = SimplePublisher(self.amqpconf)
+        self.amqp = BlockingAMQPClient(self.amqpconf)
 
         self.queue = queue
 
@@ -107,7 +110,7 @@ class NotifierService(threading.Thread):
         while not self.stop_event.is_set():
             try:
                 message: NotifierMessage = self.queue.get_nowait()
-                logger.warning(f"New msg: {message}")
+                logger.info(f"Notifier got message: {message}")
             except queue.Empty:
                 time.sleep(1)
                 continue
@@ -122,5 +125,8 @@ class NotifierService(threading.Thread):
                 )
             except (NackError, UnroutableError) as exc:
                 logger.error(f"Failed to publish message : {exc}")
+            except Exception as exc:
+                logger.error(f"Error in notifier service : {exc}")
+                # raise NotifierServiceError from exc
 
         self.amqp.stop()

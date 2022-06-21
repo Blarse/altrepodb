@@ -79,7 +79,7 @@ def main():
         logger.error("Interrupted")
         uploader_daemon.shutdown(0, None)
     except Exception as error:
-        logger.critical(f"Error: {error}")
+        logger.exception(f"Error: {error}")
         systemd.daemon.notify(f"STATUS={error}")
         sys.exit(1)
 

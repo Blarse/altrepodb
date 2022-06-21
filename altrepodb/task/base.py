@@ -135,3 +135,5 @@ class TaskProcessorConfig:
     force: bool = False
     workers: int = 4
     dumpjson: bool = False
+    store_approvals: bool = True
+    store_logs_for_new: bool = True

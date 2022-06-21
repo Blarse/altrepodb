@@ -37,19 +37,15 @@ class TaskLoadHandler:
         taskfs: TaskFromFileSystem,
         logger: logging.Logger,
         task: Task,
-        conf: TaskProcessorConfig,
+        config: TaskProcessorConfig,
     ):
         self.tf = taskfs
-        self.conf = conf
+        self.config = config
         self.task = task
         self.conn = conn
         self.logger = logger
 
-    def _save_task(self):
-        # 1 - proceed with TaskStates
-        # 1.1 - save event logs hashes
-        eventlog_hash = [x.hash for x in self.task.logs if x.type == "events"]
-        # 1.2 - save current task state
+    def _save_task_state(self):
         state = {
             "task_changed": self.task.state.changed,
             "task_id": self.task.state.task_id,
@@ -63,11 +59,134 @@ class TaskLoadHandler:
             "task_message": self.task.state.message,
             "task_version": self.task.state.version,
             "task_prev": self.task.state.prev,
-            "task_eventlog_hash": eventlog_hash,
+            "task_eventlog_hash": [
+                x.hash for x in self.task.logs if x.type == "events"
+            ],
         }
         self.conn.execute("INSERT INTO TaskStates_buffer (*) VALUES", [state])
-        # 2 - proceed with TaskApprovals
-        # 2.1 - collect task approvals from DB
+
+    def _save_task_subtasks(self):
+        subtasks = []
+        for sub in self.task.subtasks:
+            subtasks.append(
+                {
+                    "task_id": sub.task_id,
+                    "subtask_id": sub.subtask_id,
+                    "task_repo": sub.task_repo,
+                    "task_owner": sub.task_owner,
+                    "task_changed": sub.task_changed,
+                    "subtask_changed": sub.subtask_changed,
+                    "subtask_deleted": sub.deleted,
+                    "subtask_userid": sub.userid,
+                    "subtask_dir": sub.dir,
+                    "subtask_package": sub.package,
+                    "subtask_type": sub.type,
+                    "subtask_pkg_from": sub.pkg_from,
+                    "subtask_sid": sub.sid,
+                    "subtask_tag_author": sub.tag_author,
+                    "subtask_tag_id": sub.tag_id,
+                    "subtask_tag_name": sub.tag_name,
+                    "subtask_srpm": sub.srpm,
+                    "subtask_srpm_name": sub.srpm_name,
+                    "subtask_srpm_evr": sub.srpm_evr,
+                }
+            )
+        if subtasks:
+            self.conn.execute("INSERT INTO Tasks_buffer (*) VALUES", subtasks)
+
+    def _save_task_iterations(self):
+        if self.task.iterations:
+            titer_load_worker_pool(
+                self.config,
+                self.conn,
+                self.tf,
+                self.logger,
+                self.task,
+                num_of_workers=0,
+            )
+
+    def _save_task_logs(self):
+        if self.task.logs:
+            log_load_worker_pool(
+                self.config,
+                self.tf,
+                self.logger,
+                self.task.logs,
+                num_of_workers=0,
+            )
+
+    def _save_task_arepo_packages(self):
+        if self.task.arepo:
+            package_load_worker_pool(
+                self.config,
+                self.conn,
+                self.tf,
+                self.logger,
+                self.task,
+                num_of_workers=0,
+                loaded_from="'/arepo'",
+            )
+
+    def _save_task_plan(self):
+        # 1 - load plan package added and deleted
+        payload = []
+        for arch in self.task.plan.pkg_add.keys():
+            for file, pkg in self.task.plan.pkg_add[arch].items():
+                payload.append(
+                    {
+                        "tplan_hash": self.task.plan.hashes[arch],
+                        "tplan_action": "add",
+                        "tplan_pkg_name": pkg.name,
+                        "tplan_pkg_evr": pkg.evr,
+                        "tplan_bin_file": file,
+                        "tplan_src_file": pkg.srpm,
+                        "tplan_arch": pkg.arch,
+                        "tplan_comp": pkg.comp,
+                        "tplan_subtask": pkg.subtask_id,
+                    }
+                )
+        for arch in self.task.plan.pkg_del.keys():
+            for file, pkg in self.task.plan.pkg_del[arch].items():
+                payload.append(
+                    {
+                        "tplan_hash": self.task.plan.hashes[arch],
+                        "tplan_action": "delete",
+                        "tplan_pkg_name": pkg.name,
+                        "tplan_pkg_evr": pkg.evr,
+                        "tplan_bin_file": file,
+                        "tplan_src_file": pkg.srpm,
+                        "tplan_arch": pkg.arch,
+                        "tplan_comp": pkg.comp,
+                        "tplan_subtask": pkg.subtask_id,
+                    }
+                )
+        if payload:
+            self.conn.execute("""INSERT INTO TaskPlanPackages (*) VALUES""", payload)
+        # 2 - load plan package hashes add and delete
+        payload = []
+        for arch in self.task.plan.hash_add.keys():
+            for hash in self.task.plan.hash_add[arch].values():
+                payload.append(
+                    {
+                        "tplan_hash": self.task.plan.hashes[arch],
+                        "tplan_action": "add",
+                        "tplan_sha256": hash,
+                    }
+                )
+        for arch in self.task.plan.hash_del.keys():
+            for hash in self.task.plan.hash_del[arch].values():
+                payload.append(
+                    {
+                        "tplan_hash": self.task.plan.hashes[arch],
+                        "tplan_action": "delete",
+                        "tplan_sha256": hash,
+                    }
+                )
+        if payload:
+            self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
+
+    def _save_task_approvals(self):
+        # 1 - collect task approvals from DB
         Approval = namedtuple(
             "Approval",
             (
@@ -102,149 +221,34 @@ class TaskLoadHandler:
             for x in self.task.approvals
         ]
 
-        # 2.2 - collect previous approvals from DB that are not rewoked
+        # 2 - collect previous approvals from DB that are not rewoked
         tapps = []
         for tapp in deepcopy(tapps_from_db):
             if tapp["tapp_revoked"] == 0:
                 tapp["tapp_revoked"] = None
                 tapps.append(tapp)
-        # 2.3 - find rewoked by compare DB and actual task approvals
+        # 3 - find rewoked by compare DB and actual task approvals
         tapps_revoked = []
         for tapp in tapps:
             if tapp not in tapps_from_fs:
                 tapp["tapp_revoked"] = 1
                 tapp["tapp_date"] = cvt_datetime_local_to_utc(datetime.datetime.now())
                 tapps_revoked.append(tapp)
-        # 2.4 - set 'tapp_rewoked' flag for new and not revoked ones
+        # 4 - set 'tapp_rewoked' flag for new and not revoked ones
         for tapp in tapps_from_fs:
             if tapp["tapp_revoked"] is None:
                 tapp["tapp_revoked"] = 0
         tapps_from_fs += tapps_revoked
-        # 2.5 - remove task approvals that already in database
+        # 5 - remove task approvals that already in database
         new_task_approvals = []
         for tapp in tapps_from_fs:
             if tapp not in tapps_from_db:
                 new_task_approvals.append(tapp)
-        # 2.6 - load new approvals state to DB
+        # 6 - load new approvals state to DB
         if new_task_approvals:
             self.conn.execute(
                 "INSERT INTO TaskApprovals (*) VALUES", new_task_approvals
             )
-        # 3 - proceed with Tasks
-        subtasks = []
-        for sub in self.task.subtasks:
-            subtasks.append(
-                {
-                    "task_id": sub.task_id,
-                    "subtask_id": sub.subtask_id,
-                    "task_repo": sub.task_repo,
-                    "task_owner": sub.task_owner,
-                    "task_changed": sub.task_changed,
-                    "subtask_changed": sub.subtask_changed,
-                    "subtask_deleted": sub.deleted,
-                    "subtask_userid": sub.userid,
-                    "subtask_dir": sub.dir,
-                    "subtask_package": sub.package,
-                    "subtask_type": sub.type,
-                    "subtask_pkg_from": sub.pkg_from,
-                    "subtask_sid": sub.sid,
-                    "subtask_tag_author": sub.tag_author,
-                    "subtask_tag_id": sub.tag_id,
-                    "subtask_tag_name": sub.tag_name,
-                    "subtask_srpm": sub.srpm,
-                    "subtask_srpm_name": sub.srpm_name,
-                    "subtask_srpm_evr": sub.srpm_evr,
-                }
-            )
-        if subtasks:
-            self.conn.execute("INSERT INTO Tasks_buffer (*) VALUES", subtasks)
-        # 4 - load all logs
-        if self.task.logs:
-            log_load_worker_pool(
-                self.conf,
-                self.tf,
-                self.logger,
-                self.task.logs,
-                num_of_workers=0,
-            )
-        # 5 - proceed with TaskIterations
-        if self.task.iterations:
-            titer_load_worker_pool(
-                self.conf,
-                self.conn,
-                self.tf,
-                self.logger,
-                self.task,
-                num_of_workers=0,
-            )
-        # 6 - load arepo packages
-        if self.task.arepo:
-            package_load_worker_pool(
-                self.conf,
-                self.conn,
-                self.tf,
-                self.logger,
-                self.task,
-                num_of_workers=0,
-                loaded_from="'/arepo'",
-            )
-        # 7 - load plan
-        # 7.1 - load plan package added and deleted
-        payload = []
-        for arch in self.task.plan.pkg_add.keys():
-            for file, pkg in self.task.plan.pkg_add[arch].items():
-                payload.append(
-                    {
-                        "tplan_hash": self.task.plan.hashes[arch],
-                        "tplan_action": "add",
-                        "tplan_pkg_name": pkg.name,
-                        "tplan_pkg_evr": pkg.evr,
-                        "tplan_bin_file": file,
-                        "tplan_src_file": pkg.srpm,
-                        "tplan_arch": pkg.arch,
-                        "tplan_comp": pkg.comp,
-                        "tplan_subtask": pkg.subtask_id,
-                    }
-                )
-        for arch in self.task.plan.pkg_del.keys():
-            for file, pkg in self.task.plan.pkg_del[arch].items():
-                payload.append(
-                    {
-                        "tplan_hash": self.task.plan.hashes[arch],
-                        "tplan_action": "delete",
-                        "tplan_pkg_name": pkg.name,
-                        "tplan_pkg_evr": pkg.evr,
-                        "tplan_bin_file": file,
-                        "tplan_src_file": pkg.srpm,
-                        "tplan_arch": pkg.arch,
-                        "tplan_comp": pkg.comp,
-                        "tplan_subtask": pkg.subtask_id,
-                    }
-                )
-        if payload:
-            self.conn.execute("""INSERT INTO TaskPlanPackages (*) VALUES""", payload)
-        # 7.2 - load plan package hashes add and delete
-        payload = []
-        for arch in self.task.plan.hash_add.keys():
-            for hash in self.task.plan.hash_add[arch].values():
-                payload.append(
-                    {
-                        "tplan_hash": self.task.plan.hashes[arch],
-                        "tplan_action": "add",
-                        "tplan_sha256": hash,
-                    }
-                )
-        for arch in self.task.plan.hash_del.keys():
-            for hash in self.task.plan.hash_del[arch].values():
-                payload.append(
-                    {
-                        "tplan_hash": self.task.plan.hashes[arch],
-                        "tplan_action": "delete",
-                        "tplan_sha256": hash,
-                    }
-                )
-        if payload:
-            self.conn.execute("""INSERT INTO TaskPlanPkgHash (*) VALUES""", payload)
 
     def _update_dependencies_table(self):
         sql = """
@@ -303,11 +307,23 @@ INSERT INTO Depends SELECT * FROM
         for buffer in buffer_tables:
             self.conn.execute(f"OPTIMIZE TABLE {buffer}")
 
-    def flush(self):
-        self._flush_buffer_tables()
-
     def save(self):
-        self._save_task()
-
-    def update_depends(self):
+        self._save_task_state()
+        self._save_task_subtasks()
+        self._save_task_iterations()
+        self._save_task_arepo_packages()
+        self._save_task_plan()
+        # save task approvals from FS if enabled
+        if self.config.store_approvals:
+            self._save_task_approvals()
+        # skip log loading for 'NEW' tasks
+        if not self.config.store_logs_for_new and self.task.state.state == "NEW":
+            pass
+        else:
+            self._save_task_logs()
+        # flush buffer tables to force task consistency in DB
+        if self.config.flush:
+            self.logger.info("Flushing buffer tables")
+            self._flush_buffer_tables()
+        # update task dependencies for files
         self._update_dependencies_table()
