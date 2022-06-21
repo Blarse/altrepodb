@@ -171,4 +171,5 @@ class ServiceManager:
                     )
             except (KeyError, TypeError):
                 # FIXME: ignoring inconsistent messages
+                logger.debug(f"Inconsistent message from service {self.name}: {resp}")
                 continue

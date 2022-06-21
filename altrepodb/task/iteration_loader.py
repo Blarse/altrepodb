@@ -238,7 +238,6 @@ def titer_load_worker_pool(
     task: Task,
     num_of_workers=0,
 ):
-    # TODO: add progress bar
     st = time.time()
     workers: list[RaisingTread] = []
     connections: list[DatabaseClient] = []
@@ -261,7 +260,7 @@ def titer_load_worker_pool(
     else:
         pkg_hashes_cache = set()
 
-    for i in range(num_of_workers):
+    for _ in range(num_of_workers):
         conn = DatabaseClient(conf.dbconfig, logger)
         connections.append(conn)
         worker = TaskIterationLoaderWorker(

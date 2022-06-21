@@ -78,7 +78,8 @@ class TaskProcessor:
         p = Path.joinpath(Path.cwd(), "JSON")
         p.mkdir(exist_ok=True)
         dump_to_json(
-            # FIXME: Task object dictionary contains a long integers that out of JSON standard numbers range
+            # FIXME: Task object dictionary contains a long integers that
+            # out of JSON standard numbers range
             task_as_dict(self.task),
             Path.joinpath(
                 p,
@@ -98,7 +99,11 @@ class TaskProcessor:
             self._dump_task_to_json()
 
         task_loader = TaskLoadHandler(
-            self.conn, self.task_parser.tf, self.logger, self.task, self.config
+            task=self.task,
+            conn=self.conn,
+            config=self.config,
+            logger=self.logger,
+            taskfs=self.task_parser.tf,
         )
         self.logger.info(
             f"loading task {self.config.id} to database {self.config.dbconfig.name}"
@@ -106,11 +111,6 @@ class TaskProcessor:
 
         try:
             task_loader.save()
-            if self.config.flush:
-                self.logger.info("Flushing buffer tables")
-                task_loader.flush()
-            # update Depends table
-            task_loader.update_depends()
         except RaisingThreadError as exc:
             self.logger.error(
                 f"An error ocured while loding task {self.config.id} to DB"

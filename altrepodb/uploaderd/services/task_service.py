@@ -30,6 +30,8 @@ NAME = "altrepodb.task_loader"
 ROUTING_KEY = "task.state"
 MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
+LOAD_APPROVALS_FROM_FS = True
+LOAD_LOGS_FOR_NEW_TASKS = False
 
 consistent_states = ["done", "eperm", "failed", "new", "tested"]
 
@@ -186,6 +188,8 @@ def _load_task(
         dbconfig=dbconf,
         logger=logger,
         debug=False,
+        store_approvals=LOAD_APPROVALS_FROM_FS,
+        store_logs_for_new=LOAD_LOGS_FOR_NEW_TASKS,
     )
 
     error_message = ""
