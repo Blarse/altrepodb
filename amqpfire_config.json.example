@@ -1,0 +1,9 @@
+{
+    "host" : "",
+    "port" : 5672,
+    "vhost" : "/",
+    "exchange" : "",
+    "username" : "",
+    "password" : "",
+    "cacert" : ""
+}
