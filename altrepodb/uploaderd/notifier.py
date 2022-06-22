@@ -95,7 +95,6 @@ class NotifierService(threading.Thread):
         self.amqp = BlockingAMQPClient(self.amqpconf)
 
         self.queue = queue
-
         self.stop_event = stop_event
 
     def load_config(self):

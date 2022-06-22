@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from setproctitle import setproctitle
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
@@ -131,6 +132,7 @@ def task_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
+    setproctitle("task_loader_worker")
     while not stop_event.is_set():
         try:
             work = todo_queue.get()

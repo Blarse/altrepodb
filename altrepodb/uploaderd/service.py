@@ -21,6 +21,7 @@ import signal
 import logging
 import multiprocessing as mp
 from multiprocessing.synchronize import Event as EventClass
+from setproctitle import setproctitle
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -261,6 +262,7 @@ class ServiceBase(mp.Process, ABC):
                 pass
 
     def run(self):
+        setproctitle(self.name)
         while True:
             command = ServiceAction.UNKNOWN
             try:

@@ -16,6 +16,7 @@
 import json
 import logging
 from typing import Any
+from setproctitle import setproctitle
 
 from altrepodb.watch import Watch, WatchConfig, WatchError
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
@@ -104,6 +105,7 @@ def watch_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
+    setproctitle("watch_loader_worker")
     wpconfig = WatchConfig(
         url=config.get("url", WATCH_URL),
         logger=logger,
