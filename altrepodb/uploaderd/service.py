@@ -293,7 +293,7 @@ class ServiceBase(mp.Process, ABC):
                 self.service_kill()
                 return
             # XXX: slow down idle loop to reduce CPU utilization
-            time.sleep(0.1)
+            time.sleep(1)
 
     def service_init(self):
         logger.info(f"Initialize service {self.name}")
