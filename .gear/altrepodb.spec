@@ -5,7 +5,7 @@
 %define servicename uploaderd
 
 Name: altrepodb
-Version: 2.3.1
+Version: 2.3.2
 Release: alt1
 
 Summary: ALTRepo Uploader is a set of tools that used to uploading data about ALT Linux distributions to database
@@ -27,6 +27,7 @@ Requires: qemu-img
 Requires: qemu-kvm
 Requires: libguestfs
 Requires: guestfs-data
+Requires: rabbitmq-c
 
 BuildRequires(pre): rpm-build-python3
 
@@ -66,7 +67,7 @@ mkdir -p %buildroot%_logdir/%name
 %dir %_sysconfdir/%servicename
 %dir %attr(0750,_altrepodb,_altrepodb) %_logdir/%name
 %dir %attr(0755,_altrepodb,_altrepodb) %_localstatedir/%name
-%doc LICENSE README.* AUTHORS.txt CHANGELOG.* config.ini.example sql
+%doc LICENSE README.* AUTHORS.txt CHANGELOG.* config.ini.example sql amqpfire_config.json.example
 %_unitdir/*
 %_sysconfdir/%servicename/*
 %python3_sitelibdir/%oname/
@@ -84,8 +85,12 @@ mkdir -p %buildroot%_logdir/%name
 %_bindir/task_cleaner
 %_bindir/task_loader
 %_bindir/watch_loader
+%_bindir/repodb_amqpfire
 
 %changelog
+* Wed Jun 22 2022 Danil Shein <dshein@altlinux.org> 2.3.2-alt1
+ - new version
+
 * Tue Jun 21 2022 Danil Shein <dshein@altlinux.org> 2.3.1-alt1
  - new version
 

@@ -1,0 +1,210 @@
+#!/usr/bin/python3
+
+# This file is part of the ALTRepo Uploader distribution (http://git.altlinux.org/people/dshein/public/altrepodb.git).
+# Copyright (c) 2021-2022 BaseALT Ltd
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 3.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import sys
+import json
+import shutil
+import logging
+import argparse
+import datetime
+import subprocess
+from typing import Optional, Any, Iterable
+from dataclasses import dataclass
+
+NAME = "amqpfire"
+UPLOADERD_SERVICES = {
+    "repo": "repo.load",
+    "watch": "watch.load",
+    "repocop": "repocop.load",
+    "beehive": "beehive.load",
+}
+UPLOADERD_SERVICES_KEYS = tuple(UPLOADERD_SERVICES.keys())
+DEFAULT_KNOWN_BRANCHES = ["p9", "p10", "sisyphus"]
+REQUIRED_EXECUTABLES = ("amqp-publish",)
+
+
+@dataclass
+class Config:
+    amqp_host: str
+    amqp_port: int
+    amqp_vhost: str
+    amqp_exchange: str
+    amqp_username: str
+    amqp_password: str
+    amqp_cacert: str
+    known_branches: list[str]
+
+
+def valid_date(s: str) -> str:
+    try:
+        _ = datetime.datetime.strptime(s, "%Y-%m-%d")
+        return s
+    except ValueError:
+        raise RuntimeError(f"Not a valid date: '{s}'")
+
+
+def run_command(
+    *args,
+    raise_on_error: bool = False,
+    logger: logging.Logger,
+    timeout: Optional[float] = None,
+) -> tuple[str, str, str, int]:
+    """Run command from args. Raises exception if subprocess returns non zero code."""
+
+    cmdline = " ".join([*args])
+    logger.debug(f"Run command: {cmdline}")
+    try:
+        sub = subprocess.run(
+            [*args],
+            capture_output=True,
+            text=True,
+            check=raise_on_error,
+            timeout=timeout,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            f"subprocess commandline: {e.cmd} returned {e.returncode}\n"
+            f"subprocess stdout: {e.stdout}\n"
+            f"subprocess stderr: {e.stderr}"
+        )
+        raise RuntimeError("Subprocess returned non zero code") from e
+    except subprocess.TimeoutExpired as e:
+        logger.error(
+            f"subprocess commandline: {e.cmd}, {timeout} seconds timeout expired"
+        )
+        raise RuntimeError("Subprocess has timed out") from e
+    return cmdline, sub.stdout, sub.stderr, sub.returncode
+
+
+def check_system_executables(required_executables: Iterable[str]) -> None:
+    not_found_ = []
+    for executable in required_executables:
+        if shutil.which(executable) is None:
+            not_found_.append(executable)
+    if not_found_:
+        not_found_ = ", ".join(not_found_)
+        raise RuntimeError(f"Executable not found in system : {not_found_}")
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        prog=NAME,
+        description="Utility to send AMQP messages for ALTRepoDB Uploader services.",
+    )
+    parser.add_argument(
+        "-c", "--config", required=True, type=str, help="path to configuration file"
+    )
+    parser.add_argument(
+        "-s",
+        "--service",
+        required=True,
+        type=str,
+        choices=UPLOADERD_SERVICES_KEYS,
+        help="uploaderd service name",
+    )
+    parser.add_argument(
+        "-p", "--params", type=str, nargs="*", help="message arguments to be sent"
+    )
+    parser.add_argument(
+        "-D", "--debug", action="store_true", help="set logging level to debug"
+    )
+    args = parser.parse_args()
+
+    return args
+
+
+def read_config(config_file: str) -> Config:
+    with open(config_file) as f:
+        config_: dict[str, Any] = json.load(f)
+        return Config(
+            amqp_host=config_.get("host", ""),
+            amqp_port=int(config_.get("port", 5672)),
+            amqp_vhost=config_.get("vhost", "/"),
+            amqp_exchange=config_.get("exchange", ""),
+            amqp_username=config_.get("username", ""),
+            amqp_password=config_.get("password", ""),
+            amqp_cacert=config_.get("cacert", ""),
+            known_branches=config_.get("known_branches", DEFAULT_KNOWN_BRANCHES),
+        )
+
+
+def main():
+    args = get_args()
+    if args.debug:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+
+    logging.basicConfig(level=loglevel, format="%(levelname)s: %(message)s")
+    logger = logging.getLogger(NAME)
+
+    logger.debug(f"args: {args}")
+
+    body = "{}"
+    routing_key = UPLOADERD_SERVICES[args.service]
+
+    try:
+        # read AMQP config JSON file
+        config = read_config(args.config)
+        # check system executables
+        check_system_executables(REQUIRED_EXECUTABLES)
+        # parse and check if all params are valid
+        if args.service == "repo":
+            # 1st param: branch, 2nd param: date YYYY-MM-DD
+            if not args.params or len(args.params) != 2:
+                logger.error(
+                    "'repo' service requires two parameters - branch name and date [YYYY-MM-DD]"
+                )
+                return
+
+            branch = args.params[0]
+            if branch not in config.known_branches:
+                raise RuntimeError(f"Unknown branch: {branch}")
+
+            date = valid_date(args.params[1])
+            body = json.dumps({"branch": branch, "date": date})
+
+        if not os.path.isfile(config.amqp_cacert):
+            raise RuntimeError(f"Cacert file '{config.amqp_cacert}' doesn't exist")
+
+        cmd = (
+            "amqp-publish",
+            f"--server={config.amqp_host}",
+            f"--port={config.amqp_port}",
+            f"--vhost={config.amqp_vhost}",
+            f"--exchange={config.amqp_exchange}",
+            "--ssl",
+            f"--cacert={config.amqp_cacert}",
+            f"--username={config.amqp_username}",
+            f"--password={config.amqp_password}",
+            "--content-type=application/json",
+            f"--routing-key={routing_key}",
+            f"--body={body}",
+        )
+
+        _ = run_command(*cmd, raise_on_error=True, logger=logger, timeout=10)
+
+    except Exception as e:
+        logger.error(f"Failed to send AMQP command due to: {e}")
+        sys.exit(1)
+    else:
+        print("OK")
+
+
+if __name__ == "__main__":
+    main()

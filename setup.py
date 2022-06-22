@@ -43,6 +43,7 @@ setup(
         "bin/task_cleaner",
         "bin/task_loader",
         "bin/watch_loader",
+        "bin/repodb_amqpfire",
     ],
     classifiers=[
         # "Development Status :: 5 - Production/Stable",

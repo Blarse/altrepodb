@@ -62,7 +62,6 @@ class ServiceManager:
             self.initialize()
 
         self.service_init()
-        time.sleep(1)
         self.get_service_state()
         if self.service_state != ServiceState.INITIALIZED:
             raise ServiceManagerError(

@@ -126,8 +126,7 @@ class UploaderDaemon:
 
             if sm.service_state != ServiceState.RUNNING:
                 self.logger.error(
-                    f"service {sm.name} is in {sm.service_state.name} "
-                    f"state, reason: {sm.service_reason}"
+                    f"service {sm.name} is in {sm.service_state.name} state. Restarting..."
                 )
                 sm.restart()
 
