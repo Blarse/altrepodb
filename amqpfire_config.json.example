@@ -5,5 +5,23 @@
     "exchange" : "",
     "username" : "",
     "password" : "",
-    "cacert" : ""
+    "cacert" : "",
+    "known_branches": [
+        "c7",
+        "c8",
+        "c8.1",
+        "c9f1",
+        "c9f2",
+        "p7",
+        "p8",
+        "p9",
+        "p9_mipsel",
+        "p9_e2k",
+        "p10",
+        "p10_e2k",
+        "sisyphus",
+        "sisyphus_mipsel",
+        "sisyphus_riscv64",
+        "sisyphus_e2k"
+    ]
 }

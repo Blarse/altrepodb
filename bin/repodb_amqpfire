@@ -34,19 +34,7 @@ UPLOADERD_SERVICES = {
     "beehive": "beehive.load",
 }
 UPLOADERD_SERVICES_KEYS = tuple(UPLOADERD_SERVICES.keys())
-KNOWN_BRANCHES = {
-    "c9f1",
-    "c9f2",
-    "p9",
-    "p9_mipsel",
-    "p9_e2k",
-    "p10",
-    "p10_e2k",
-    "sisyphus",
-    "sisyphus_mipsel",
-    "sisyphus_riscv64",
-    "sisyphus_e2k",
-}
+DEFAULT_KNOWN_BRANCHES = ["p9", "p10", "sisyphus"]
 REQUIRED_EXECUTABLES = ("amqp-publish",)
 
 
@@ -59,6 +47,7 @@ class Config:
     amqp_username: str
     amqp_password: str
     amqp_cacert: str
+    known_branches: list[str]
 
 
 def valid_date(s: str) -> str:
@@ -150,6 +139,7 @@ def read_config(config_file: str) -> Config:
             amqp_username=config_.get("username", ""),
             amqp_password=config_.get("password", ""),
             amqp_cacert=config_.get("cacert", ""),
+            known_branches=config_.get("known_branches", DEFAULT_KNOWN_BRANCHES),
         )
 
 
@@ -183,7 +173,7 @@ def main():
                 return
 
             branch = args.params[0]
-            if branch not in KNOWN_BRANCHES:
+            if branch not in config.known_branches:
                 raise RuntimeError(f"Unknown branch: {branch}")
 
             date = valid_date(args.params[1])
