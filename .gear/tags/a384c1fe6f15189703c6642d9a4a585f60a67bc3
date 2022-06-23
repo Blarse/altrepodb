@@ -1,0 +1,6 @@
+object 66aed76f9924312feb09ca50e4e143a4b9a3a4ba
+type commit
+tag v2.3.4
+tagger Danil Shein <dshein@altlinux.org> 1655997869 +0300
+
+acl_loader service
