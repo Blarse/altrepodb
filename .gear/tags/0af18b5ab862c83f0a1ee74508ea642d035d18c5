@@ -1,6 +1,0 @@
-object 8b4c4b18a0ff3ba8adfcf99577ab2fc2e554ddf2
-type commit
-tag v2.3.3
-tagger Danil Shein <dshein@altlinux.org> 1655982484 +0300
-
-rename processes

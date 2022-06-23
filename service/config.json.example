@@ -5,6 +5,10 @@
             "config" : "task_loader.json"
         },
         {
+            "name" : "acl_loader",
+            "config" : "acl_loader.json"
+        },
+        {
             "name" : "beehive_loader",
             "config" : "beehive_loader.json"
         },

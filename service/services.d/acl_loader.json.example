@@ -1,0 +1,28 @@
+{
+    "workers_count" : 1,
+    "routing_key_pattern": "acl.",
+    "publish_on_done": false,
+    "requeue_on_reject": false,
+    "max_redeliver_count": 0,
+
+    "database" : {
+        "dbname" : "repodb",
+        "host" : "default",
+        "port" : 9000,
+        "user" : "default",
+        "password" : ""
+    },
+
+    "amqp" : {
+        "host" : "",
+        "port" : 5672,
+        "vhost" : "/",
+        "queue" : "",
+        "exchange" : "",
+        "username" : "",
+        "password" : "",
+        "cacert" : "",
+        "key" : "",
+        "cert" : ""
+    }
+}
