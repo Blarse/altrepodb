@@ -16,6 +16,7 @@
 import json
 import logging
 from typing import Any
+from setproctitle import setproctitle
 
 from altrepodb.repocop import Repocop, RepocopConfig, RepocopError
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
@@ -104,6 +105,7 @@ def repocop_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
+    setproctitle("repocop_loader_worker")
     rpconfig = RepocopConfig(
         url=config.get("url", REPOCOP_URL),
         logger=logger,

@@ -16,6 +16,7 @@
 import json
 import logging
 from typing import Any
+from setproctitle import setproctitle
 
 from altrepodb.beehive import (
     Beehive,
@@ -125,6 +126,7 @@ def beehive_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
+    setproctitle("beehive_loader_worker")
     bpconf = BeehiveConfig(
         base_url=config.get("base_url", BEEHIVE_BASE_URL),
         archs=tuple(config.get("archs", BEEHIVE_ARCHS)),

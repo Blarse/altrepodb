@@ -19,6 +19,7 @@ import sys
 import signal
 import argparse
 import systemd.daemon
+from setproctitle import setproctitle
 
 from altrepodb.logger import get_logger_uploaderd, LoggerLevel
 from altrepodb.uploaderd.uploaderd import (
@@ -58,6 +59,7 @@ def get_args():
 
 
 def main():
+    setproctitle(NAME)
     args = get_args()
     if args.debug:
         logger = get_logger_uploaderd(NAME, logging_level=LoggerLevel.DEBUG)

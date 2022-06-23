@@ -18,6 +18,7 @@ import logging
 from typing import Any
 from pathlib import Path
 from datetime import datetime
+from setproctitle import setproctitle
 
 from altrepodb.repo.processor import RepoProcessor, RepoProcessorConfig
 from ..service import (
@@ -161,6 +162,7 @@ def repo_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
+    setproctitle("repo_loader_worker")
     while not stop_event.is_set():
         try:
             work = todo_queue.get()
