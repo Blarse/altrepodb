@@ -103,7 +103,7 @@ def acl_loader_worker(
     dbconf: DatabaseConfig,
     config: dict[str, Any],
 ):
-    setproctitle("repocop_loader_worker")
+    setproctitle("acl_loader_worker")
     conn = DatabaseClient(config=dbconf, logger=logger)
 
     while not stop_event.is_set():
