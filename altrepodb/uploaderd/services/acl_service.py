@@ -34,18 +34,20 @@ class AclLoaderService(ServiceBase):
         super().__init__(*args, **kwargs)
         self.worker = acl_loader_worker
         self.logger = logger
-        self.routing_key_pattren = ""
+        self.routing_key_pattern = ""
 
     def load_config(self):
         super().load_config()
 
-        self.routing_key_pattren = self.config.get("routing_key", ROUTING_KEY_PATTERN)
+        self.routing_key_pattern = self.config.get(
+            "routing_key_pattern", ROUTING_KEY_PATTERN
+        )
         self.publish_on_done = self.config.get("publish_on_done", False)
         self.requeue_on_reject = self.config.get("requeue_on_reject", False)
         self.max_redeliver_count = self.config.get("max_redeliver_count", 0)
 
     def on_message(self, method, properties, body_json):
-        if not method.routing_key.startswith(self.routing_key_pattren):  # type: ignore
+        if not method.routing_key.startswith(self.routing_key_pattern):  # type: ignore
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
