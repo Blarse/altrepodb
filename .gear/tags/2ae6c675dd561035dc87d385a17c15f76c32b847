@@ -1,0 +1,6 @@
+object 24baf98c8505cb4ecd8be8614741c9d36dfad135
+type commit
+tag v2.3.5
+tagger Danil Shein <dshein@altlinux.org> 1656398281 +0300
+
+add bugzilla_service
