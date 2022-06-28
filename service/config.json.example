@@ -13,6 +13,10 @@
             "config" : "beehive_loader.json"
         },
         {
+            "name" : "bugzilla_loader",
+            "config" : "bugzilla_loader.json"
+        },
+        {
             "name" : "repocop_loader",
             "config" : "repocop_loader.json"
         },

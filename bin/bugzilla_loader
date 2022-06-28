@@ -102,7 +102,19 @@ def load(conn: DatabaseClient, logger: Logger) -> None:
     sql = """
 SELECT
     bz_id,
-    argMax((bz_status, bz_resolution, bz_severity, bz_product, bz_component, bz_assignee, bz_reporter, bz_summary), ts)
+    argMax(
+        (
+            bz_status,
+            bz_resolution,
+            bz_severity,
+            bz_product,
+            bz_component,
+            bz_assignee,
+            bz_reporter,
+            bz_summary
+        ),
+        ts
+    )
 FROM Bugzilla
 GROUP BY bz_id"""
 
@@ -138,7 +150,21 @@ GROUP BY bz_id"""
             ),
         )
         payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
-        sql_res = conn.execute("INSERT INTO Bugzilla (*) VALUES", payload_gen)
+
+        sql = """
+INSERT INTO Bugzilla (
+    bz_id,
+    bz_status,
+    bz_resolution,
+    bz_severity,
+    bz_product,
+    bz_component,
+    bz_assignee,
+    bz_reporter,
+    bz_summary
+) VALUES"""
+
+        sql_res = conn.execute(sql, payload_gen)
 
         logger.info(f"SQL request elapsed {conn.last_query_elapsed:.3f} seconds")  # type: ignore
         logger.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")

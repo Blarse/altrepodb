@@ -27,7 +27,7 @@ from .repo_service import RepoLoaderService
 SERVICES: dict[str, type[ServiceBase]] = {
     "task_loader": TaskLoaderService,
     "acl_loader": AclLoaderService,
-    "bug_loader": BugzillaLoaderService,
+    "bugzilla_loader": BugzillaLoaderService,
     "beehive_loader": BeehiveLoaderService,
     "repocop_loader": RepocopLoaderService,
     "watch_loader": WatchLoaderService,

@@ -542,6 +542,9 @@ CREATE TABLE Bugzilla
     bz_assignee String,
     bz_reporter String,
     bz_summary String,
+    bz_last_changed DateTime,
+    bz_assignee_full String,
+    bz_reporter_full String,
     ts DateTime64 MATERIALIZED now64()
 )
 ENGINE = MergeTree

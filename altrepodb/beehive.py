@@ -294,7 +294,7 @@ class Beehive:
                         (self._parse_name_evr(line_context[0]), float(line_context[1]))
                     )
                 return target, packages
-            if target.type == EndpointType.FILE2:
+            elif target.type == EndpointType.FILE2:
                 response = requests.get(target.url, timeout=self.timeout)
                 response.raise_for_status()
                 # return parsed file contents
