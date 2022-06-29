@@ -32,7 +32,7 @@ from typing import Protocol, TypeVar, Generic, Any
 
 from altrepodb.database import DatabaseConfig
 from .amqp import AMQPConfig, BlockingAMQPClient
-from .base import ServiceAction, ServiceState, Message
+from .base import ServiceAction, ServiceState, Message, NotifierMessageReason
 from .exceptions import (
     ServiceError,
     # ServiceUnexpectedMessage,
@@ -395,10 +395,13 @@ class ServiceBase(mp.Process, ABC):
 
     def service_fail(self, reason: str):
         self.reason = reason
-        logger.info(f"Service {self.name} failed due to {self.reason}")
+        logger.error(f"Service {self.name} failed due to {self.reason}")
         self.kill_workers()
         self.state = ServiceState.FAILED
-        self.report(reason=self.reason, payload=self.state)
+        self.report(
+            reason=NotifierMessageReason.ERROR,
+            payload={"state": self.state.name, "reason": reason},
+        )
 
     def service_kill(self):
         logger.info(f"Killing service {self.name}")

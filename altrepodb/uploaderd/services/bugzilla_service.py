@@ -21,7 +21,12 @@ from collections import namedtuple
 from setproctitle import setproctitle
 
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
-from ..base import NotifierMessageType, NotifierMessageSeverity
+from ..base import (
+    NotifierMessageType,
+    NotifierMessageSeverity,
+    NotifierMessageReason,
+    WorkStatus,
+)
 from altrepodb.database import DatabaseConfig, DatabaseClient
 from altrepodb.utils import set_datetime_timezone_to_utc, cvt_datetime_local_to_utc
 
@@ -92,7 +97,7 @@ class BugzillaLoaderService(ServiceBase):
 
         self.workers_todo_queue.put(
             Work(
-                status="new",
+                status=WorkStatus.NEW,
                 method=method,
                 properties=properties,
                 body_json=body_json,
@@ -100,7 +105,7 @@ class BugzillaLoaderService(ServiceBase):
         )
 
     def on_done(self, work: Work):
-        if work.status == "done":
+        if work.status == WorkStatus.DONE:
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
@@ -111,7 +116,7 @@ class BugzillaLoaderService(ServiceBase):
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )
             self.report(
-                reason="notify",
+                reason=NotifierMessageReason.NOTIFY,
                 payload={
                     "reason": work.reason,
                     "type": NotifierMessageType.SERVICE_WORKER_ERROR,
@@ -141,7 +146,7 @@ def bugzilla_loader_worker(
             return
 
         body: dict[str, Any] = {}
-        work.status = "failed"
+        work.status = WorkStatus.FAILED
 
         try:
             body = json.loads(work.body_json)
@@ -187,7 +192,7 @@ def bugzilla_loader_worker(
             logger.error(error_message)
 
         if state:
-            work.status = "done"
+            work.status = WorkStatus.DONE
         else:
             work.reason = error_message
 

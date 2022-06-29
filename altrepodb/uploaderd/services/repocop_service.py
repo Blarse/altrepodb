@@ -20,7 +20,12 @@ from setproctitle import setproctitle
 
 from altrepodb.repocop import Repocop, RepocopConfig, RepocopError
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
-from ..base import NotifierMessageType, NotifierMessageSeverity
+from ..base import (
+    NotifierMessageType,
+    NotifierMessageSeverity,
+    NotifierMessageReason,
+    WorkStatus,
+)
 from altrepodb.database import DatabaseConfig
 
 NAME = "altrepodb.repocop_loader"
@@ -68,7 +73,7 @@ class RepocopLoaderService(ServiceBase):
 
         self.workers_todo_queue.put(
             Work(
-                status="new",
+                status=WorkStatus.NEW,
                 method=method,
                 properties=properties,
                 body_json=body_json,
@@ -76,7 +81,7 @@ class RepocopLoaderService(ServiceBase):
         )
 
     def on_done(self, work: Work):
-        if work.status == "done":
+        if work.status == WorkStatus.DONE:
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
@@ -88,7 +93,7 @@ class RepocopLoaderService(ServiceBase):
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )
             self.report(
-                reason="notify",
+                reason=NotifierMessageReason.NOTIFY,
                 payload={
                     "reason": work.reason,
                     "type": NotifierMessageType.SERVICE_WORKER_ERROR,
@@ -122,7 +127,7 @@ def repocop_loader_worker(
         except KeyboardInterrupt:
             return
 
-        work.status = "failed"
+        work.status = WorkStatus.FAILED
 
         error_message = ""
         state = False
@@ -140,7 +145,7 @@ def repocop_loader_worker(
             logger.error(error_message)
 
         if state:
-            work.status = "done"
+            work.status = WorkStatus.DONE
         else:
             work.reason = error_message
 

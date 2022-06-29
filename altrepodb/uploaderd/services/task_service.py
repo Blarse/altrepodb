@@ -24,7 +24,12 @@ from setproctitle import setproctitle
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
 from ..service import BatchServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
-from ..base import NotifierMessageType, NotifierMessageSeverity
+from ..base import (
+    NotifierMessageType,
+    NotifierMessageSeverity,
+    NotifierMessageReason,
+    WorkStatus,
+)
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import set_datetime_timezone_to_utc
@@ -98,7 +103,7 @@ class TaskLoaderService(BatchServiceBase):
         if taskstate in CONSISTENT_TASK_STATES or taskstate == DELETED_TASK_STATE:
             self.workers_todo_queue.put(
                 Work(
-                    status="new",
+                    status=WorkStatus.NEW,
                     method=method,
                     properties=properties,
                     body_json=body_json,
@@ -108,7 +113,7 @@ class TaskLoaderService(BatchServiceBase):
             self.amqp.ack_message(method.delivery_tag)
 
     def on_done(self, work: Work):
-        if work.status == "done":
+        if work.status == WorkStatus.DONE:
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
@@ -119,7 +124,7 @@ class TaskLoaderService(BatchServiceBase):
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )
             self.report(
-                reason="notify",
+                reason=NotifierMessageReason.NOTIFY,
                 payload={
                     "reason": work.reason,
                     "type": NotifierMessageType.SERVICE_WORKER_ERROR,
@@ -147,7 +152,7 @@ def task_loader_worker(
             return
 
         body: dict[str, Any] = {}
-        work.status = "failed"
+        work.status = WorkStatus.FAILED
 
         try:
             body = json.loads(work.body_json)
@@ -170,13 +175,13 @@ def task_loader_worker(
             if taskstate in CONSISTENT_TASK_STATES:
                 state, error_message = _load_task(dbconf, taskid, config["tasks_dir"])
                 if state:
-                    work.status = "done"
+                    work.status = WorkStatus.DONE
                 else:
                     work.reason = error_message
             elif taskstate == DELETED_TASK_STATE:
                 state, error_message = _load_deleted_task(dbconf, taskid)
                 if state:
-                    work.status = "done"
+                    work.status = WorkStatus.DONE
                 else:
                     work.reason = error_message
             else:
@@ -186,7 +191,7 @@ def task_loader_worker(
             logger.debug(f"Got task approval message for {taskid}.{subtaskid}")
             state, error_message = _load_task_approval(dbconf, body)
             if state:
-                work.status = "done"
+                work.status = WorkStatus.DONE
             else:
                 work.reason = error_message
 

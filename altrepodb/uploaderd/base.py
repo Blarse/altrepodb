@@ -58,6 +58,19 @@ class NotifierMessageType(Enum):
     SERVICE_WORKER_ERROR = auto()
 
 
+@dataclass(frozen=True)
+class NotifierMessageReason:
+    ERROR = "error"
+    NOTIFY = "notify"
+
+
+@dataclass(frozen=True)
+class WorkStatus:
+    NEW = "new"
+    DONE = "done"
+    FAILED = "failed"
+
+
 @dataclass
 class NotifierMessage:
     subject: str
