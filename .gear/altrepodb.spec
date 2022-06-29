@@ -5,7 +5,7 @@
 %define servicename uploaderd
 
 Name: altrepodb
-Version: 2.3.5
+Version: 2.3.6
 Release: alt1
 
 Summary: ALTRepo Uploader is a set of tools that used to uploading data about ALT Linux distributions to database
@@ -88,6 +88,9 @@ mkdir -p %buildroot%_logdir/%name
 %_bindir/repodb_amqpfire
 
 %changelog
+* Wed Jun 29 2022 Danil Shein <dshein@altlinux.org> 2.3.6-alt1
+ - new version 2.3.6
+
 * Tue Jun 28 2022 Danil Shein <dshein@altlinux.org> 2.3.5-alt1
  - new version 2.3.5
 
