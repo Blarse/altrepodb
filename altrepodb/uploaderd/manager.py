@@ -20,8 +20,9 @@ from multiprocessing import Queue
 
 from .service import ServiceAction, ServiceState, Message
 from .services.services import SERVICES
-from .notifier import NotifierManager, NotifierMessageSeverity, NotifierMessageType
+from .notifier import NotifierManager
 from altrepodb.settings import MANAGER_SERVICE_COMMAND_TIMEOUT
+from .base import NotifierMessageReason, NotifierMessageSeverity, NotifierMessageType
 
 NAME = "altrepodb.uploaderd.manager"
 
@@ -150,8 +151,14 @@ class ServiceManager:
                 # all messages are consumed
                 break
 
+            # skip response messages other than 'REPORT' type if any
+            if resp.msg != ServiceAction.REPORT:
+                logger.debug(f"Skipped message from service {self.name}: {resp}")
+                continue
+
+            logger.debug(f"Service {self.name} reported: {resp}")
             try:
-                if resp.reason == "notify":
+                if resp.reason == NotifierMessageReason.NOTIFY:
                     self.notifier.send_message(
                         subject=self.name,
                         severity=resp.payload["severity"],
@@ -160,15 +167,14 @@ class ServiceManager:
                         payload=resp.payload["work_body"],
                     )
                 else:
-                    logger.warning(f"Service {self.name} reported: {resp.reason}")
                     self.notifier.send_message(
                         subject=self.name,
                         severity=NotifierMessageSeverity.WARNING,
                         type=NotifierMessageType.SERVICE_ERROR,
                         message=resp.reason,
-                        payload=b"{}",
+                        payload=resp.payload,
                     )
             except (KeyError, TypeError):
                 # FIXME: ignoring inconsistent messages
-                logger.debug(f"Inconsistent message from service {self.name}: {resp}")
+                logger.warning(f"Inconsistent message from service {self.name}: {resp}")
                 continue

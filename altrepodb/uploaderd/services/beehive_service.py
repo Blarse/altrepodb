@@ -26,7 +26,12 @@ from altrepodb.beehive import (
     EndpointType,
 )
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
-from ..base import NotifierMessageType, NotifierMessageSeverity
+from ..base import (
+    NotifierMessageType,
+    NotifierMessageSeverity,
+    NotifierMessageReason,
+    WorkStatus,
+)
 from altrepodb.database import DatabaseConfig
 
 NAME = "altrepodb.beehive_loader"
@@ -81,7 +86,7 @@ class BeehiveLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode json message: {error}")
+            self.logger.error(f"Failed to decode json message: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -89,7 +94,7 @@ class BeehiveLoaderService(ServiceBase):
 
         self.workers_todo_queue.put(
             Work(
-                status="new",
+                status=WorkStatus.NEW,
                 method=method,
                 properties=properties,
                 body_json=body_json,
@@ -97,7 +102,7 @@ class BeehiveLoaderService(ServiceBase):
         )
 
     def on_done(self, work: Work):
-        if work.status == "done":
+        if work.status == WorkStatus.DONE:
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
@@ -109,7 +114,7 @@ class BeehiveLoaderService(ServiceBase):
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )
             self.report(
-                reason="notify",
+                reason=NotifierMessageReason.NOTIFY,
                 payload={
                     "reason": work.reason,
                     "type": NotifierMessageType.SERVICE_WORKER_ERROR,
@@ -146,7 +151,7 @@ def beehive_loader_worker(
         except KeyboardInterrupt:
             return
 
-        work.status = "failed"
+        work.status = WorkStatus.FAILED
 
         error_message = ""
         state = False
@@ -158,13 +163,13 @@ def beehive_loader_worker(
             logger.info("Beehive data uploaded successfully")
             state = True
         except (BeehiveLoadError, Exception) as error:
-            error_message = f"Failed to upload Beehive data: {error}"
+            error_message = f"Failed to upload Beehive data: {repr(error)}"
 
         if error_message:
             logger.error(error_message)
 
         if state:
-            work.status = "done"
+            work.status = WorkStatus.DONE
         else:
             work.reason = error_message
 

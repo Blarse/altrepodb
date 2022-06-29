@@ -32,7 +32,7 @@ from typing import Protocol, TypeVar, Generic, Any
 
 from altrepodb.database import DatabaseConfig
 from .amqp import AMQPConfig, BlockingAMQPClient
-from .base import ServiceAction, ServiceState, Message
+from .base import ServiceAction, ServiceState, Message, NotifierMessageReason
 from .exceptions import (
     ServiceError,
     # ServiceUnexpectedMessage,
@@ -43,6 +43,10 @@ from .exceptions import (
 
 NAME = "altrepodb.uploaderd.service"
 WORKER_STOP_TIMEOUT = 60
+IDLE_LOOP_SLEEP = 1.0
+MAX_IDLE_LOOP_SLEEP = 10.0
+AMQP_BATCH_SIZE = 1
+MAX_AMQP_BATCH_SIZE = 100
 
 logger = logging.getLogger(NAME)
 
@@ -122,6 +126,8 @@ class ServiceBase(mp.Process, ABC):
 
         self.config: dict[str, Any] = {}
 
+        self.IDLE_LOOP_SLEEP: float = IDLE_LOOP_SLEEP
+
         self.routing_key: str
         self.publish_on_done: bool
         self.requeue_on_reject: bool
@@ -177,22 +183,27 @@ class ServiceBase(mp.Process, ABC):
             with open(self.config_path, "r") as config_file:
                 config = json.load(config_file)
         except json.JSONDecodeError as error:
-            logger.error(f"Failed to parse {self.config_path}: {error}")
-            raise ServiceLoadConfigError(f"Failed to parse {self.config_path}: {error}")
+            error_message = f"Failed to parse {self.config_path}: {repr(error)}"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
         except OSError as error:
-            logger.error(f"Failed to open {self.config_path}: {error}")
-            raise ServiceLoadConfigError(f"Failed to open {self.config_path}: {error}")
+            error_message = f"Failed to open {self.config_path}: {repr(error)}"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         if "database" in config:
             self.load_dbconf(config["database"])
         else:
-            logger.error("Service config missing database section")
-            raise ServiceLoadConfigError("Service config missing database section")
+            error_message = "Service config missing database section"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         if "amqp" in config:
             self.load_amqpconf(config["amqp"])
         else:
-            raise ServiceLoadConfigError("Service config missing amqp section")
+            error_message = "Service config missing amqp section"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         self.workers_count = config.get("workers_count", self.workers_count)
 
@@ -203,6 +214,19 @@ class ServiceBase(mp.Process, ABC):
             f"vhost: {self.amqpconf.vhost}, exchange: {self.amqpconf.exchange}"
         )
 
+        try:
+            idle_loop_sleep = float(config.get("idle_loop_sleep"))
+            if idle_loop_sleep < 0.1 or idle_loop_sleep > MAX_IDLE_LOOP_SLEEP:
+                raise ServiceLoadConfigError(
+                    f"Invalid idle loop sleep time value: {idle_loop_sleep}"
+                    f", allowed range [0.1..{MAX_AMQP_BATCH_SIZE}]s"
+                )
+            self.IDLE_LOOP_SLEEP = idle_loop_sleep
+        except (ValueError, TypeError):
+            logger.warning(
+                "Failed to parse idle loop sleep time from configuration. Use default"
+            )
+
         self.config = config
 
     def report(self, reason: str, payload: Any = None):
@@ -211,7 +235,7 @@ class ServiceBase(mp.Process, ABC):
                 Message(msg=ServiceAction.REPORT, reason=reason, payload=payload)
             )
         except queue.Full:
-            logger.error("Service qout is full")
+            logger.error("Service 'qout' is full")
             pass
 
     def _process_state(self, command: int):
@@ -295,7 +319,7 @@ class ServiceBase(mp.Process, ABC):
                 self.service_kill()
                 return
             # XXX: slow down idle loop to reduce CPU utilization
-            time.sleep(1)
+            time.sleep(self.IDLE_LOOP_SLEEP)
 
     def service_init(self):
         logger.info(f"Initialize service {self.name}")
@@ -376,10 +400,13 @@ class ServiceBase(mp.Process, ABC):
 
     def service_fail(self, reason: str):
         self.reason = reason
-        logger.info(f"Service {self.name} failed due to {self.reason}")
+        logger.error(f"Service {self.name} failed due to {self.reason}")
         self.kill_workers()
         self.state = ServiceState.FAILED
-        self.report(reason=self.reason, payload=self.state)
+        self.report(
+            reason=NotifierMessageReason.ERROR,
+            payload={"state": self.state.name, "reason": reason},
+        )
 
     def service_kill(self):
         logger.info(f"Killing service {self.name}")
@@ -409,3 +436,48 @@ class ServiceBase(mp.Process, ABC):
         for worker in self.workers[:]:
             worker.terminate()
             self.workers.remove(worker)
+
+
+class BatchServiceBase(ServiceBase):
+    def __init__(self, name: str, config: str, qin: MessageQueue, qout: MessageQueue):
+        super().__init__(name, config, qin, qout)
+        self.BATCH_SIZE = AMQP_BATCH_SIZE
+
+    def load_config(self):
+        super().load_config()
+
+        try:
+            batch_size = int(self.config.get("amqp_batch_size"))  # type: ignore
+            if batch_size < 1 or batch_size > MAX_AMQP_BATCH_SIZE:
+                raise ServiceLoadConfigError(
+                    f"Invalid AMQP batch size: {batch_size}"
+                    f", allowed range [1..{MAX_AMQP_BATCH_SIZE}]"
+                )
+            self.BATCH_SIZE = batch_size
+        except (ValueError, TypeError):
+            logger.warning(
+                "Failed to parse AMQP batch size from configuration. Use default"
+            )
+
+    def _process_amqp_message(self):
+        batch_count = 0
+        while True:
+            message = self.amqp.get_message()
+            if message is None:
+                return
+            self.on_message(
+                method=message.method,
+                properties=message.properties,
+                body_json=message.body_json,
+            )
+            batch_count += 1
+            if batch_count >= self.BATCH_SIZE:
+                return
+
+    def _process_workers_result(self):
+        if not self.workers_stop_event.is_set():
+            while True:
+                try:
+                    self.on_done(self.workers_done_queue.get_nowait())
+                except queue.Empty:
+                    return

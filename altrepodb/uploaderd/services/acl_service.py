@@ -20,7 +20,12 @@ from typing import Any
 from setproctitle import setproctitle
 
 from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
-from ..base import NotifierMessageType, NotifierMessageSeverity
+from ..base import (
+    NotifierMessageType,
+    NotifierMessageSeverity,
+    NotifierMessageReason,
+    WorkStatus,
+)
 from altrepodb.database import DatabaseConfig, DatabaseClient
 
 NAME = "altrepodb.acl_loader"
@@ -61,7 +66,7 @@ class AclLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode JSON payload: {error}")
+            self.logger.error(f"Failed to decode JSON payload: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -69,7 +74,7 @@ class AclLoaderService(ServiceBase):
 
         self.workers_todo_queue.put(
             Work(
-                status="new",
+                status=WorkStatus.NEW,
                 method=method,
                 properties=properties,
                 body_json=body_json,
@@ -77,7 +82,7 @@ class AclLoaderService(ServiceBase):
         )
 
     def on_done(self, work: Work):
-        if work.status == "done":
+        if work.status == WorkStatus.DONE:
             self.amqp.ack_message(work.method.delivery_tag)
             if self.publish_on_done:
                 self.amqp.publish(
@@ -88,7 +93,7 @@ class AclLoaderService(ServiceBase):
                 work.method.delivery_tag, requeue=self.requeue_on_reject
             )
             self.report(
-                reason="notify",
+                reason=NotifierMessageReason.NOTIFY,
                 payload={
                     "reason": work.reason,
                     "type": NotifierMessageType.SERVICE_WORKER_ERROR,
@@ -117,7 +122,7 @@ def acl_loader_worker(
         except KeyboardInterrupt:
             return
 
-        work.status = "failed"
+        work.status = WorkStatus.FAILED
 
         error_message = ""
         state = False
@@ -135,7 +140,7 @@ def acl_loader_worker(
             conn.execute("INSERT INTO Acl (*) VALUES", [acl])
             state = True
         except Exception as error:
-            error_message = f"Failed to upload Acl data: {error}"
+            error_message = f"Failed to upload Acl data: {repr(error)}"
         finally:
             conn.disconnect()
 
@@ -143,7 +148,7 @@ def acl_loader_worker(
             logger.error(error_message)
 
         if state:
-            work.status = "done"
+            work.status = WorkStatus.DONE
         else:
             work.reason = error_message
 

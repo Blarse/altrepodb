@@ -1,0 +1,6 @@
+object 4eaf70da8bfa4b6d1324a49ec4fe7156c36835df
+type commit
+tag v2.3.6
+tagger Danil Shein <dshein@altlinux.org> 1656514542 +0300
+
+batch task_loader service
