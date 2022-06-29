@@ -14,6 +14,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import json
+import base64
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -26,17 +27,19 @@ from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
 from ..base import NotifierMessageType, NotifierMessageSeverity
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
+from altrepodb.utils import set_datetime_timezone_to_utc
 
 NAME = "altrepodb.task_loader"
-ROUTING_KEY = "task.state"
+ROUTING_KEYS = ("task.state", "task.subtask.approve", "task.subtask.disapprove")
+TASK_STATE_RKEY = "task.state"
 MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
-LOAD_APPROVALS_FROM_FS = True
+LOAD_APPROVALS_FROM_FS = False
 LOAD_LOGS_FOR_NEW_TASKS = False
 
-consistent_states = ["done", "eperm", "failed", "new", "tested"]
-
-inconsistent_states = [
+CONSISTENT_TASK_STATES = ("done", "eperm", "failed", "new", "tested")
+DELETED_TASK_STATE = "deleted"
+INCONSISTENT_TASK_STATES = (
     "awaiting",
     "building",
     "committing",
@@ -44,7 +47,7 @@ inconsistent_states = [
     "pending",
     "postponed",
     "swept",
-]
+)
 
 logger = logging.getLogger(NAME)
 
@@ -58,7 +61,8 @@ class TaskLoaderService(ServiceBase):
     def load_config(self):
         super().load_config()
 
-        self.routing_key = self.config.get("routing_key", ROUTING_KEY)
+        self.routing_key = self.config.get("routing_key", TASK_STATE_RKEY)
+        self.routing_keys = self.config.get("routing_keys", ROUTING_KEYS)
         self.publish_on_done = self.config.get("publish_on_done", False)
         self.requeue_on_reject = self.config.get("requeue_on_reject", False)
         self.max_redeliver_count = self.config.get("max_redeliver_count", MAX_REDELIVER)
@@ -67,7 +71,7 @@ class TaskLoaderService(ServiceBase):
             self.config["tasks_dir"] = DEFAULT_TASKS_DIR
 
     def on_message(self, method, properties, body_json):
-        if method.routing_key != self.routing_key:
+        if method.routing_key not in self.routing_keys:
             self.logger.critical(f"Unexpected routing key : {method.routing_key}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
@@ -91,7 +95,7 @@ class TaskLoaderService(ServiceBase):
             return
         taskstate = body.get("state", "unknown").lower()
 
-        if taskstate in consistent_states or taskstate == "deleted":
+        if taskstate in CONSISTENT_TASK_STATES or taskstate == DELETED_TASK_STATE:
             self.workers_todo_queue.put(
                 Work(
                     status="new",
@@ -160,22 +164,31 @@ def task_loader_worker(
             done_queue.put(work)
             continue
 
-        taskstate = body.get("state", "unknown").lower()
-        logger.debug(f"Got task {taskid} in state '{taskstate}'")
-        if taskstate in consistent_states:
-            state, error_message = _load_task(dbconf, taskid, config["tasks_dir"])
-            if state:
-                work.status = "done"
+        if work.method.routing_key == config.get("routing_key", ""):
+            taskstate = body.get("state", "unknown").lower()
+            logger.debug(f"Got task {taskid} in state '{taskstate}'")
+            if taskstate in CONSISTENT_TASK_STATES:
+                state, error_message = _load_task(dbconf, taskid, config["tasks_dir"])
+                if state:
+                    work.status = "done"
+                else:
+                    work.reason = error_message
+            elif taskstate == DELETED_TASK_STATE:
+                state, error_message = _load_deleted_task(dbconf, taskid)
+                if state:
+                    work.status = "done"
+                else:
+                    work.reason = error_message
             else:
-                work.reason = error_message
-        elif taskstate == "deleted":
-            state, error_message = _load_deleted_task(dbconf, taskid)
-            if state:
-                work.status = "done"
-            else:
-                work.reason = error_message
+                logger.warning(f"Inconsistent task state: {taskstate}")
         else:
-            logger.warning(f"Inconsistent task state: {taskstate}")
+            subtaskid = body.get("subtaskid", 0)
+            logger.debug(f"Got task approval message for {taskid}.{subtaskid}")
+            state, error_message = _load_task_approval(dbconf, body)
+            if state:
+                work.status = "done"
+            else:
+                work.reason = error_message
 
         done_queue.put(work)
 
@@ -250,6 +263,68 @@ OPTIMIZE TABLE TaskStates_buffer
         error_message = (
             f"{error} exception occured while saving deleted task state to DB"
         )
+    finally:
+        conn.disconnect()
+
+    return state, error_message
+
+
+def _load_task_approval(
+    dbconf: DatabaseConfig, body: dict[str, Any]
+) -> tuple[bool, str]:
+    state = False
+    error_message = ""
+
+    conn = DatabaseClient(config=dbconf, logger=logger)
+    try:
+        routing_key: str = body["_routing_key"]
+
+        if routing_key.endswith(".subtask.approve"):
+            approval_type = "approve"
+        elif routing_key.endswith(".subtask.disapprove"):
+            approval_type = "disapprove"
+        else:
+            return False, f"Unexpected routing key '{routing_key}' for task approval"
+
+        _ = body["state"]
+
+        approval_revoked = body.get("revoke", False) or body.get("revoked", False)
+
+        if not approval_revoked:
+            _first, *_lines = [
+                x
+                for x in base64.b64decode(body["base64_message"])
+                .decode("utf-8")
+                .split("\n")
+                if len(x) > 0
+            ]
+            _date, _name = [x.strip() for x in _first.split("::") if len(x) > 0]
+            _date = datetime.strptime(_date, "%Y-%b-%d %H:%M:%S")
+            approval_name = _name.split(" ")[-1]
+            approval_date = set_datetime_timezone_to_utc(_date)
+            approval_message = "\n".join((x for x in _lines))
+        else:
+            approval_name = body["girar_user"]
+            approval_date = set_datetime_timezone_to_utc(
+                datetime.fromtimestamp(float(body["_timestamp"]))
+            )
+            approval_message = ""
+
+        task_approval = {
+            "task_id": int(body["taskid"]),
+            "subtask_id": int(body["subtaskid"]),
+            "tapp_type": approval_type,
+            "tapp_revoked": int(approval_revoked),
+            "tapp_date": approval_date,
+            "tapp_name": approval_name,
+            "tapp_message": approval_message,
+        }
+
+        conn.execute("INSERT INTO TaskApprovals (*) VALUES", [task_approval])
+        state = True
+    except Exception as error:
+        logger.error(f"{error} exception occured while saving task approval to DB")
+        error_message = f"{error} exception occured while saving task approval to DB"
     finally:
         conn.disconnect()
 
