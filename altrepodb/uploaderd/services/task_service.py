@@ -23,7 +23,7 @@ from setproctitle import setproctitle
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
-from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..service import BatchServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
 from ..base import NotifierMessageType, NotifierMessageSeverity
 from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
@@ -52,7 +52,7 @@ INCONSISTENT_TASK_STATES = (
 logger = logging.getLogger(NAME)
 
 
-class TaskLoaderService(ServiceBase):
+class TaskLoaderService(BatchServiceBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.worker = task_loader_worker

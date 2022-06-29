@@ -43,6 +43,10 @@ from .exceptions import (
 
 NAME = "altrepodb.uploaderd.service"
 WORKER_STOP_TIMEOUT = 60
+IDLE_LOOP_SLEEP = 1.0
+MAX_IDLE_LOOP_SLEEP = 10.0
+AMQP_BATCH_SIZE = 1
+MAX_AMQP_BATCH_SIZE = 100
 
 logger = logging.getLogger(NAME)
 
@@ -121,6 +125,8 @@ class ServiceBase(mp.Process, ABC):
         self.worker: Worker
 
         self.config: dict[str, Any] = {}
+
+        self.IDLE_LOOP_SLEEP: float = IDLE_LOOP_SLEEP
 
         self.routing_key: str
         self.publish_on_done: bool
@@ -202,6 +208,19 @@ class ServiceBase(mp.Process, ABC):
             f"AMQP: {self.amqpconf.host}:{self.amqpconf.port}, "
             f"vhost: {self.amqpconf.vhost}, exchange: {self.amqpconf.exchange}"
         )
+
+        try:
+            idle_loop_sleep = float(config.get("idle_loop_sleep"))
+            if idle_loop_sleep < 0.1 or idle_loop_sleep > MAX_IDLE_LOOP_SLEEP:
+                raise ServiceLoadConfigError(
+                    f"Invalid idle loop sleep time value: {idle_loop_sleep}"
+                    f", allowed range [0.1..{MAX_AMQP_BATCH_SIZE}]s"
+                )
+            self.IDLE_LOOP_SLEEP = idle_loop_sleep
+        except (ValueError, TypeError):
+            logger.warning(
+                "Failed to parse idle loop sleep time from configuration. Use default"
+            )
 
         self.config = config
 
@@ -295,7 +314,7 @@ class ServiceBase(mp.Process, ABC):
                 self.service_kill()
                 return
             # XXX: slow down idle loop to reduce CPU utilization
-            time.sleep(1)
+            time.sleep(self.IDLE_LOOP_SLEEP)
 
     def service_init(self):
         logger.info(f"Initialize service {self.name}")
@@ -409,3 +428,48 @@ class ServiceBase(mp.Process, ABC):
         for worker in self.workers[:]:
             worker.terminate()
             self.workers.remove(worker)
+
+
+class BatchServiceBase(ServiceBase):
+    def __init__(self, name: str, config: str, qin: MessageQueue, qout: MessageQueue):
+        super().__init__(name, config, qin, qout)
+        self.BATCH_SIZE = AMQP_BATCH_SIZE
+
+    def load_config(self):
+        super().load_config()
+
+        try:
+            batch_size = int(self.config.get("amqp_batch_size"))  # type: ignore
+            if batch_size < 1 or batch_size > MAX_AMQP_BATCH_SIZE:
+                raise ServiceLoadConfigError(
+                    f"Invalid AMQP batch size: {batch_size}"
+                    f", allowed range [1..{MAX_AMQP_BATCH_SIZE}]"
+                )
+            self.BATCH_SIZE = batch_size
+        except (ValueError, TypeError):
+            logger.warning(
+                "Failed to parse AMQP batch size from configuration. Use default"
+            )
+
+    def _process_amqp_message(self):
+        batch_count = 0
+        while True:
+            message = self.amqp.get_message()
+            if message is None:
+                return
+            self.on_message(
+                method=message.method,
+                properties=message.properties,
+                body_json=message.body_json,
+            )
+            batch_count += 1
+            if batch_count >= self.BATCH_SIZE:
+                return
+
+    def _process_workers_result(self):
+        if not self.workers_stop_event.is_set():
+            while True:
+                try:
+                    self.on_done(self.workers_done_queue.get_nowait())
+                except queue.Empty:
+                    return

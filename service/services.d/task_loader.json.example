@@ -1,5 +1,7 @@
 {
     "workers_count" : 1,
+    "idle_loop_sleep": 1.0,
+    "amqp_batch_size": 10,
     "tasks_dir": "/tasks",
     "publish_on_done": true,
     "requeue_on_reject": true,
