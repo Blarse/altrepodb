@@ -66,7 +66,7 @@ class AclLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode JSON payload: {error}")
+            self.logger.error(f"Failed to decode JSON payload: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -140,7 +140,7 @@ def acl_loader_worker(
             conn.execute("INSERT INTO Acl (*) VALUES", [acl])
             state = True
         except Exception as error:
-            error_message = f"Failed to upload Acl data: {error}"
+            error_message = f"Failed to upload Acl data: {repr(error)}"
         finally:
             conn.disconnect()
 

@@ -86,7 +86,7 @@ class BeehiveLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode json message: {error}")
+            self.logger.error(f"Failed to decode json message: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -163,7 +163,7 @@ def beehive_loader_worker(
             logger.info("Beehive data uploaded successfully")
             state = True
         except (BeehiveLoadError, Exception) as error:
-            error_message = f"Failed to upload Beehive data: {error}"
+            error_message = f"Failed to upload Beehive data: {repr(error)}"
 
         if error_message:
             logger.error(error_message)

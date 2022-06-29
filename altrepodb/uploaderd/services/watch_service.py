@@ -65,7 +65,7 @@ class WatchLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode json message: {error}")
+            self.logger.error(f"Failed to decode json message: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -139,7 +139,7 @@ def watch_loader_worker(
             logger.info("Watch data uploaded successfully")
             state = True
         except (WatchError, Exception) as error:
-            error_message = f"Failed to upload Watch data: {error}"
+            error_message = f"Failed to upload Watch data: {repr(error)}"
 
         if error_message:
             logger.error(error_message)

@@ -30,7 +30,7 @@ from ..base import (
     NotifierMessageReason,
     WorkStatus,
 )
-from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
+# from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import set_datetime_timezone_to_utc
 
@@ -90,7 +90,7 @@ class TaskLoaderService(BatchServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode json message: {error}")
+            self.logger.error(f"Failed to decode json message: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -220,12 +220,12 @@ def _load_task(
         tp.run()
         logger.info(f"Task {tpconf.id} uploaded successfully")
         state = True
-    except TaskLoaderProcessingError as error:
-        error_message = f"Failed to upload task {tpconf.id}: {error}"
-    except TaskLoaderError as error:
-        error_message = f"Failed to upload task {tpconf.id}: {error}"
+    # except TaskLoaderProcessingError as error:
+    #     error_message = f"Failed to upload task {tpconf.id}: {repr(error)}"
+    # except TaskLoaderError as error:
+    #     error_message = f"Failed to upload task {tpconf.id}: {repr(error)}"
     except Exception as error:
-        error_message = f"Failed to upload task {tpconf.id}: {error}"
+        error_message = f"Failed to upload task {tpconf.id}: {repr(error)}"
 
     if error_message:
         logger.error(error_message)
@@ -264,10 +264,10 @@ OPTIMIZE TABLE TaskStates_buffer
         conn.execute(flush_tables_buffer)
         state = True
     except Exception as error:
-        logger.error(f"{error} exception occured while saving deleted task state to DB")
         error_message = (
-            f"{error} exception occured while saving deleted task state to DB"
+            f"Exception occured while saving deleted task state to DB: {repr(error)}"
         )
+        logger.error(error_message)
     finally:
         conn.disconnect()
 
@@ -328,8 +328,8 @@ def _load_task_approval(
         conn.execute("INSERT INTO TaskApprovals (*) VALUES", [task_approval])
         state = True
     except Exception as error:
-        logger.error(f"{error} exception occured while saving task approval to DB")
-        error_message = f"{error} exception occured while saving task approval to DB"
+        error_message = f"Exception occured while processing task approval: {repr(error)} "
+        logger.error(error_message)
     finally:
         conn.disconnect()
 

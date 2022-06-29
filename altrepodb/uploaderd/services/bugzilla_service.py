@@ -89,7 +89,7 @@ class BugzillaLoaderService(ServiceBase):
         try:
             body = json.loads(body_json)
         except json.JSONDecodeError as error:
-            self.logger.error(f"Failed to decode JSON payload: {error}")
+            self.logger.error(f"Failed to decode JSON payload: {repr(error)}")
             self.amqp.reject_message(method.delivery_tag, requeue=False)
             return
 
@@ -184,7 +184,7 @@ def bugzilla_loader_worker(
                 load_bug_to_database(conn, bug, last_changed)
                 state = True
         except Exception as error:
-            error_message = f"Failed to upload Bugzilla data: {error}"
+            error_message = f"Failed to upload Bugzilla data: {repr(error)}"
         finally:
             conn.disconnect()
 

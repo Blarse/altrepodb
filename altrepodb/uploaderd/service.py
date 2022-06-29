@@ -183,22 +183,27 @@ class ServiceBase(mp.Process, ABC):
             with open(self.config_path, "r") as config_file:
                 config = json.load(config_file)
         except json.JSONDecodeError as error:
-            logger.error(f"Failed to parse {self.config_path}: {error}")
-            raise ServiceLoadConfigError(f"Failed to parse {self.config_path}: {error}")
+            error_message = f"Failed to parse {self.config_path}: {repr(error)}"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
         except OSError as error:
-            logger.error(f"Failed to open {self.config_path}: {error}")
-            raise ServiceLoadConfigError(f"Failed to open {self.config_path}: {error}")
+            error_message = f"Failed to open {self.config_path}: {repr(error)}"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         if "database" in config:
             self.load_dbconf(config["database"])
         else:
-            logger.error("Service config missing database section")
-            raise ServiceLoadConfigError("Service config missing database section")
+            error_message = "Service config missing database section"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         if "amqp" in config:
             self.load_amqpconf(config["amqp"])
         else:
-            raise ServiceLoadConfigError("Service config missing amqp section")
+            error_message = "Service config missing amqp section"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message)
 
         self.workers_count = config.get("workers_count", self.workers_count)
 
@@ -230,7 +235,7 @@ class ServiceBase(mp.Process, ABC):
                 Message(msg=ServiceAction.REPORT, reason=reason, payload=payload)
             )
         except queue.Full:
-            logger.error("Service qout is full")
+            logger.error("Service 'qout' is full")
             pass
 
     def _process_state(self, command: int):
