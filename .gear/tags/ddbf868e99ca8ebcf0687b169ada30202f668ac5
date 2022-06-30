@@ -1,0 +1,6 @@
+object d11e559b4daa76d03fdf312875468540ba1fb98b
+type commit
+tag v2.3.7
+tagger Danil Shein <dshein@altlinux.org> 1656592551 +0300
+
+updated bugzilla and fixes
