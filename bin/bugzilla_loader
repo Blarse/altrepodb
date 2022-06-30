@@ -18,12 +18,13 @@
 import sys
 import csv
 import argparse
+import datetime
 import requests
 import configparser
 from logging import Logger
 from collections import namedtuple
-from typing import Iterable
 
+from altrepodb.utils import cvt_datetime_local_to_utc, set_datetime_timezone_to_utc
 from altrepodb.logger import get_config_logger, LoggerLevel
 from altrepodb.database import DatabaseClient, DatabaseConfig
 
@@ -34,8 +35,31 @@ BUGZILLA_URL_PARAMS = {
     "query_format": "advanced",
     "ctype": "csv",
     "human": 1,
-    # "api_key": ""
+    "columnlist": (
+        "id,bug_status,resolution,bug_severity,priority,product,version,"
+        "rep_platform,component,assigned_to,reporter,short_desc,changeddate"
+    ),
 }
+
+
+BugzillaRecord = namedtuple(
+    "BugzillaRecord",
+    (
+        "bz_id",
+        "bz_status",
+        "bz_resolution",
+        "bz_severity",
+        "bz_priority",
+        "bz_product",
+        "bz_version",
+        "bz_platform",
+        "bz_component",
+        "bz_assignee",
+        "bz_reporter",
+        "bz_summary",
+        "bz_last_changed",
+    ),
+)
 
 
 def get_args():
@@ -72,61 +96,70 @@ def get_args():
     return args
 
 
-def tuples_list_to_dict(x: Iterable) -> dict:
-    res = {}
-    for el in x:
-        res[int(el[0])] = tuple(el[1:])
-
-    return res
-
-
 def load(conn: DatabaseClient, logger: Logger) -> None:
     # get bugs CSV from Bugzilla
     logger.info(f"Fetching Bugzilla data from {BUGZILLA_URL}...")
     response = requests.get(BUGZILLA_URL, params=BUGZILLA_URL_PARAMS)
     logger.info(f"URL request elapsed {response.elapsed.total_seconds():.3f}")
 
-    bz_from_url = {}
+    bz_from_url: dict[int, BugzillaRecord] = {}
+    bz_from_db: dict[int, BugzillaRecord] = {}
+    bz_diff: dict[int, BugzillaRecord] = {}
 
     if response.status_code != 200:
         raise RuntimeError(f"Failed to fetch data from Bugzilla at {BUGZILLA_URL}")
 
     contents = csv.reader(response.text.splitlines())
     _ = next(contents, [])  # skip CSV headers
-    bz_from_url = tuples_list_to_dict(contents)
-    logger.info(f"Found {len(bz_from_url)} bug records")
+    for line in contents:
+        bz_record = BugzillaRecord(int(line[0]), *line[1:])
+        # remove empty 'resolution' field placeholder
+        if bz_record.bz_resolution == " ---":
+            bz_record = bz_record._replace(bz_resolution="")
+        # convert datetime
+        bz_record = bz_record._replace(
+            bz_last_changed=cvt_datetime_local_to_utc(
+                datetime.datetime.strptime(
+                    bz_record.bz_last_changed, "%Y-%m-%d %H:%M:%S"
+                )
+            )
+        )
+        bz_from_url[bz_record.bz_id] = bz_record
 
+    logger.info(f"Found {len(bz_from_url)} bug records")
     #  read latest data from DB
     logger.info("Fetching last Bugzilla data from database...")
 
-    sql = """
+    # playing around with SQL request arguments
+    _fields = list(BugzillaRecord._fields)
+    _fields.remove("bz_id")
+    _fields[_fields.index("bz_last_changed")] = "toDateTime(bz_last_changed, 'UTC')"
+
+    sql_res = conn.execute(
+        f"""
 SELECT
     bz_id,
     argMax(
-        (
-            bz_status,
-            bz_resolution,
-            bz_severity,
-            bz_product,
-            bz_component,
-            bz_assignee,
-            bz_reporter,
-            bz_summary
-        ),
+        tuple({','.join(_fields)}),
         ts
     )
 FROM Bugzilla
 GROUP BY bz_id"""
+    )
 
-    bz_from_db = {}
+    logger.info(f"SQL request elapsed {conn.last_query_elapsed:.3f} seconds")
 
-    sql_res = conn.execute(sql)
-    logger.info(f"SQL request elapsed {conn.last_query_elapsed:.3f} seconds")  # type: ignore
-    bz_from_db = {int(el[0]): el[1] for el in sql_res}  # type: ignore
+    bz_from_db = {int(el[0]): BugzillaRecord(int(el[0]), *el[1]) for el in sql_res}
+    # fix datetime timezone issues
+    for k, v in bz_from_db.items():
+        bz_record = v._replace(
+            bz_last_changed=set_datetime_timezone_to_utc(v.bz_last_changed)
+        )
+        bz_from_db[k] = bz_record
+
     logger.info(f"Found {len(bz_from_db)} bug records")
-    # find updated bugs
-    bz_diff = {}
 
+    # find updated bugs
     for k, v in bz_from_url.items():
         if k not in bz_from_db or v != bz_from_db[k]:
             bz_diff[k] = v
@@ -135,38 +168,12 @@ GROUP BY bz_id"""
     else:
         logger.info(f"{len(bz_diff)} records updated. Saving to database...")
         # store updated bugs to database
-        BugzillaRecord = namedtuple(
-            "BugzillaRecord",
-            (
-                "bz_id",
-                "bz_status",
-                "bz_resolution",
-                "bz_severity",
-                "bz_product",
-                "bz_component",
-                "bz_assignee",
-                "bz_reporter",
-                "bz_summary",
-            ),
+        sql_res = conn.execute(
+            f"INSERT INTO Bugzilla ({','.join(BugzillaRecord._fields)}) VALUES",
+            (v._asdict() for v in bz_diff.values()),
         )
-        payload_gen = (BugzillaRecord(k, *v)._asdict() for k, v in bz_diff.items())
 
-        sql = """
-INSERT INTO Bugzilla (
-    bz_id,
-    bz_status,
-    bz_resolution,
-    bz_severity,
-    bz_product,
-    bz_component,
-    bz_assignee,
-    bz_reporter,
-    bz_summary
-) VALUES"""
-
-        sql_res = conn.execute(sql, payload_gen)
-
-        logger.info(f"SQL request elapsed {conn.last_query_elapsed:.3f} seconds")  # type: ignore
+        logger.info(f"SQL request elapsed {conn.last_query_elapsed:.3f} seconds")
         logger.debug(f"Inserted {sql_res} rows to 'Bugzilla' table")
 
 

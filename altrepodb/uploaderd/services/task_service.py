@@ -30,9 +30,10 @@ from ..base import (
     NotifierMessageReason,
     WorkStatus,
 )
+
 # from altrepodb.task.exceptions import TaskLoaderProcessingError, TaskLoaderError
 from altrepodb.database import DatabaseClient, DatabaseConfig
-from altrepodb.utils import set_datetime_timezone_to_utc
+from altrepodb.utils import set_datetime_timezone_to_utc, cvt_ts_to_datetime
 
 NAME = "altrepodb.task_loader"
 ROUTING_KEYS = ("task.state", "task.subtask.approve", "task.subtask.disapprove")
@@ -292,8 +293,14 @@ def _load_task_approval(
             return False, f"Unexpected routing key '{routing_key}' for task approval"
 
         _ = body["state"]
-
+        taskid = int(body["taskid"])
+        subtaskid = int(body["subtaskid"])
         approval_revoked = body.get("revoke", False) or body.get("revoked", False)
+
+        logger.info(
+            f"Loading approval for {taskid}.{subtaskid}: "
+            f"[{approval_type}:{'add' if approval_revoked else 'revoke'}] "
+        )
 
         if not approval_revoked:
             _first, *_lines = [
@@ -310,14 +317,12 @@ def _load_task_approval(
             approval_message = "\n".join((x for x in _lines))
         else:
             approval_name = body["girar_user"]
-            approval_date = set_datetime_timezone_to_utc(
-                datetime.fromtimestamp(float(body["_timestamp"]))
-            )
+            approval_date = cvt_ts_to_datetime(float(body["_timestamp"]))
             approval_message = ""
 
         task_approval = {
-            "task_id": int(body["taskid"]),
-            "subtask_id": int(body["subtaskid"]),
+            "task_id": taskid,
+            "subtask_id": subtaskid,
             "tapp_type": approval_type,
             "tapp_revoked": int(approval_revoked),
             "tapp_date": approval_date,
@@ -328,7 +333,9 @@ def _load_task_approval(
         conn.execute("INSERT INTO TaskApprovals (*) VALUES", [task_approval])
         state = True
     except Exception as error:
-        error_message = f"Exception occured while processing task approval: {repr(error)} "
+        error_message = (
+            f"Exception occured while processing task approval: {repr(error)} "
+        )
         logger.error(error_message)
     finally:
         conn.disconnect()

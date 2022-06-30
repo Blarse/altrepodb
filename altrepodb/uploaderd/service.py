@@ -224,7 +224,8 @@ class ServiceBase(mp.Process, ABC):
             self.IDLE_LOOP_SLEEP = idle_loop_sleep
         except (ValueError, TypeError):
             logger.warning(
-                "Failed to parse idle loop sleep time from configuration. Use default"
+                "Unable to parse 'idle_loop_sleep' from configuration,"
+                f" use default value: {IDLE_LOOP_SLEEP}."
             )
 
         self.config = config
@@ -456,7 +457,8 @@ class BatchServiceBase(ServiceBase):
             self.BATCH_SIZE = batch_size
         except (ValueError, TypeError):
             logger.warning(
-                "Failed to parse AMQP batch size from configuration. Use default"
+                "Unable to parse 'amqp_batch_size' from configuration,"
+                f" use default value: {AMQP_BATCH_SIZE}"
             )
 
     def _process_amqp_message(self):

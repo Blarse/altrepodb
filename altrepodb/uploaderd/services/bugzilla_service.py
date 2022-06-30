@@ -45,7 +45,10 @@ Bug = namedtuple(
         "bz_status",
         "bz_resolution",
         "bz_severity",
+        "bz_priority",
         "bz_product",
+        "bz_version",
+        "bz_platform",
         "bz_component",
         "bz_assignee",
         "bz_reporter",
@@ -205,57 +208,53 @@ def load_bug_to_database(
     def get_nickname(email: str) -> str:
         return email.split("@")[0]
 
-    payload = {
-        "bz_id": int(bug["id"]),
-        "bz_status": bug["status"]["label"],
-        "bz_resolution": bug["resolution"],
-        "bz_severity": bug["severity"],
-        "bz_product": bug["product"]["name"],
-        "bz_component": bug["component"]["name"],
-        "bz_assignee": get_nickname(bug["assigned_to"]["login"]),
-        "bz_reporter": get_nickname(bug["reporter"]["login"]),
-        "bz_summary": bug["summary"],
-        "bz_last_changed": last_changed,
-        "bz_assignee_full": bug["assigned_to"]["login"],
-        "bz_reporter_full": bug["reporter"]["login"],
-    }
+    bug_from_amqp = Bug(
+        bz_id=int(bug["id"]),
+        bz_status=bug["status"]["label"],
+        bz_resolution=bug["resolution"],
+        bz_severity=bug["severity"],
+        bz_priority=bug["priority"],
+        bz_product=bug["product"]["name"],
+        bz_component=bug["component"]["name"],
+        bz_version=bug.get("version", "all"),
+        bz_platform=bug["platform"],
+        bz_assignee=get_nickname(bug["assigned_to"]["login"]),
+        bz_reporter=get_nickname(bug["reporter"]["login"]),
+        bz_summary=bug["summary"],
+        bz_last_changed=last_changed,
+        bz_assignee_full=bug["assigned_to"]["login"],
+        bz_reporter_full=bug["reporter"]["login"],
+    )
 
     # get last bug state from DB
     sql = """
 SELECT
     argMax(
-        (
-            bz_id,
-            bz_status,
-            bz_resolution,
-            bz_severity,
-            bz_product,
-            bz_component,
-            bz_assignee,
-            bz_reporter,
-            bz_summary,
-            bz_last_changed,
-            bz_assignee_full,
-            bz_reporter_full,
-        ),
+        tuple({fields}),
         ts
     )
 FROM Bugzilla
 WHERE bz_id = {bug_id}"""
 
     updated = False
-    res = conn.execute(sql.format(bug_id=int(bug["id"])))
+    res = conn.execute(
+        sql.format(bug_id=bug_from_amqp.bz_id, fields=",".join(Bug._fields))
+    )
 
     # skip duplicated bug states from distinct Bugzilla AMQP messages
     if not res:
         updated = True
     else:
-        bug_from_db = Bug(*res[0][0])._asdict()
-        bug_from_db["bz_last_changed"] = cvt_datetime_local_to_utc(
-            bug_from_db["bz_last_changed"]
+        bug_from_db = Bug(*res[0][0])
+        bug_from_db = bug_from_db._replace(
+            bz_last_changed=cvt_datetime_local_to_utc(bug_from_db.bz_last_changed)
         )
-        if bug_from_db != payload:
+        if bug_from_db != bug_from_amqp:
             updated = True
 
     if updated:
-        conn.execute("INSERT INTO Bugzilla (*) VALUES", [payload])
+        logger.info(f"Loading message from Bugzilla for bug #{bug_from_amqp.bz_id}")
+        conn.execute(
+            f"INSERT INTO Bugzilla ({','.join(Bug._fields)}) VALUES",
+            [bug_from_amqp._asdict()],
+        )
