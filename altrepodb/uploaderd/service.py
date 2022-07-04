@@ -60,7 +60,7 @@ class Work:
     reason: str = ""
 
 
-worker_sentinel = Work("terminate", None, None, None)  # type: ignore
+WORKER_SENTINEL = Work("terminate", None, None, None)  # type: ignore
 
 
 T = TypeVar("T")
@@ -376,7 +376,7 @@ class ServiceBase(mp.Process, ABC):
         self.workers_stop_event.set()
         # put 'exit' work messages for all workers
         for _ in self.workers:
-            self.workers_todo_queue.put_nowait(worker_sentinel)
+            self.workers_todo_queue.put_nowait(WORKER_SENTINEL)
 
         timer = 0
         timed_out = False

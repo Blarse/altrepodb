@@ -20,7 +20,7 @@ from typing import Any
 from collections import namedtuple
 from setproctitle import setproctitle
 
-from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..service import ServiceBase, Work, mpEvent, WorkQueue, WORKER_SENTINEL
 from ..base import (
     NotifierMessageType,
     NotifierMessageSeverity,
@@ -143,7 +143,7 @@ def bugzilla_loader_worker(
         try:
             work = todo_queue.get()
             # exit if 'terminate' work received
-            if work.status == worker_sentinel.status:
+            if work.status == WORKER_SENTINEL.status:
                 return
         except KeyboardInterrupt:
             return

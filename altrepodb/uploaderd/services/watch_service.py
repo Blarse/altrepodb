@@ -19,7 +19,7 @@ from typing import Any
 from setproctitle import setproctitle
 
 from altrepodb.watch import Watch, WatchConfig, WatchError
-from ..service import ServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..service import ServiceBase, Work, mpEvent, WorkQueue, WORKER_SENTINEL
 from ..base import (
     NotifierMessageType,
     NotifierMessageSeverity,
@@ -122,7 +122,7 @@ def watch_loader_worker(
         try:
             work = todo_queue.get()
             # exit if 'terminate' work received
-            if work.status == worker_sentinel.status:
+            if work.status == WORKER_SENTINEL.status:
                 return
         except KeyboardInterrupt:
             return
