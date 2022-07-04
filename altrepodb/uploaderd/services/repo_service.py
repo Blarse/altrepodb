@@ -27,7 +27,7 @@ from ..service import (
     Work,
     mpEvent,
     WorkQueue,
-    worker_sentinel,
+    WORKER_SENTINEL,
 )
 from ..base import (
     NotifierMessageType,
@@ -172,7 +172,7 @@ def repo_loader_worker(
         try:
             work = todo_queue.get()
             # exit if 'terminate' work received
-            if work.status == worker_sentinel.status:
+            if work.status == WORKER_SENTINEL.status:
                 return
         except KeyboardInterrupt:
             return

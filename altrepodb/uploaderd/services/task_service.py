@@ -23,7 +23,7 @@ from setproctitle import setproctitle
 
 from altrepodb.utils import cvt_datetime_local_to_utc
 from altrepodb.task.processor import TaskProcessor, TaskProcessorConfig
-from ..service import BatchServiceBase, Work, mpEvent, WorkQueue, worker_sentinel
+from ..service import BatchServiceBase, Work, mpEvent, WorkQueue, WORKER_SENTINEL
 from ..base import (
     NotifierMessageType,
     NotifierMessageSeverity,
@@ -147,7 +147,7 @@ def task_loader_worker(
         try:
             work = todo_queue.get()
             # exit if 'terminate' work received
-            if work.status == worker_sentinel.status:
+            if work.status == WORKER_SENTINEL.status:
                 return
         except KeyboardInterrupt:
             return
