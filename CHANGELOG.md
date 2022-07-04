@@ -8,8 +8,76 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
-## [2.3.0] - 2022-06-06
+## [2.3.8] - 2022-07-04
+Regular code update and fix.
 
+### Added
+### Changed
+- renamed worker sentinel object constant
+### Fixed
+- updated README.md
+- updated CHANGELOG.md
+
+## [2.3.7] - 2022-06-30
+Regular code update and fix.
+
+### Added
+### Changed
+- Bugzilla table structure
+- bugzilla_service for new SQL tables structure 
+### Fixed
+- logging wording
+
+## [2.3.6] - 2022-06-29
+Regular code update and fix.
+
+### Added
+- added service base class that supports batch AMQP message processing
+### Changed
+- task_loader now uses batched AMQP message processing
+### Fixed
+- exceptions logging in services
+
+## [2.3.5] - 2022-06-28
+Regular code update and fix.
+
+### Added
+- added bugzilla_loader service
+### Changed
+- updated Bugzilla table structure
+### Fixed
+- acl_loader service errors and worker process name
+
+## [2.3.4] - 2022-06-23
+Regular code update and fix.
+
+### Added
+- added acl_loader service
+### Changed
+### Fixed
+
+## [2.3.3] - 2022-06-22
+Refactored ALTRepo Uploader code.
+
+### Added
+- repodb_amqfire utility to send AMQP messages to uploaderd services
+- dependency to rabbitmq-c package
+### Changed
+- set service process and worker names
+### Fixed
+- logging levels and wording
+
+## [2.3.1] - 2022-06-16
+Refactored uploaderd services code to use processes instead of threads.
+
+### Added
+### Changed
+- using processes instead of threads for service instances
+- using simple blocking AMQP client
+### Fixed
+- uploaderd zombie and orphaned processes when service stopped/restarted
+
+## [2.3.0] - 2022-06-06
 Prepared ALTRepo Uploader for distribution as RPM package.
 
 Loading tools binaries available as shell commands if installed from RPM package.
@@ -28,7 +96,6 @@ Added `uploaderd` service that operates with RabbitMQ message broker in order to
 - project code style sanitized using `black` and `flake8` tools
 
 ## [v2.2.4] - 2022-04-15
-
 Initial ALTRepo Uploader changelog record.
 
 Check Git history for previous changes.
