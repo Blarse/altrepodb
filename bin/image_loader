@@ -231,6 +231,7 @@ def main():
     conn = None
     st = time.time()
     try:
+        print("Start loading filesystem image to database")
         logger.info("Start loading filesystem image to database")
         logger.info("=" * 60)
         config = DatabaseConfig(
@@ -250,12 +251,14 @@ def main():
         logger.error(
             f"Error occurred during filesystem image loading: {error}", exc_info=True
         )
+        print(f"Failed to load filesystem image to database with error: {error}")
         sys.exit(1)
     finally:
         if conn is not None:
             conn.disconnect()
     logger.info("=" * 60)
     logger.info("Stop loading filesystem image to database")
+    print("Filesystem image uploaded to database")
 
 
 if __name__ == "__main__":
