@@ -16,7 +16,7 @@
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Iterator, Optional, Union, Any
+from typing import Iterator, Optional, Union, Any, Literal
 from dataclasses import dataclass, field, asdict
 
 from .logger import LoggerOptional
@@ -189,7 +189,7 @@ class ImageMeta:
     version_major: int
     version_minor: int
     version_sub: int
-    image_type: str
+    image_type: Literal["iso", "img", "tar", "qcow"]
 
 
 def stringify_image_meta(meta: ImageMeta) -> dict[str, str]:

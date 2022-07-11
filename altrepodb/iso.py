@@ -189,6 +189,10 @@ class ISOImage:
     packages: list[Package]
 
 
+def _checksums_from_file_mp(path: str, q: mp.Queue):
+    q.put(checksums_from_file(path))
+
+
 class ISO:
     def __init__(
         self, iso_name: str, iso_path: StringOrPath, logger: LoggerOptional = None
@@ -410,10 +414,6 @@ class ISO:
         # restore work directory
         os.chdir(cwd_)
 
-    @staticmethod
-    def _checksums_from_file_mp(path: str, q: mp.Queue):
-        q.put(checksums_from_file(path))
-
     def run(self):
         self.logger.info(f"Processing {self._iso.name} ISO image")
         self._check_system_executables()
@@ -425,9 +425,7 @@ class ISO:
 
             ctx = mp.get_context("spawn")
             q = ctx.Queue()
-            p = ctx.Process(
-                target=self._checksums_from_file_mp, args=(self._iso.path, q)
-            )
+            p = ctx.Process(target=_checksums_from_file_mp, args=(self._iso.path, q))
             p.start()
             # process ISO contents
             self._open_iso()
