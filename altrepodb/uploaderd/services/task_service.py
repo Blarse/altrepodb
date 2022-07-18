@@ -101,7 +101,25 @@ class TaskLoaderService(BatchServiceBase):
             return
         taskstate = body.get("state", "unknown").lower()
 
-        if taskstate in CONSISTENT_TASK_STATES or taskstate == DELETED_TASK_STATE:
+        # NOTE(egori): girar sends EPERM before generating hashes, use task.progress instead
+        if method.routing_key == "task.state" and taskstate == "eperm":
+            self.amqp.ack_message(method.delivery_tag)
+            return
+
+        task_built = False
+        # deal with task.progress
+        if method.routing_key == "task.progress":
+            if body.get("stage", "") == "build-task":
+                task_built = body.get("stage_status", "") in ("processed", "failed")
+            else:  # filter unused
+                self.amqp.ack_message(method.delivery_tag)
+                return
+
+        if (
+            taskstate in CONSISTENT_TASK_STATES
+            or taskstate == DELETED_TASK_STATE
+            or task_built
+        ):
             self.workers_todo_queue.put(
                 Work(
                     status=WorkStatus.NEW,
@@ -170,7 +188,8 @@ def task_loader_worker(
             done_queue.put(work)
             continue
 
-        if work.method.routing_key == config.get("routing_key", ""):
+        # FIXME(egori): maybe get rid of hardcoded routing keys and use config values
+        if work.method.routing_key in ("task.state", "task.progress"):
             taskstate = body.get("state", "unknown").lower()
             logger.debug(f"Got task {taskid} in state '{taskstate}'")
             if taskstate in CONSISTENT_TASK_STATES:
@@ -187,7 +206,10 @@ def task_loader_worker(
                     work.reason = error_message
             else:
                 logger.warning(f"Inconsistent task state: {taskstate}")
-        else:
+        elif work.method.routing_key in (
+            "task.subtask.approve",
+            "task.subtask.disapprove",
+        ):
             subtaskid = body.get("subtaskid", 0)
             logger.debug(f"Got task approval message for {taskid}.{subtaskid}")
             state, error_message = _load_task_approval(dbconf, body)
@@ -195,6 +217,9 @@ def task_loader_worker(
                 work.status = WorkStatus.DONE
             else:
                 work.reason = error_message
+        else:
+            logger.error(f"Unexpected routing key : {work.method.routing_key}")
+            work.reason = f"Unexpected routing key : {work.method.routing_key}"
 
         done_queue.put(work)
 
