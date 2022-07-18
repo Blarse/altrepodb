@@ -6,7 +6,7 @@
 
 Name: altrepodb
 Version: 2.3.9
-Release: alt1
+Release: alt2
 
 Summary: ALTRepo Uploader is a set of tools that used to uploading data about ALT Linux distributions to database
 License: GPL-3.0
@@ -88,6 +88,9 @@ mkdir -p %buildroot%_logdir/%name
 %_bindir/repodb_amqpfire
 
 %changelog
+* Mon Jul 18 2022 Egor Ignatov <egori@altlinux.org> 2.3.9-alt2
+- task_loader: workaround girar build order issue (ae12e84)
+
 * Mon Jul 11 2022 Danil Shein <dshein@altlinux.org> 2.3.9-alt1
  - new version 2.3.9
 
