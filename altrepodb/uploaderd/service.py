@@ -236,7 +236,7 @@ class ServiceBase(mp.Process, ABC):
                 Message(msg=ServiceAction.REPORT, reason=reason, payload=payload)
             )
         except queue.Full:
-            logger.error("Service 'qout' is full")
+            logger.error(f"Service {self.name} 'qout' is full")
             pass
 
     def _process_state(self, command: int):
