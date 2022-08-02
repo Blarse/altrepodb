@@ -7,11 +7,12 @@
     "requeue_on_reject": true,
     "max_redeliver_count": 2,
     "routing_key": "task.state",
-    "routing_keys": [
-        "task.state",
-        "task.subtask.approve",
-        "task.subtask.disapprove"
-    ],
+    "routing_keys_dict": {
+        "TASK_STATE": "task.state",
+        "TASK_PROGRESS": "task.progress",
+        "TASK_APPROVE": "task.subtask.approve",
+        "TASK_DISAPPROVE": "task.subtask.disapprove"
+    },
 
     "database" : {
         "dbname" : "repodb",
