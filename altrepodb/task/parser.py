@@ -99,6 +99,7 @@ class TaskParser:
         self.task.state.prev = int(t) if t else 0
 
     def _parse_task_plan(self) -> None:
+        self.logger.info(f"Parsing task {self.task.id} [{self.task.state.state}] plan")
         # parse '/plan' and '/build/repo' for diff lists and hashes
         # XXX: check if task '/plan' is up to date. Workaround for bug #40728
         load_plan = False
@@ -110,41 +111,70 @@ class TaskParser:
             task_plan_time = self.tf.get_file_mtime("plan")
             if task_plan_time > task_tryiter_time:  # type: ignore
                 load_plan = True
+            else:
+                self.logger.warning(
+                    f"Plan for task {self.task.id} [{self.task.state.state}] is outdated: "
+                    f"task_plan_time [{task_plan_time}] < task_tryiter_time [{task_tryiter_time}]"
+                )
         # always load plan if task in 'DONE' state
         if self.task.state.state == "DONE":
             load_plan = True
         if load_plan:
             # 1 - get binary packages add and delete from plan
             pkgadd: dict[str, TaskPlanAddRmPkgInfo] = {}
+            pkgdel: dict[str, TaskPlanAddRmPkgInfo] = {}
+
             if self.tf.check_file("plan/add-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/add-src"), is_add=True, is_src=True
                 )
                 for pkg in pkg_add:
                     pkgadd[pkg.file] = pkg
+            else:
+                self.logger.info(
+                    f"File 'plan/add-src' not found for task {self.task.id}"
+                )
+
             if self.tf.check_file("plan/add-bin"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/add-bin"), is_add=True, is_src=False
                 )
                 for pkg in pkg_add:
                     pkgadd[pkg.file] = pkg
+            else:
+                self.logger.info(
+                    f"File 'plan/add-bin' not found for task {self.task.id}"
+                )
 
-            pkgdel: dict[str, TaskPlanAddRmPkgInfo] = {}
             if self.tf.check_file("plan/rm-src"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/rm-src"), is_add=False, is_src=True
                 )
                 for pkg in pkg_add:
                     pkgdel[pkg.file] = pkg
+            else:
+                self.logger.info(
+                    f"File 'plan/rm-src' not found for task {self.task.id}"
+                )
+
             if self.tf.check_file("plan/rm-bin"):
                 pkg_add = self.tfp.parse_add_rm_plan(
                     self.tf.get_file_path("plan/rm-bin"), is_add=False, is_src=False
                 )
                 for pkg in pkg_add:
                     pkgdel[pkg.file] = pkg
+            else:
+                self.logger.info(
+                    f"File 'plan/rm-bin' not found for task {self.task.id}"
+                )
 
             # 2 - get packages list diffs
             empty_pkg_ = TaskPlanAddRmPkgInfo("", "", "", "", "", 0, "")
+
+            self.logger.info(
+                f"Processing packages diff lists from task {self.task.id} plan"
+            )
+
             for pkgdiff in (
                 x for x in self.tf.get_file_path("plan").glob("*.list.diff")
             ):
@@ -194,6 +224,10 @@ class TaskParser:
                     self.task.plan.pkg_del[p.arch].update(p_info)
 
             # 3 - get SHA256 hashes from '/plan/*.hash.diff'
+            self.logger.info(
+                f"Processing SHA256 hash diff lists from task {self.task.id} plan"
+            )
+
             for hashdiff in (
                 x for x in self.tf.get_file_path("plan").glob("*.hash.diff")
             ):
@@ -203,6 +237,10 @@ class TaskParser:
                 self.task.plan.hash_del[h_arch] = h_del
                 for k, v in h_add.items():
                     self.task.pkg_hashes[k] = PkgHash(sha256=v)
+        else:
+            self.logger.info(
+                f"No actual plan to be loaded for task {self.task.id} [{self.task.state.state}]"
+            )
 
         # 2 - get MD5 and blake2b hashes from '/build/repo/%arch%/base/pkglist.task.xz'
         for pkglist in (
@@ -222,8 +260,8 @@ class TaskParser:
                 # XXX: workaround for duplicated noarch packages with wrong MD5 from pkglist.task.xz
                 if self.task.pkg_hashes[pkg_name].md5:
                     if self.task.pkg_hashes[pkg_name].md5 != pkg_md5:
-                        self.logger.debug(
-                            f"Found mismatching MD5 from APT hash for {pkg_name}."
+                        self.logger.info(
+                            f"Found mismatching MD5 from APT hash for {pkg_name}. "
                             "Calculating MD5 from file"
                         )
                         t = [
@@ -308,6 +346,9 @@ class TaskParser:
                     )
 
     def _parse_subtasks(self) -> None:
+        self.logger.info(
+            f"Parsing task {self.task.id} [{self.task.state.state}] subtasks"
+        )
         # parse '/gears' for 'Tasks'
         for subtask in (
             x.name for x in self.tf.get_file_path("gears").glob("[0-7]*") if x.is_dir()
@@ -384,6 +425,9 @@ class TaskParser:
             self.task.subtasks.append(sub)
 
     def _parse_iterations(self) -> None:
+        self.logger.info(
+            f"Parsing task {self.task.id} [{self.task.state.state}] iterations"
+        )
         # parse '/build' for 'TaskIterations'
         src_pkgs: dict[int, str] = {}
         bin_pkgs: dict[int, dict[str, list[str]]] = defaultdict(

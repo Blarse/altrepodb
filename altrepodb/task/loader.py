@@ -305,6 +305,7 @@ INSERT INTO Depends SELECT * FROM
             "Specfiles_buffer",
         )
         for buffer in buffer_tables:
+            self.logger.debug(f"Flushing {buffer} table")
             self.conn.execute(f"OPTIMIZE TABLE {buffer}")
 
     def save(self):
