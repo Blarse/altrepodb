@@ -1,0 +1,6 @@
+object 90e1123c09d59f9309e3d92cb098cfad03f7cbb3
+type commit
+tag v2.3.10
+tagger Danil Shein <dshein@altlinux.org> 1659517740 +0300
+
+fix EPERM task loading
