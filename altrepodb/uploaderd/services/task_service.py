@@ -36,24 +36,32 @@ from altrepodb.database import DatabaseClient, DatabaseConfig
 from altrepodb.utils import set_datetime_timezone_to_utc, cvt_ts_to_datetime
 
 NAME = "altrepodb.task_loader"
-ROUTING_KEYS = ("task.state", "task.subtask.approve", "task.subtask.disapprove")
-TASK_STATE_RKEY = "task.state"
-MAX_REDELIVER = 2
+# Default service configuration constants
+KEY_TASKS_DIR = "tasks_dir"
+KEY_RKEYS_DICT = "routing_keys_dict"
+KEY_TASK_STATE = "TASK_STATE"
+KEY_TASK_PROGRESS = "TASK_PROGRESS"
+KEY_TASK_APPROVE = "TASK_APPROVE"
+KEY_TASK_DISAPPROVE = "TASK_DISAPPROVE"
+
+DEFAULT_RKEYS_DICT = {
+    KEY_TASK_STATE: "task.state",
+    KEY_TASK_PROGRESS: "task.progress",
+    KEY_TASK_APPROVE: "task.subtask.approve",
+    KEY_TASK_DISAPPROVE: "task.subtask.disapprove",
+}
+
+DEFAULT_MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
+DEFAULT_PUBLISH_ON_DONE = False
+DEFAULT_REQUEUE_ON_REJECT = False
+
 LOAD_APPROVALS_FROM_FS = False
 LOAD_LOGS_FOR_NEW_TASKS = False
 
-CONSISTENT_TASK_STATES = ("done", "eperm", "failed", "new", "tested")
 DELETED_TASK_STATE = "deleted"
-INCONSISTENT_TASK_STATES = (
-    "awaiting",
-    "building",
-    "committing",
-    "failing",
-    "pending",
-    "postponed",
-    "swept",
-)
+CONSISTENT_TASK_STATES = ("done", "eperm", "failed", "new", "tested")
+# INCONSISTENT_TASK_STATES = ("awaiting", "building", "committing", "failing", "pending", "postponed", "swept")
 
 logger = logging.getLogger(NAME)
 
@@ -67,14 +75,26 @@ class TaskLoaderService(BatchServiceBase):
     def load_config(self):
         super().load_config()
 
-        self.routing_key = self.config.get("routing_key", TASK_STATE_RKEY)
-        self.routing_keys = self.config.get("routing_keys", ROUTING_KEYS)
-        self.publish_on_done = self.config.get("publish_on_done", False)
-        self.requeue_on_reject = self.config.get("requeue_on_reject", False)
-        self.max_redeliver_count = self.config.get("max_redeliver_count", MAX_REDELIVER)
+        self.routing_key = self.config.get(
+            "routing_key", DEFAULT_RKEYS_DICT[KEY_TASK_STATE]
+        )
+        self.routing_keys_dict = self.config.get(
+            "routing_keys_dict", DEFAULT_RKEYS_DICT
+        )
+        self.publish_on_done = self.config.get(
+            "publish_on_done", DEFAULT_PUBLISH_ON_DONE
+        )
+        self.requeue_on_reject = self.config.get(
+            "requeue_on_reject", DEFAULT_REQUEUE_ON_REJECT
+        )
+        self.max_redeliver_count = self.config.get(
+            "max_redeliver_count", DEFAULT_MAX_REDELIVER
+        )
 
-        if "tasks_dir" not in self.config:
-            self.config["tasks_dir"] = DEFAULT_TASKS_DIR
+        self.routing_keys = {v for v in self.routing_keys_dict.values()}
+
+        if KEY_TASKS_DIR not in self.config:
+            self.config[KEY_TASKS_DIR] = DEFAULT_TASKS_DIR
 
     def on_message(self, method, properties, body_json):
         if method.routing_key not in self.routing_keys:
@@ -101,7 +121,28 @@ class TaskLoaderService(BatchServiceBase):
             return
         taskstate = body.get("state", "unknown").lower()
 
-        if taskstate in CONSISTENT_TASK_STATES or taskstate == DELETED_TASK_STATE:
+        # NOTE(egori): girar sends EPERM before generating hashes, use task.progress instead
+        if (
+            method.routing_key == self.routing_keys_dict[KEY_TASK_STATE]
+            and taskstate == "eperm"
+        ):
+            self.amqp.ack_message(method.delivery_tag)
+            return
+
+        is_task_built = False
+        # deal with task.progress for tasks in EPERM state
+        if method.routing_key == self.routing_keys_dict[KEY_TASK_PROGRESS]:
+            if body.get("stage", "") == "build-task" and taskstate == "eperm":
+                is_task_built = body.get("stage_status", "") in ("processed", "failed")
+            else:  # filter unused
+                self.amqp.ack_message(method.delivery_tag)
+                return
+
+        if (
+            taskstate in CONSISTENT_TASK_STATES
+            or taskstate == DELETED_TASK_STATE
+            or is_task_built
+        ):
             self.workers_todo_queue.put(
                 Work(
                     status=WorkStatus.NEW,
@@ -163,38 +204,49 @@ def task_loader_worker(
             done_queue.put(work)
             continue
 
-        taskid: int = body.get("taskid", None)
-        if taskid is None:
-            logger.error("Failed to get Task ID from message")
+        task_id: int = body.get("taskid", None)
+        if task_id is None:
             work.reason = "Failed to get Task ID from message"
+            logger.error(work.reason)
             done_queue.put(work)
             continue
 
-        if work.method.routing_key == config.get("routing_key", ""):
-            taskstate = body.get("state", "unknown").lower()
-            logger.debug(f"Got task {taskid} in state '{taskstate}'")
-            if taskstate in CONSISTENT_TASK_STATES:
-                state, error_message = _load_task(dbconf, taskid, config["tasks_dir"])
+        if work.method.routing_key in (
+            config[KEY_RKEYS_DICT][KEY_TASK_STATE],
+            config[KEY_RKEYS_DICT][KEY_TASK_PROGRESS],
+        ):
+            task_state = body.get("state", "unknown").lower()
+            logger.debug(f"Got task {task_id} in state '{task_state}'")
+            if task_state in CONSISTENT_TASK_STATES:
+                state, error_message = _load_task(
+                    dbconf, task_id, config[KEY_TASKS_DIR]
+                )
                 if state:
                     work.status = WorkStatus.DONE
                 else:
                     work.reason = error_message
-            elif taskstate == DELETED_TASK_STATE:
-                state, error_message = _load_deleted_task(dbconf, taskid)
+            elif task_state == DELETED_TASK_STATE:
+                state, error_message = _load_deleted_task(dbconf, task_id)
                 if state:
                     work.status = WorkStatus.DONE
                 else:
                     work.reason = error_message
             else:
-                logger.warning(f"Inconsistent task state: {taskstate}")
-        else:
+                logger.info(f"Skip inconsistent task: {task_id} [{task_state}]")
+        elif work.method.routing_key in (
+            config[KEY_RKEYS_DICT][KEY_TASK_APPROVE],
+            config[KEY_RKEYS_DICT][KEY_TASK_DISAPPROVE],
+        ):
             subtaskid = body.get("subtaskid", 0)
-            logger.debug(f"Got task approval message for {taskid}.{subtaskid}")
+            logger.debug(f"Got task approval message for {task_id}.{subtaskid}")
             state, error_message = _load_task_approval(dbconf, body)
             if state:
                 work.status = WorkStatus.DONE
             else:
                 work.reason = error_message
+        else:
+            work.reason = f"Unexpected routing key : {work.method.routing_key}"
+            logger.error(work.reason)
 
         done_queue.put(work)
 
@@ -215,6 +267,8 @@ def _load_task(
 
     error_message = ""
     state = False
+
+    logger.info(f"Loading task {tpconf.id}")
 
     try:
         tp = TaskProcessor(tpconf)
@@ -259,6 +313,8 @@ OPTIMIZE TABLE TaskStates_buffer
     state = False
     error_message = ""
 
+    logger.info(f"Loading deleted task {taskid}")
+
     conn = DatabaseClient(config=dbconf, logger=logger)
     try:
         conn.execute(insert_task_states, [task_state])
@@ -285,9 +341,9 @@ def _load_task_approval(
     try:
         routing_key: str = body["_routing_key"]
 
-        if routing_key.endswith(".subtask.approve"):
+        if routing_key.endswith(".approve"):
             approval_type = "approve"
-        elif routing_key.endswith(".subtask.disapprove"):
+        elif routing_key.endswith(".disapprove"):
             approval_type = "disapprove"
         else:
             return False, f"Unexpected routing key '{routing_key}' for task approval"

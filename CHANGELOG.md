@@ -8,6 +8,26 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.10] - 2022-08-03
+Regular code update and fix.
+
+### Added
+### Changed
+- task_service: service configuration file
+- task_loader: extended logging
+### Fixed
+- task_service: EPERM tasks inconsistent plan from Girar
+
+## [2.3.9] - 2022-07-11
+Regular code update and fix.
+
+### Added
+- iso_loader: verbose console printout
+- image_loader: verbose console printout
+### Changed
+### Fixed
+- type hints
+
 ## [2.3.8] - 2022-07-04
 Regular code update and fix.
 

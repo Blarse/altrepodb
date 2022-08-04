@@ -1,6 +1,0 @@
-object c33f7b651c7804d18b37db3b88b35513a973143b
-type commit
-tag v2.3.9
-tagger Danil Shein <dshein@altlinux.org> 1657542352 +0300
-
-fix mp errors
