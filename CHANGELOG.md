@@ -8,6 +8,15 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.11] - 2022-08-04
+Regular code update and fix.
+
+### Added
+### Changed
+- task_service: service configuration file
+### Fixed
+- task_service: archived DONE tasks loading
+
 ## [2.3.10] - 2022-08-03
 Regular code update and fix.
 
