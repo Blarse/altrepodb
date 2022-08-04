@@ -38,6 +38,7 @@ from altrepodb.utils import set_datetime_timezone_to_utc, cvt_ts_to_datetime
 NAME = "altrepodb.task_loader"
 # Default service configuration constants
 KEY_TASKS_DIR = "tasks_dir"
+KEY_TASKS_ARCHIVE_DIR = "tasks_archive_dir"
 KEY_RKEYS_DICT = "routing_keys_dict"
 KEY_TASK_STATE = "TASK_STATE"
 KEY_TASK_PROGRESS = "TASK_PROGRESS"
@@ -53,6 +54,7 @@ DEFAULT_RKEYS_DICT = {
 
 DEFAULT_MAX_REDELIVER = 2
 DEFAULT_TASKS_DIR = "/tasks"
+DEFAULT_TASKS_ARCHIVE_DIR = "/archive/tasks/done"
 DEFAULT_PUBLISH_ON_DONE = False
 DEFAULT_REQUEUE_ON_REJECT = False
 
@@ -95,6 +97,9 @@ class TaskLoaderService(BatchServiceBase):
 
         if KEY_TASKS_DIR not in self.config:
             self.config[KEY_TASKS_DIR] = DEFAULT_TASKS_DIR
+
+        if KEY_TASKS_ARCHIVE_DIR not in self.config:
+            self.config[KEY_TASKS_ARCHIVE_DIR] = DEFAULT_TASKS_ARCHIVE_DIR
 
     def on_message(self, method, properties, body_json):
         if method.routing_key not in self.routing_keys:
@@ -218,9 +223,15 @@ def task_loader_worker(
             task_state = body.get("state", "unknown").lower()
             logger.debug(f"Got task {task_id} in state '{task_state}'")
             if task_state in CONSISTENT_TASK_STATES:
-                state, error_message = _load_task(
-                    dbconf, task_id, config[KEY_TASKS_DIR]
-                )
+                # handle archived DONE tasks
+                tasks_dir = config[KEY_TASKS_DIR]
+                if task_state == "done":
+                    tasks_dir = _archived_done_task_path(
+                        task_id=task_id,
+                        tasks_dir=tasks_dir,
+                        tasks_archive_dir=config[KEY_TASKS_ARCHIVE_DIR],
+                    )
+                state, error_message = _load_task(dbconf, task_id, tasks_dir)
                 if state:
                     work.status = WorkStatus.DONE
                 else:
@@ -249,6 +260,21 @@ def task_loader_worker(
             logger.error(work.reason)
 
         done_queue.put(work)
+
+
+def _archived_done_task_path(
+    tasks_dir: str, tasks_archive_dir: str, task_id: int
+) -> str:
+    """Checks whether task where moved to archive and returns
+    actual tasks root directory path."""
+
+    archive_task_path = Path(tasks_archive_dir).joinpath(f"_{str(task_id // 1024)}")
+
+    if Path(tasks_dir).joinpath(str(task_id)).is_dir():
+        return tasks_dir
+    elif archive_task_path.joinpath(str(task_id)).is_dir():
+        return str(archive_task_path)
+    return tasks_dir
 
 
 def _load_task(
