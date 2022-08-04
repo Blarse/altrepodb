@@ -61,10 +61,11 @@ def get_args():
 def main():
     setproctitle(NAME)
     args = get_args()
+
+    global logger
+
     if args.debug:
-        logger = get_logger_uploaderd(NAME, logging_level=LoggerLevel.DEBUG)
-    else:
-        logger = get_logger_uploaderd(NAME, logging_level=LoggerLevel.INFO)
+        logger.setLevel(LoggerLevel.DEBUG)
 
     logger.info("Starting uploaderd service")
     uploader_daemon = UploaderDaemon(
