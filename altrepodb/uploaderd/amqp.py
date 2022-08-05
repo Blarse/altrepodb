@@ -20,6 +20,7 @@ from pika import spec as pika_spec
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.adapters import BlockingConnection
 from typing import Optional, Union
+from altrepodb import __version__
 
 
 @dataclass
@@ -42,6 +43,9 @@ class AMQPConfig:
     key: str = ""
     cert: str = ""
     prefetch_count: int = 10
+    product: str = "ALTRepoDB uploaderd"
+    information: str = ""
+    version: str = __version__
 
     def test_connection(self):
         credentials = pika.PlainCredentials(self.username, self.password)
@@ -97,6 +101,11 @@ class BlockingAMQPClient:
             credentials=credentials,
             ssl_options=ssl_options,
             heartbeat=0,
+            client_properties={
+                "product": self.config.product,
+                "information": self.config.information,
+                "version": self.config.version,
+            },
         )
 
     def ensure_connection(self):

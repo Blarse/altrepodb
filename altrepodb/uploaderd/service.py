@@ -205,6 +205,8 @@ class ServiceBase(mp.Process, ABC):
             logger.error(error_message)
             raise ServiceLoadConfigError(error_message)
 
+        self.amqpconf.information = f"ALTRepoDB uploaderd service: {self.name}"
+
         self.workers_count = config.get("workers_count", self.workers_count)
 
         logger.debug(
