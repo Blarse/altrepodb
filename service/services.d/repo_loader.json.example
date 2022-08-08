@@ -36,7 +36,19 @@
         "host" : "",
         "port" : 5672,
         "vhost" : "/",
-        "queue" : "",
+        "queue" : {
+            "name" : "repo-loader-q",
+            "type" : "quorum",
+            "durable" : true,
+            "bind_at_startup" : [
+                {
+                    "exchange" : "repodb-ex",
+                    "routing_key" : "repo.#"
+                }
+            ],
+            "unbind_at_startup" : [
+            ]
+        },
         "exchange" : "",
         "username" : "",
         "password" : "",
