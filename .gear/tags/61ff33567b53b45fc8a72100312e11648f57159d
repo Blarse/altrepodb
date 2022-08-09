@@ -1,0 +1,6 @@
+object 0c3c23a5ac3538b7d4c40b16ca15edfd8a5e5fdd
+type commit
+tag v2.3.12
+tagger Danil Shein <dshein@altlinux.org> 1660055013 +0300
+
+changed AMQP queues management
