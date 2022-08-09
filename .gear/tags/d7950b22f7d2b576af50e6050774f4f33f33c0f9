@@ -1,6 +1,0 @@
-object b3f4d2037c2b0c987c685cb59f598e72fd5cf3f8
-type commit
-tag v2.3.11
-tagger Danil Shein <dshein@altlinux.org> 1659614295 +0300
-
-fix archived done tasks load
