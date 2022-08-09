@@ -15,11 +15,12 @@
 
 import ssl
 import pika
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pika import spec as pika_spec
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.adapters import BlockingConnection
-from typing import Optional, Union
+from typing import Optional, Union, List
+from altrepodb import __version__
 
 
 @dataclass
@@ -30,11 +31,28 @@ class AMQPMessage:
 
 
 @dataclass
+class AMQPBinding:
+    exchange: str
+    routing_key: str
+
+
+@dataclass
+class AMQPQueueConfig:
+    name: str
+    type: str = "classic"
+    durable: bool = True
+    exclusive: bool = False
+    auto_delete: bool = False
+    bind_at_startup: List[AMQPBinding] = field(default_factory=list)
+    unbind_at_startup: List[AMQPBinding] = field(default_factory=list)
+
+
+@dataclass
 class AMQPConfig:
     host: str = "localhost"
     port: int = 5672
     vhost: str = "/"
-    queue: str = "default"
+    queue: AMQPQueueConfig = None
     exchange: str = "amq.topic"
     username: str = "guest"
     password: str = "guest"
@@ -42,6 +60,9 @@ class AMQPConfig:
     key: str = ""
     cert: str = ""
     prefetch_count: int = 10
+    product: str = "ALTRepoDB uploaderd"
+    information: str = ""
+    version: str = __version__
 
     def test_connection(self):
         credentials = pika.PlainCredentials(self.username, self.password)
@@ -97,7 +118,14 @@ class BlockingAMQPClient:
             credentials=credentials,
             ssl_options=ssl_options,
             heartbeat=0,
+            client_properties={
+                "product": self.config.product,
+                "information": self.config.information,
+                "version": self.config.version,
+            },
         )
+
+        self.queue_ensured = False
 
     def ensure_connection(self):
         if not self.connection or not self.connection.is_open:
@@ -108,6 +136,29 @@ class BlockingAMQPClient:
         if not self.channel or not self.channel.is_open:
             self.channel = self.connection.channel()
             self.channel.confirm_delivery()
+
+    def ensure_queue(self):
+        self.ensure_channel()
+        if not self.queue_ensured:
+            self.channel.queue_declare(
+                queue=self.config.queue.name,
+                durable=self.config.queue.durable,
+                exclusive=self.config.queue.exclusive,
+                auto_delete=self.config.queue.auto_delete,
+                arguments={"x-queue-type": self.config.queue.type},
+            )
+
+        for binding in self.config.queue.bind_at_startup:
+            self.channel.queue_bind(
+                self.config.queue.name, binding.exchange, binding.routing_key
+            )
+
+        for binding in self.config.queue.unbind_at_startup:
+            self.channel.queue_unbind(
+                self.config.queue.name, binding.exchange, binding.routing_key
+            )
+
+        self.queue_ensured = True
 
     def publish(
         self,
