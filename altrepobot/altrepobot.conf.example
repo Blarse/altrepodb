@@ -1,0 +1,12 @@
+[TELEGRAM]
+token=
+chatid=
+
+[AMQP]
+host=localhost
+port=5672
+vhost=/
+queue=bot-q
+username=guest
+password=guest
+cacert=
