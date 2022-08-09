@@ -8,6 +8,16 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.12] - 2022-08-09
+
+AMQP queues management transferred from server to service side.
+
+### Added
+- AMQP queues binding/unbinding in BlockingAMQPClient
+### Changed
+- services configuration example files updated
+### Fixed
+
 ## [2.3.11] - 2022-08-04
 Regular code update and fix.
 
