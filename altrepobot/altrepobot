@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
+VERSION = "1.0"
+
+
 @dataclass
 class AMQPConfig:
     host: str = "localhost"
@@ -85,7 +88,9 @@ def get_args():
             args.amqpconf.port = int(section_amqp.get("port", args.amqpconf.port))
             args.amqpconf.vhost = section_amqp.get("vhost", args.amqpconf.vhost)
             args.amqpconf.queue = section_amqp.get("queue", args.amqpconf.queue)
-            args.amqpconf.queue_type = section_amqp.get("queue_type", args.amqpconf.queue_type)
+            args.amqpconf.queue_type = section_amqp.get(
+                "queue_type", args.amqpconf.queue_type
+            )
             args.amqpconf.username = section_amqp.get(
                 "username", args.amqpconf.username
             )
@@ -170,6 +175,11 @@ def amqp_connect(args):
         credentials=credentials,
         ssl_options=ssl_options,
         heartbeat=0,
+        client_properties={
+            "product": "ALTRepoDB",
+            "information": "ALTRepo Notifier Telegram Bot",
+            "version": VERSION,
+        },
     )
 
     return pika.BlockingConnection(parameters)
@@ -205,7 +215,7 @@ def main():
             durable=True,
             exclusive=False,
             auto_delete=False,
-            arguments={"x-queue-type": args.amqpconf.queue_type}
+            arguments={"x-queue-type": args.amqpconf.queue_type},
         )
         channel.queue_bind(args.amqpconf.queue, args.amqpconf.exchange, "#")
 
