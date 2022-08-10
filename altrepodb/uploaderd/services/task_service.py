@@ -243,7 +243,8 @@ def task_loader_worker(
                 else:
                     work.reason = error_message
             else:
-                logger.info(f"Skip inconsistent task: {task_id} [{task_state}]")
+                work.reason = f"Skip inconsistent task: {task_id} [{task_state}]"
+                logger.info(work.reason)
         elif work.method.routing_key in (
             config[KEY_RKEYS_DICT][KEY_TASK_APPROVE],
             config[KEY_RKEYS_DICT][KEY_TASK_DISAPPROVE],
