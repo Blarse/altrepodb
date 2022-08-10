@@ -126,6 +126,21 @@ class BlockingAMQPClient:
         )
 
         self.queue_ensured = False
+        self.exchange_ensured = False
+
+    def ensure_exchange(self):
+        self.ensure_channel()
+        if not self.exchange_ensured:
+            self.channel.exchange_declare(
+                exchange=self.config.exchange,
+                exchange_type="topic",
+                passive=False,
+                durable=True,
+                auto_delete=False,
+                internal=False,
+            )
+
+        self.exchange_ensured = True
 
     def ensure_connection(self):
         if not self.connection or not self.connection.is_open:
@@ -167,7 +182,8 @@ class BlockingAMQPClient:
         properties: Optional[pika_spec.BasicProperties] = None,
         mandatory: bool = False,
     ):
-        self.ensure_channel()
+        self.ensure_exchange()
+
         self.channel.basic_publish(
             self.config.exchange, routing_key, body, properties, mandatory
         )

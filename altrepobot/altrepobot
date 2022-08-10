@@ -22,6 +22,7 @@ class AMQPConfig:
     port: int = 5672
     vhost: str = "/"
     queue: str = "default"
+    queue_type: str = "classic"
     exchange: str = "amq.topic"
     username: str = "guest"
     password: str = "guest"
@@ -84,6 +85,7 @@ def get_args():
             args.amqpconf.port = int(section_amqp.get("port", args.amqpconf.port))
             args.amqpconf.vhost = section_amqp.get("vhost", args.amqpconf.vhost)
             args.amqpconf.queue = section_amqp.get("queue", args.amqpconf.queue)
+            args.amqpconf.queue_type = section_amqp.get("queue_type", args.amqpconf.queue_type)
             args.amqpconf.username = section_amqp.get(
                 "username", args.amqpconf.username
             )
@@ -174,6 +176,8 @@ def amqp_connect(args):
 
 
 def main():
+    global connection, channel
+
     _handler = logging.StreamHandler()
     _formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -195,6 +199,16 @@ def main():
             f"Connected to RabbitMQ ({args.amqpconf.host}:{args.amqpconf.port})"
         )
         channel = connection.channel()
+
+        channel.queue_declare(
+            queue=args.amqpconf.queue,
+            durable=True,
+            exclusive=False,
+            auto_delete=False,
+            arguments={"x-queue-type": args.amqpconf.queue_type}
+        )
+        channel.queue_bind(args.amqpconf.queue, args.amqpconf.exchange, "#")
+
         channel.basic_consume(
             args.amqpconf.queue,
             lambda channel, method, properties, body_json: on_amqp_message(
