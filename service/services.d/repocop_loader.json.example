@@ -32,7 +32,7 @@
             "unbind_at_startup" : [
             ]
         },
-        "exchange" : "",
+        "exchange" : "uploaded-ex",
         "username" : "",
         "password" : "",
         "cacert" : "",
