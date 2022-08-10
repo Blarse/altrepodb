@@ -91,6 +91,7 @@ def get_args():
             args.amqpconf.queue_type = section_amqp.get(
                 "queue_type", args.amqpconf.queue_type
             )
+            args.amqpconf.exchange = section_amqp.get("exchange", args.amqpconf.exchange)
             args.amqpconf.username = section_amqp.get(
                 "username", args.amqpconf.username
             )
