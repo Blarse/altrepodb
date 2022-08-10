@@ -8,6 +8,16 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.13] - 2022-08-10
+
+Added ALTRepo Uploader Telegram bot service.
+
+### Added
+- Telegram bot service declares and consumes notifier service queue.
+### Changed
+- AMQP client class declares exchange if not exists on publish
+### Fixed
+
 ## [2.3.12] - 2022-08-09
 
 AMQP queues management transferred from server to service side.
