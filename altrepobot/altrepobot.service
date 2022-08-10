@@ -1,0 +1,14 @@
+[Unit]
+Description=ALTRepo Notifier Bot
+
+[Service]
+User=_altrepodb
+Group=_altrepodb
+Type=notify
+ExecStart=/usr/bin/altrepobot -c /etc/altrepobot.conf
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
