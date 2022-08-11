@@ -8,6 +8,16 @@ ALTRepo Uploader changelog
 ### Changed
 ### Fixed
 
+## [2.3.14] - 2022-08-11
+
+Regular code update and fix.
+
+### Added
+### Changed
+- database configuration parsing
+- AMQP configuration parsing
+### Fixed
+- altrepobot configuration parsing
 ## [2.3.13] - 2022-08-10
 
 Added ALTRepo Uploader Telegram bot service.
