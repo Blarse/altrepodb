@@ -1,6 +1,0 @@
-object 029b99a8432eff5ba765ff92291948816ae33266
-type commit
-tag v2.3.13
-tagger Danil Shein <dshein@altlinux.org> 1660122812 +0300
-
-add Telegram bot
