@@ -12,6 +12,7 @@ import systemd.daemon
 import telebot
 import time
 
+from pika import exceptions as pika_exceptions
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -85,13 +86,15 @@ def get_args():
         if cfg.has_section("AMQP"):
             section_amqp = cfg["AMQP"]
             args.amqpconf.host = section_amqp.get("host", args.amqpconf.host)
-            args.amqpconf.port = int(section_amqp.get("port", args.amqpconf.port))
+            args.amqpconf.port = int(section_amqp.get("port") or args.amqpconf.port)
             args.amqpconf.vhost = section_amqp.get("vhost", args.amqpconf.vhost)
             args.amqpconf.queue = section_amqp.get("queue", args.amqpconf.queue)
             args.amqpconf.queue_type = section_amqp.get(
                 "queue_type", args.amqpconf.queue_type
             )
-            args.amqpconf.exchange = section_amqp.get("exchange", args.amqpconf.exchange)
+            args.amqpconf.exchange = section_amqp.get(
+                "exchange", args.amqpconf.exchange
+            )
             args.amqpconf.username = section_amqp.get(
                 "username", args.amqpconf.username
             )
@@ -115,7 +118,7 @@ def format_message(body_json):
                 ),
                 indent=4,
             )
-        except Exception as error:
+        except Exception:
             payload = body["payload"].decode("utf8")
 
         message = (
@@ -162,6 +165,8 @@ def amqp_connect(args):
         args.amqpconf.username,
         args.amqpconf.password,
     )
+
+    ssl_options = None
 
     if args.amqpconf.cacert:
         context = ssl.create_default_context(cafile=args.amqpconf.cacert)
@@ -229,7 +234,7 @@ def main():
         logger.debug(f"Start consuming messages from '{args.amqpconf.queue}'")
         systemd.daemon.notify("READY=1")
         channel.start_consuming()
-    except pika.exceptions.AMQPError as error:
+    except pika_exceptions.AMQPError as error:
         logger.error(f"AMQP error ocurred: {error}")
         sys.exit(1)
     except KeyboardInterrupt:
