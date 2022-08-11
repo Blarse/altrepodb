@@ -226,7 +226,7 @@ def main():
             config=DatabaseConfig(
                 host=args.host,
                 port=args.port,
-                name=args.dbname,
+                dbname=args.dbname,
                 user=args.user,
                 password=args.password,
             ),

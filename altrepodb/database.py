@@ -66,12 +66,12 @@ class DatabaseClient:
         client = Client(
             self.config.host,
             port=self.config.port,
-            database=self.config.name,
+            database=self.config.dbname,
             user=self.config.user,
             password=self.config.password,
         )
         self.logger.debug(
-            f"Connecting to database {self.config.name} "
+            f"Connecting to database {self.config.dbname} "
             f"at {self.config.host}:{self.config.port}"
         )
         try:

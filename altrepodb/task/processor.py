@@ -106,7 +106,7 @@ class TaskProcessor:
             taskfs=self.task_parser.tf,
         )
         self.logger.info(
-            f"loading task {self.config.id} to database {self.config.dbconfig.name}"
+            f"loading task {self.config.id} to database {self.config.dbconfig.dbname}"
         )
 
         try:

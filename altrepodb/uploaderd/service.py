@@ -207,7 +207,7 @@ class ServiceBase(mp.Process, ABC):
 
         logger.debug(
             "Service config:\n"
-            f"DB: {self.dbconf.name}@{self.dbconf.host}\n"
+            f"DB: {self.dbconf.dbname}@{self.dbconf.host}\n"
             f"AMQP: {self.amqpconf.host}:{self.amqpconf.port}, "
             f"vhost: {self.amqpconf.vhost}, exchange: {self.amqpconf.exchange}"
         )
