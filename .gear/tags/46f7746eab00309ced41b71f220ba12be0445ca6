@@ -1,0 +1,6 @@
+object 1776ffe5d66a13e29a474b15ddd2156f7e270dbb
+type commit
+tag v2.3.14
+tagger Danil Shein <dshein@altlinux.org> 1660204980 +0300
+
+fixed v2.3.13 errors

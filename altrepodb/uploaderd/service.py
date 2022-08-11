@@ -31,7 +31,7 @@ from multiprocessing.context import SpawnProcess
 from typing import Protocol, TypeVar, Generic, Any
 
 from altrepodb.database import DatabaseConfig
-from .amqp import AMQPConfig, BlockingAMQPClient, AMQPQueueConfig, AMQPBinding
+from .amqp import AMQPConfig, BlockingAMQPClient
 from .base import ServiceAction, ServiceState, Message, NotifierMessageReason
 from .exceptions import (
     ServiceError,
@@ -144,55 +144,23 @@ class ServiceBase(mp.Process, ABC):
         raise SystemExit(0)
 
     def load_dbconf(self, section_db):
-        self.dbconf = DatabaseConfig()
-        self.dbconf.host = section_db.get("host", self.dbconf.host)
-        self.dbconf.port = section_db.get("port", self.dbconf.port)
-        self.dbconf.name = section_db.get("dbname", self.dbconf.name)
-        self.dbconf.user = section_db.get("user", self.dbconf.user)
-        self.dbconf.password = section_db.get("password", self.dbconf.password)
+        try:
+            self.dbconf = DatabaseConfig(**section_db)
+        except (TypeError, AttributeError) as err:
+            error_message = "Failed to parse database configuration"
+            logger.error(error_message)
+            raise ServiceLoadConfigError(error_message) from err
 
     def load_amqpconf(self, section_amqp):
-        self.amqpconf = AMQPConfig()
-        self.amqpconf.host = section_amqp.get("host", self.amqpconf.host)
-        self.amqpconf.port = section_amqp.get("port", self.amqpconf.port)
-        self.amqpconf.vhost = section_amqp.get("vhost", self.amqpconf.vhost)
-
-        section_queue = section_amqp.get("queue", None)
-        if section_queue is None:
-            error_message = "Service amqp config missing queue section"
+        try:
+            self.amqpconf = AMQPConfig.parse_config(
+                config=section_amqp,
+                information=f"ALTRepoDB uploaderd service: {self.name}",
+            )
+        except (KeyError, TypeError, AttributeError) as err:
+            error_message = "Failed to parse AMQP configuration"
             logger.error(error_message)
-            raise ServiceLoadConfigError(error_message)
-
-        self.amqpconf.queue = AMQPQueueConfig(
-            name=section_queue["name"],
-            type=section_queue.get("type", self.amqpconf.queue.type),
-            durable=section_queue.get("durable", self.amqpconf.queue.durable),
-            exclusive=False,
-            auto_delete=False,
-            bind_at_startup=[
-                AMQPBinding(
-                    exchange=binding["exchange"], routing_key=binding["routing_key"]
-                )
-                for binding in section_queue.get(
-                    "bind_at_startup", self.amqpconf.queue.bind_at_startup
-                )
-            ],
-            unbind_at_startup=[
-                AMQPBinding(
-                    exchange=binding["exchange"], routing_key=binding["routing_key"]
-                )
-                for binding in section_queue.get(
-                    "unbind_at_startup", self.amqpconf.queue.unbind_at_startup
-                )
-            ],
-        )
-
-        self.amqpconf.exchange = section_amqp.get("exchange", self.amqpconf.exchange)
-        self.amqpconf.username = section_amqp.get("username", self.amqpconf.username)
-        self.amqpconf.password = section_amqp.get("password", self.amqpconf.password)
-        self.amqpconf.cacert = section_amqp.get("cacert", self.amqpconf.cacert)
-        self.amqpconf.key = section_amqp.get("key", self.amqpconf.key)
-        self.amqpconf.cert = section_amqp.get("cert", self.amqpconf.cert)
+            raise ServiceLoadConfigError(error_message) from err
 
     @abstractmethod
     def on_message(
@@ -235,13 +203,11 @@ class ServiceBase(mp.Process, ABC):
             logger.error(error_message)
             raise ServiceLoadConfigError(error_message)
 
-        self.amqpconf.information = f"ALTRepoDB uploaderd service: {self.name}"
-
         self.workers_count = config.get("workers_count", self.workers_count)
 
         logger.debug(
             "Service config:\n"
-            f"DB: {self.dbconf.name}@{self.dbconf.host}\n"
+            f"DB: {self.dbconf.dbname}@{self.dbconf.host}\n"
             f"AMQP: {self.amqpconf.host}:{self.amqpconf.port}, "
             f"vhost: {self.amqpconf.vhost}, exchange: {self.amqpconf.exchange}"
         )

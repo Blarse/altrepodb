@@ -124,7 +124,7 @@ class File:
 class DatabaseConfig:
     host: str = "localhost"
     port: int = 9000
-    name: str = "default"
+    dbname: str = "default"
     user: str = "default"
     password: str = ""
 

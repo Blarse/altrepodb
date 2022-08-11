@@ -13,13 +13,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import ssl
 import pika
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pika import spec as pika_spec
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.adapters import BlockingConnection
-from typing import Optional, Union, List
+from pika.exchange_type import ExchangeType
+from typing import Optional, Union, List, NamedTuple, Any
+
 from altrepodb import __version__
 
 
@@ -30,29 +34,26 @@ class AMQPMessage:
     body_json: bytes
 
 
-@dataclass
-class AMQPBinding:
+class AMQPBinding(NamedTuple):
     exchange: str
     routing_key: str
 
 
-@dataclass
-class AMQPQueueConfig:
-    name: str
+class AMQPQueueConfig(NamedTuple):
+    name: str = ""
     type: str = "classic"
     durable: bool = True
     exclusive: bool = False
     auto_delete: bool = False
-    bind_at_startup: List[AMQPBinding] = field(default_factory=list)
-    unbind_at_startup: List[AMQPBinding] = field(default_factory=list)
+    bind_at_startup: List[AMQPBinding] = list()
+    unbind_at_startup: List[AMQPBinding] = list()
 
 
-@dataclass
-class AMQPConfig:
+class AMQPConfig(NamedTuple):
     host: str = "localhost"
     port: int = 5672
     vhost: str = "/"
-    queue: AMQPQueueConfig = None
+    queue: AMQPQueueConfig = None  # type: ignore
     exchange: str = "amq.topic"
     username: str = "guest"
     password: str = "guest"
@@ -64,34 +65,18 @@ class AMQPConfig:
     information: str = ""
     version: str = __version__
 
-    def test_connection(self):
-        credentials = pika.PlainCredentials(self.username, self.password)
-        ssl_options = None
-        conn = None
+    @staticmethod
+    def parse_config(config: dict[str, Any], information: str) -> AMQPConfig:
+        amqp_config = AMQPConfig(**config)
+        queue_config = AMQPQueueConfig(**config["queue"])
 
-        if self.cacert:
-            context = ssl.create_default_context(cafile=self.cacert)
-            if self.key and self.cert:
-                context.load_cert_chain(self.cert, self.key)
-            ssl_options = pika.SSLOptions(context)
-
-        parameters = pika.ConnectionParameters(
-            host=self.host,
-            port=self.port,
-            virtual_host=self.vhost,
-            credentials=credentials,
-            ssl_options=ssl_options,
-            heartbeat=0,
+        return amqp_config._replace(
+            queue=queue_config._replace(
+                bind_at_startup=[AMQPBinding(**b) for b in queue_config.bind_at_startup],  # type: ignore
+                unbind_at_startup=[AMQPBinding(**b) for b in queue_config.unbind_at_startup],  # type: ignore
+            ),
+            information=information,
         )
-
-        try:
-            conn = pika.BlockingConnection(parameters)
-            return True
-        except Exception:
-            return False
-        finally:
-            if conn:
-                conn.close()
 
 
 class BlockingAMQPClient:
@@ -133,7 +118,7 @@ class BlockingAMQPClient:
         if not self.exchange_ensured:
             self.channel.exchange_declare(
                 exchange=self.config.exchange,
-                exchange_type="topic",
+                exchange_type=ExchangeType.topic,
                 passive=False,
                 durable=True,
                 auto_delete=False,
@@ -163,15 +148,15 @@ class BlockingAMQPClient:
                 arguments={"x-queue-type": self.config.queue.type},
             )
 
-        for binding in self.config.queue.bind_at_startup:
-            self.channel.queue_bind(
-                self.config.queue.name, binding.exchange, binding.routing_key
-            )
+            for binding in self.config.queue.bind_at_startup:
+                self.channel.queue_bind(
+                    self.config.queue.name, binding.exchange, binding.routing_key
+                )
 
-        for binding in self.config.queue.unbind_at_startup:
-            self.channel.queue_unbind(
-                self.config.queue.name, binding.exchange, binding.routing_key
-            )
+            for binding in self.config.queue.unbind_at_startup:
+                self.channel.queue_unbind(
+                    self.config.queue.name, binding.exchange, binding.routing_key
+                )
 
         self.queue_ensured = True
 
@@ -202,7 +187,10 @@ class BlockingAMQPClient:
         self.channel.basic_reject(delivery_tag, requeue)
 
     def get_message(self) -> Optional[AMQPMessage]:
-        method, properties, body = self.channel.basic_get(self.config.queue)
+        self.ensure_queue()
+
+        method, properties, body = self.channel.basic_get(self.config.queue.name)
         if method is None:
             return None
+
         return AMQPMessage(method=method, properties=properties, body_json=body)  # type: ignore
